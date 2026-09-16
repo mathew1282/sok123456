@@ -1461,16 +1461,64 @@ function planPodglad() {
     });
     const start = document.getElementById("planStartGodz")?.value || "07:00";
     const abs = planBuildAbsoluteTimes(start);
-    const box = document.getElementById("planPodgladBox");
-    if (!box) return;
-    box.style.display = "block";
-    box.style.color = "var(--text-soft)";
-    box.style.background = "var(--bg-input)";
-    box.style.border = "1px solid var(--border)";
-    box.textContent = abs.map(p => {
+
+    const old = document.getElementById("planPodgladModal");
+    if (old) old.remove();
+
+    const cards = abs.map((p, i) => {
         const pn = (p.patrole && p.patrole.length) ? planAbstractPatrolName(p.patrole[0]) : "bez patrolu";
-        return p.godzinaStart + "  [" + pn + "]\n" + (p.tekst || "").slice(0, 120);
-    }).join("\n\n");
+        const tekst = String(p.tekst || "").trim() || "—";
+        return `
+        <div style="background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+                <div style="font-weight:700; font-size:18px; color:var(--primary-light);">
+                    ${escapeHtml(p.godzinaStart || "—")}
+                </div>
+                <div style="font-size:13px; color:var(--text-dim);">
+                    #${i + 1} · ${escapeHtml(pn)}
+                </div>
+            </div>
+            <div style="font-size:15px; line-height:1.5; color:var(--text-soft); white-space:pre-wrap;">${escapeHtml(tekst)}</div>
+        </div>`;
+    }).join("");
+
+    const overlay = document.createElement("div");
+    overlay.id = "planPodgladModal";
+    overlay.className = "modal-overlay";
+    overlay.style.cssText = "display:flex; align-items:stretch; justify-content:center; padding:12px; z-index:10050;";
+    overlay.innerHTML = `
+        <div class="modal" style="width:min(900px,96vw); height:min(88vh,820px); max-width:none; max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+                <h2 style="margin:0;">👁 Podgląd planu</h2>
+                <div style="font-size:14px; color:var(--text-dim);">
+                    Start: <strong style="color:var(--text-soft);">${escapeHtml(start)}</strong>
+                    · ${abs.length} pkt
+                </div>
+            </div>
+            <p style="margin:0 0 12px 0; font-size:13px; color:var(--text-dim);">
+                Tak będą wyglądały wpisy w Książce wydarzeń (godziny od startu planu).
+            </p>
+            <div style="flex:1; overflow:auto; min-height:0; padding-right:4px;">
+                ${cards || `<div style="color:var(--text-dim);">Brak punktów</div>`}
+            </div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:14px; flex-wrap:wrap; border-top:1px solid var(--border); padding-top:14px;">
+                <button class="btn-primary" onclick="closePlanPodgladModal()">← Wróć</button>
+                <button class="btn-success" onclick="planPodgladZatwierdz()">✓ Zatwierdź – zapisz do Książki</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+function closePlanPodgladModal() {
+    const m = document.getElementById("planPodgladModal");
+    if (m) m.remove();
+    // zostajemy w panelu Planowanie służby (planSluzbyModal nadal otwarty)
+}
+
+async function planPodgladZatwierdz() {
+    closePlanPodgladModal();
+    await planZapiszDoKsiazki();
 }
 
 async function planZapiszDoKsiazki() {
@@ -2992,6 +3040,8 @@ window.planAddSelectPolLine = planAddSelectPolLine;
 window.planAddSelectPolOpis = planAddSelectPolOpis;
 window.planAddTogglePol = planAddTogglePol;
 window.planUpdateAddPreviewFromTiles = planUpdateAddPreviewFromTiles;
+window.closePlanPodgladModal = closePlanPodgladModal;
+window.planPodgladZatwierdz = planPodgladZatwierdz;
 window.ksiazkaSprawdGodzOdChange = ksiazkaSprawdGodzOdChange;
 window.confirmKsiazkaSprawdzenie = confirmKsiazkaSprawdzenie;
 window.openKsiazkaUwagiPicker = openKsiazkaUwagiPicker;
