@@ -77,6 +77,30 @@ function stripBulletsPlain(text) {
         .trim();
 }
 
+/** Duża litera na początku i po kropce (używa funkcji z generator.js jeśli jest) */
+function capitalizeSentencesKs(text) {
+    if (typeof capitalizeSentences === "function") return capitalizeSentences(text);
+    let s = String(text || "");
+    if (!s) return s;
+    s = s.replace(/(^|[\n\r]+)([ \t]*)([a-ząćęłńóśźż])/gi, (_, br, sp, ch) =>
+        br + sp + ch.toLocaleUpperCase("pl-PL")
+    );
+    s = s.replace(/([.!?…]+["»”']?)([ \t\n\r]+)([a-ząćęłńóśźż])/gi, (_, punct, sp, ch) =>
+        punct + sp + ch.toLocaleUpperCase("pl-PL")
+    );
+    return s;
+}
+
+function capitalizeSentencesHtmlKs(html) {
+    if (typeof capitalizeSentencesHtml === "function") return capitalizeSentencesHtml(html);
+    const raw = String(html || "");
+    if (!/<[^>]+>/.test(raw)) return capitalizeSentencesKs(raw);
+    return raw.replace(/(^|>)([^<]*)/g, (full, boundary, text) => {
+        if (!text) return full;
+        return boundary + capitalizeSentencesKs(text);
+    });
+}
+
 /**
  * Bezpieczne HTML do wyświetlenia w Książce:
  * - zachowuje <b> <strong> <u> <i> <br>
@@ -198,7 +222,7 @@ async function confirmSaveToKsiazka() {
         id: Date.now() + Math.random().toString(36).slice(2),
         data: dataWpisu,
         godzinaStart: godzStart,
-        tekst: tekst,
+        tekst: capitalizeSentencesHtmlKs(tekst),
         patrole: [...patrolIndexes],
         zrobione: false,
         createdAt: new Date().toISOString()
@@ -701,7 +725,7 @@ async function confirmEditKsiazka() {
     const newTekst = document.getElementById("editTekst")?.value || "";
     const newGodz = document.getElementById("editGodzStart")?.value || appState.ksiazkaWydarzen[index].godzinaStart;
 
-    appState.ksiazkaWydarzen[index].tekst = newTekst;
+    appState.ksiazkaWydarzen[index].tekst = capitalizeSentencesHtmlKs(newTekst);
     appState.ksiazkaWydarzen[index].godzinaStart = newGodz;
 
     await saveState();
@@ -1888,6 +1912,7 @@ async function planFinalizeWriteToKsiazka(mode) {
         let tekst = planApplyTagsToText(p.tekst || "", patrolIndexes);
         tekst = tekst.replace(/@godzina\b/gi, p.godzinaStart || nowHHMM());
         tekst = tekst.replace(/@data\b/gi, data);
+        tekst = capitalizeSentencesHtmlKs(tekst);
 
         appState.ksiazkaWydarzen.push({
             id: Date.now() + Math.random().toString(36).slice(2),
@@ -3061,7 +3086,7 @@ async function ksiazkaAddZapisz() {
         id: Date.now() + Math.random().toString(36).slice(2),
         data: dataWpisu,
         godzinaStart: godzStart,
-        tekst: tekst,
+        tekst: capitalizeSentencesHtmlKs(tekst),
         patrole: [...ksiazkaAdd.patrole],
         zrobione: false,
         createdAt: new Date().toISOString()
