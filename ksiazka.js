@@ -715,13 +715,31 @@ async function confirmEditKsiazka() {
 // PLANOWANIE SŁUŻBY (szablony względne)
 // =====================================
 
-/** Draft edytowanego planu w modalu: [{ offsetMin, tekst, patrolIndex|null }]
- *  patrolIndex = abstrakcyjny slot 0..N-1 (= Patrol 1..N), null = bez patrolu
- *  Mapowanie na prawdziwe patrole z zakładki Patrole dopiero przy zapisie do Książki.
+/** Draft: [{ offsetMin, tekst, patrolIndexes: number[] }]
+ *  patrolIndexes = abstrakcyjne sloty 0..N-1 (Patrol 1..N), pusta tablica = bez patrolu
+ *  Można zaznaczyć kilka patroli na jeden punkt.
+ *  Mapowanie na prawdziwe patrole (też wiele) przy zapisie do Książki.
  */
 let _planDraft = [];
 let _planEditTemplateId = null; // null = nowy
 let _planNumPatroli = 2; // ile abstrakcyjnych patroli (Patrol 1, Patrol 2, …)
+let _planAddPatrolIndexes = []; // wybór przy „Dodaj punkt”
+let _planCycPatrolIndexes = []; // wybór przy cyklicznych
+
+function planNormalizeIndexes(val) {
+    if (Array.isArray(val)) {
+        return [...new Set(val.map(Number).filter(n => Number.isFinite(n) && n >= 0))];
+    }
+    if (val == null || val === "") return [];
+    // stary format: pojedynczy patrolIndex
+    const n = Number(val);
+    return Number.isFinite(n) && n >= 0 ? [n] : [];
+}
+
+function planIndexesKey(idxs) {
+    const a = planNormalizeIndexes(idxs).slice().sort((x, y) => x - y);
+    return a.length ? a.join(",") : "none";
+}
 
 function planAbstractPatrolName(idx) {
     if (idx == null || idx === "") return "bez patrolu";
@@ -730,14 +748,46 @@ function planAbstractPatrolName(idx) {
     return "Patrol " + (n + 1);
 }
 
-function planBuildAbstractPatrolOpts(selectedVal) {
+function planAbstractPatrolsLabel(idxs) {
+    const a = planNormalizeIndexes(idxs);
+    if (!a.length) return "bez patrolu";
+    return a.map(i => planAbstractPatrolName(i)).join(", ");
+}
+
+/** Kafelki wielokrotnego wyboru – abstrakcyjne patrole */
+function planBuildAbstractPatrolPills(selectedIndexes, onToggleFnName, dataIdx) {
     const n = Math.max(1, Math.min(12, Number(_planNumPatroli) || 2));
+    const selected = planNormalizeIndexes(selectedIndexes);
+    let html = "";
+    for (let i = 0; i < n; i++) {
+        const active = selected.includes(i) ? "active" : "";
+        const arg = (dataIdx == null) ? `${i}` : `${dataIdx}, ${i}`;
+        html += `<div class="line-pill ${active}" style="cursor:pointer;" onclick="${onToggleFnName}(${arg})">${escapeHtml(planAbstractPatrolName(i))}</div>`;
+    }
+    return html || `<span style="color:var(--text-dim); font-size:12px;">Brak</span>`;
+}
+
+function planBuildAbstractPatrolOpts(selectedVal) {
+    // legacy (select) – zostawione na wszelki wypadek
+    const n = Math.max(1, Math.min(12, Number(_planNumPatroli) || 2));
+    const selected = planNormalizeIndexes(selectedVal);
     let html = `<option value="">— bez patrolu —</option>`;
     for (let i = 0; i < n; i++) {
-        const sel = (selectedVal !== null && selectedVal !== "" && Number(selectedVal) === i) ? " selected" : "";
+        const sel = selected.includes(i) ? " selected" : "";
         html += `<option value="${i}"${sel}>Patrol ${i + 1}</option>`;
     }
     return html;
+}
+
+function planEnsureDraftShape(r) {
+    if (!r) return r;
+    if (!Array.isArray(r.patrolIndexes)) {
+        r.patrolIndexes = planNormalizeIndexes(r.patrolIndex);
+    } else {
+        r.patrolIndexes = planNormalizeIndexes(r.patrolIndexes);
+    }
+    delete r.patrolIndex;
+    return r;
 }
 
 function ensurePlanSzablonyState() {
@@ -866,11 +916,12 @@ function renderPlanSluzbyModal() {
                         <input type="number" class="plan-offset" data-idx="${idx}" value="${Number(r.offsetMin) || 0}" min="0" step="5"
                                style="width:100%;" onchange="planDraftUpdateOffset(${idx}, this.value)">
                     </div>`}
-                    <div style="flex:1; min-width:140px;">
-                        <label style="font-size:12px;">Patrol</label>
-                        <select class="plan-patrol" data-idx="${idx}" style="width:100%;" onchange="planDraftUpdatePatrol(${idx}, this.value)">
-                            ${planBuildAbstractPatrolOpts(r.patrolIndex)}
-                        </select>
+                    <div style="flex:1; min-width:180px;">
+                        <label style="font-size:12px;">Patrole (klik = zaznacz kilka)</label>
+                        <div class="card-grid" style="gap:6px; margin-top:4px;">
+                            ${planBuildAbstractPatrolPills(planEnsureDraftShape(r).patrolIndexes, "planDraftTogglePatrol", idx)}
+                        </div>
+                        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">${escapeHtml(planAbstractPatrolsLabel(r.patrolIndexes))}</div>
                     </div>
                 </div>
                 <label style="font-size:12px;">Treść</label>
@@ -949,9 +1000,11 @@ function renderPlanSluzbyModal() {
                             <label style="font-size:12px;">+ min (0 = start / od poprz.)</label>
                             <input type="number" id="planAddOffset" value="${_planDraft.length === 0 ? 0 : 60}" min="0" step="5" style="width:100%;">
                         </div>
-                        <div style="flex:1; min-width:120px;">
-                            <label style="font-size:12px;">Patrol</label>
-                            <select id="planAddPatrol" style="width:100%;">${patrolOpts}</select>
+                        <div style="flex:1; min-width:200px;">
+                            <label style="font-size:12px;">Patrole (można kilka)</label>
+                            <div id="planAddPatrolPills" class="card-grid" style="gap:6px; margin-top:4px;">
+                                ${planBuildAbstractPatrolPills(_planAddPatrolIndexes, "planAddTogglePatrol", null)}
+                            </div>
                         </div>
                     </div>
                     <div style="margin-bottom:8px;">
@@ -995,9 +1048,11 @@ function renderPlanSluzbyModal() {
                             <label style="font-size:12px;">Ile razy</label>
                             <input type="number" id="planCycIle" value="8" min="1" max="48" style="width:100%;">
                         </div>
-                        <div style="flex:1; min-width:120px;">
-                            <label style="font-size:12px;">Patrol</label>
-                            <select id="planCycPatrol" style="width:100%;">${patrolOpts}</select>
+                        <div style="flex:1; min-width:200px;">
+                            <label style="font-size:12px;">Patrole (można kilka)</label>
+                            <div id="planCycPatrolPills" class="card-grid" style="gap:6px; margin-top:4px;">
+                                ${planBuildAbstractPatrolPills(_planCycPatrolIndexes, "planCycTogglePatrol", null)}
+                            </div>
                         </div>
                     </div>
                     <textarea id="planCycTekst" rows="2" style="width:100%; margin-bottom:8px;" placeholder="Treść cykliczna (ręcznie)…" oninput="planUpdateAddPreview('Cyc')"></textarea>
@@ -1029,17 +1084,51 @@ function planDraftUpdateOffset(idx, val) {
 }
 
 function planDraftUpdatePatrol(idx, val) {
+    // legacy single-value
     if (!_planDraft[idx]) return;
-    _planDraft[idx].patrolIndex = (val === "" || val == null) ? null : parseInt(val, 10);
+    planEnsureDraftShape(_planDraft[idx]);
+    if (val === "" || val == null) _planDraft[idx].patrolIndexes = [];
+    else _planDraft[idx].patrolIndexes = [parseInt(val, 10)];
+}
+
+function planDraftTogglePatrol(draftIdx, abstractIdx) {
+    const r = _planDraft[draftIdx];
+    if (!r) return;
+    planEnsureDraftShape(r);
+    const pos = r.patrolIndexes.indexOf(abstractIdx);
+    if (pos > -1) r.patrolIndexes.splice(pos, 1);
+    else r.patrolIndexes.push(abstractIdx);
+    r.patrolIndexes = planNormalizeIndexes(r.patrolIndexes);
+    renderPlanSluzbyModal();
+}
+
+function planAddTogglePatrol(abstractIdx) {
+    const pos = _planAddPatrolIndexes.indexOf(abstractIdx);
+    if (pos > -1) _planAddPatrolIndexes.splice(pos, 1);
+    else _planAddPatrolIndexes.push(abstractIdx);
+    _planAddPatrolIndexes = planNormalizeIndexes(_planAddPatrolIndexes);
+    const el = document.getElementById("planAddPatrolPills");
+    if (el) el.innerHTML = planBuildAbstractPatrolPills(_planAddPatrolIndexes, "planAddTogglePatrol", null);
+}
+
+function planCycTogglePatrol(abstractIdx) {
+    const pos = _planCycPatrolIndexes.indexOf(abstractIdx);
+    if (pos > -1) _planCycPatrolIndexes.splice(pos, 1);
+    else _planCycPatrolIndexes.push(abstractIdx);
+    _planCycPatrolIndexes = planNormalizeIndexes(_planCycPatrolIndexes);
+    const el = document.getElementById("planCycPatrolPills");
+    if (el) el.innerHTML = planBuildAbstractPatrolPills(_planCycPatrolIndexes, "planCycTogglePatrol", null);
 }
 
 function planSetNumPatroli(val) {
     const n = Math.max(1, Math.min(12, parseInt(val, 10) || 2));
     _planNumPatroli = n;
-    // Przytnij sloty poza zakresem → bez patrolu
     _planDraft.forEach(r => {
-        if (r.patrolIndex != null && Number(r.patrolIndex) >= n) r.patrolIndex = null;
+        planEnsureDraftShape(r);
+        r.patrolIndexes = r.patrolIndexes.filter(i => i < n);
     });
+    _planAddPatrolIndexes = _planAddPatrolIndexes.filter(i => i < n);
+    _planCycPatrolIndexes = _planCycPatrolIndexes.filter(i => i < n);
     renderPlanSluzbyModal();
 }
 
@@ -1260,19 +1349,22 @@ function planUpdateAddPreview(prefix) {
 
 function planDraftDodaj() {
     const offset = _planDraft.length === 0 ? 0 : Math.max(0, parseInt(document.getElementById("planAddOffset")?.value || "0", 10) || 0);
-    const patrolVal = document.getElementById("planAddPatrol")?.value;
-    const patrolIndex = (patrolVal === "" || patrolVal == null) ? null : parseInt(patrolVal, 10);
+    const patrolIndexes = planNormalizeIndexes(_planAddPatrolIndexes);
     const tekst = planResolveAddTekstFromTiles();
     if (!tekst) {
         if (typeof showToast === "function") showToast("Podaj treść ręcznie lub wybierz kafelek (zgłoszenie/polecenie)");
         else alert("Podaj treść ręcznie lub wybierz kafelek");
         return;
     }
-    _planDraft.push({ offsetMin: _planDraft.length === 0 ? 0 : offset, tekst, patrolIndex });
-    // wyczyść wybór kafelków i pole tekstu, zostaw offset/patrol
+    _planDraft.push({
+        offsetMin: _planDraft.length === 0 ? 0 : offset,
+        tekst,
+        patrolIndexes: [...patrolIndexes]
+    });
     resetPlanAddTiles();
     const ta = document.getElementById("planAddTekst");
     if (ta) ta.value = "";
+    // zostaw wybrane patrole – wygodnie przy kolejnych punktach
     renderPlanSluzbyModal();
 }
 
@@ -1280,14 +1372,13 @@ function planDraftDodajCykliczne() {
     const firstOff = Math.max(0, parseInt(document.getElementById("planCycOffset")?.value || "0", 10) || 0);
     const interwal = Math.max(5, parseInt(document.getElementById("planCycInterwal")?.value || "60", 10) || 60);
     const ile = Math.min(48, Math.max(1, parseInt(document.getElementById("planCycIle")?.value || "1", 10) || 1));
-    const patrolVal = document.getElementById("planCycPatrol")?.value;
-    const patrolIndex = (patrolVal === "" || patrolVal == null) ? null : parseInt(patrolVal, 10);
+    const patrolIndexes = planNormalizeIndexes(_planCycPatrolIndexes);
     let tekst = (document.getElementById("planCycTekst")?.value || "").trim();
     if (!tekst) tekst = "Zgłoszenie sytuacji / lokalizacji";
 
     for (let i = 0; i < ile; i++) {
         const off = (_planDraft.length === 0 && i === 0) ? 0 : (i === 0 ? firstOff : interwal);
-        _planDraft.push({ offsetMin: off, tekst, patrolIndex });
+        _planDraft.push({ offsetMin: off, tekst, patrolIndexes: [...patrolIndexes] });
     }
     renderPlanSluzbyModal();
 }
@@ -1306,16 +1397,16 @@ function planWczytajSzablon() {
     if (!s) return;
     _planEditTemplateId = s.id;
     _planNumPatroli = Math.max(1, Math.min(12, Number(s.numPatroli) || 2));
-    // Upewnij się, że numPatroli pokrywa maksymalne sloty w rekordach
     (s.rekordy || []).forEach(r => {
-        if (r.patrolIndex != null && Number(r.patrolIndex) + 1 > _planNumPatroli) {
-            _planNumPatroli = Number(r.patrolIndex) + 1;
-        }
+        const idxs = planNormalizeIndexes(r.patrolIndexes != null ? r.patrolIndexes : r.patrolIndex);
+        idxs.forEach(pi => {
+            if (pi + 1 > _planNumPatroli) _planNumPatroli = pi + 1;
+        });
     });
-    _planDraft = (s.rekordy || []).map(r => ({
+    _planDraft = (s.rekordy || []).map(r => planEnsureDraftShape({
         offsetMin: Number(r.offsetMin) || 0,
         tekst: r.tekst || "",
-        patrolIndex: (r.patrolIndex == null || r.patrolIndex === "") ? null : Number(r.patrolIndex)
+        patrolIndexes: planNormalizeIndexes(r.patrolIndexes != null ? r.patrolIndexes : r.patrolIndex)
     }));
     if (_planDraft.length) _planDraft[0].offsetMin = 0;
     renderPlanSluzbyModal();
@@ -1329,7 +1420,6 @@ async function planZapiszJakoSzablon() {
         else alert("Brak punktów do zapisania");
         return;
     }
-    // sync tekst from textareas if still open
     document.querySelectorAll(".plan-tekst").forEach(ta => {
         const idx = parseInt(ta.getAttribute("data-idx"), 10);
         if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
@@ -1339,11 +1429,14 @@ async function planZapiszJakoSzablon() {
     if (nazwa == null) return;
     nazwa = String(nazwa).trim() || ("Szablon " + new Date().toLocaleString("pl-PL"));
 
-    const rekordy = _planDraft.map((r, idx) => ({
-        offsetMin: idx === 0 ? 0 : (Number(r.offsetMin) || 0),
-        tekst: r.tekst || "",
-        patrolIndex: r.patrolIndex == null ? null : Number(r.patrolIndex)
-    }));
+    const rekordy = _planDraft.map((r, idx) => {
+        planEnsureDraftShape(r);
+        return {
+            offsetMin: idx === 0 ? 0 : (Number(r.offsetMin) || 0),
+            tekst: r.tekst || "",
+            patrolIndexes: planNormalizeIndexes(r.patrolIndexes)
+        };
+    });
 
     if (_planEditTemplateId) {
         const existing = appState.planSzablony.find(s => s.id === _planEditTemplateId);
@@ -1401,14 +1494,15 @@ function planWczytajSzablonPoIndex(i) {
     _planEditTemplateId = s.id;
     _planNumPatroli = Math.max(1, Math.min(12, Number(s.numPatroli) || 2));
     (s.rekordy || []).forEach(r => {
-        if (r.patrolIndex != null && Number(r.patrolIndex) + 1 > _planNumPatroli) {
-            _planNumPatroli = Number(r.patrolIndex) + 1;
-        }
+        const idxs = planNormalizeIndexes(r.patrolIndexes != null ? r.patrolIndexes : r.patrolIndex);
+        idxs.forEach(pi => {
+            if (pi + 1 > _planNumPatroli) _planNumPatroli = pi + 1;
+        });
     });
-    _planDraft = (s.rekordy || []).map(r => ({
+    _planDraft = (s.rekordy || []).map(r => planEnsureDraftShape({
         offsetMin: Number(r.offsetMin) || 0,
         tekst: r.tekst || "",
-        patrolIndex: (r.patrolIndex == null || r.patrolIndex === "") ? null : Number(r.patrolIndex)
+        patrolIndexes: planNormalizeIndexes(r.patrolIndexes != null ? r.patrolIndexes : r.patrolIndex)
     }));
     if (_planDraft.length) _planDraft[0].offsetMin = 0;
     renderPlanSluzbyModal();
@@ -1442,10 +1536,11 @@ function planBuildAbsoluteTimes(startHHMM) {
     let acc = startMin;
     return _planDraft.map((r, idx) => {
         if (idx > 0) acc += (Number(r.offsetMin) || 0);
+        planEnsureDraftShape(r);
         return {
             godzinaStart: minutesToHHMM(acc),
             tekst: r.tekst || "",
-            patrole: (r.patrolIndex == null || r.patrolIndex === "") ? [] : [Number(r.patrolIndex)]
+            patrole: planNormalizeIndexes(r.patrolIndexes)
         };
     });
 }
@@ -1466,7 +1561,7 @@ function planPodglad() {
     if (old) old.remove();
 
     const cards = abs.map((p, i) => {
-        const pn = (p.patrole && p.patrole.length) ? planAbstractPatrolName(p.patrole[0]) : "bez patrolu";
+        const pn = planAbstractPatrolsLabel(p.patrole);
         const tekst = String(p.tekst || "").trim() || "—";
         return `
         <div style="background:var(--bg-input); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:10px;">
@@ -1535,15 +1630,15 @@ async function planZapiszDoKsiazki() {
     const startGodz = document.getElementById("planStartGodz")?.value || "07:00";
     const abs = planBuildAbsoluteTimes(startGodz);
 
-    // Grupy wg patrolIndex z szablonu (null = bez)
+    // Grupy wg zestawu abstrakcyjnych patroli (np. "0,1" = Patrol 1+2)
     const groupsMap = new Map();
     abs.forEach((p, i) => {
-        const key = (p.patrole && p.patrole.length) ? String(p.patrole[0]) : "none";
+        const key = planIndexesKey(p.patrole);
         if (!groupsMap.has(key)) {
             groupsMap.set(key, {
                 key,
-                oldPatrolIndex: key === "none" ? null : parseInt(key, 10),
-                label: key === "none" ? "Bez patrolu" : planAbstractPatrolName(parseInt(key, 10)),
+                oldPatrolIndexes: planNormalizeIndexes(p.patrole),
+                label: planAbstractPatrolsLabel(p.patrole),
                 items: []
             });
         }
@@ -1551,22 +1646,21 @@ async function planZapiszDoKsiazki() {
     });
     const groups = [...groupsMap.values()];
 
-    // Zapisz stan do modalu mapowania
     window._planPendingAbs = abs;
     window._planPendingGroups = groups;
-    window._planGroupMap = {}; // key -> newPatrolIndex|null
+    window._planGroupMap = {}; // key -> number[] (prawdziwe indeksy patroli)
     window._planGroupStep = 0;
+    window._planGroupMapCurrent = []; // wybór multi w bieżącym kroku
 
     closePlanSluzbyModal();
     planShowGroupMapStep();
 }
 
-/** Krok mapowania: jedno okno na grupę patrolu z szablonu */
+/** Krok mapowania: jedno okno na grupę – można wybrać WIELE prawdziwych patroli */
 function planShowGroupMapStep() {
     const groups = window._planPendingGroups || [];
     const step = window._planGroupStep || 0;
 
-    // koniec mapowania → wybór dopisz/nadpisz
     if (step >= groups.length) {
         planShowDopiszNadpiszModal();
         return;
@@ -1577,37 +1671,48 @@ function planShowGroupMapStep() {
     if (old) old.remove();
 
     const patrole = appState.patrole || [];
-    const patrolOpts = `<option value="">— bez patrolu —</option>` +
-        patrole.map((p, i) => {
-            const sel = (g.oldPatrolIndex != null && g.oldPatrolIndex === i) ? " selected" : "";
-            return `<option value="${i}"${sel}>${escapeHtml(p.nazwa || ("Patrol " + (i + 1)))}</option>`;
-        }).join("");
+    // domyślna podpowiedź: te same numery slotów co w planie, jeśli istnieją
+    const suggested = planNormalizeIndexes(g.oldPatrolIndexes).filter(i => patrole[i]);
+    window._planGroupMapCurrent = suggested.length ? [...suggested] : [];
 
     const list = g.items.map(it =>
-        `<div style="font-size:13px; padding:6px 0; border-bottom:1px solid #334155;">
-            <strong style="color:#60a5fa;">${escapeHtml(it.godzinaStart)}</strong>
-            <div style="color:#e2e8f0; margin-top:2px; white-space:pre-wrap;">${escapeHtml(String(it.tekst || "").slice(0, 160))}${(it.tekst || "").length > 160 ? "…" : ""}</div>
+        `<div style="font-size:13px; padding:6px 0; border-bottom:1px solid var(--border);">
+            <strong style="color:var(--primary-light);">${escapeHtml(it.godzinaStart)}</strong>
+            <div style="color:var(--text-soft); margin-top:2px; white-space:pre-wrap;">${escapeHtml(String(it.tekst || "").slice(0, 160))}${(it.tekst || "").length > 160 ? "…" : ""}</div>
         </div>`
     ).join("");
+
+    const pills = patrole.length
+        ? patrole.map((p, i) => {
+            const active = window._planGroupMapCurrent.includes(i) ? "active" : "";
+            return `<div class="line-pill ${active}" style="cursor:pointer;" data-pidx="${i}" onclick="planGroupMapToggleReal(${i})">${escapeHtml(p.nazwa || ("Patrol " + (i + 1)))}</div>`;
+        }).join("")
+        : `<span style="color:var(--text-dim);">Brak patroli w zakładce Patrole</span>`;
 
     const overlay = document.createElement("div");
     overlay.id = "planGroupMapModal";
     overlay.className = "modal-overlay";
     overlay.style.display = "flex";
     overlay.innerHTML = `
-        <div class="modal" style="max-width:560px; max-height:92vh; overflow:auto;">
-            <h2 style="margin-top:0;">Patrol z planu → prawdziwy patrol</h2>
-            <p style="color:#94a3b8; font-size:13px; margin-bottom:10px;">
+        <div class="modal" style="max-width:620px; max-height:92vh; overflow:auto;">
+            <h2 style="margin-top:0;">Patrol z planu → prawdziwe patrole</h2>
+            <p style="color:var(--text-dim); font-size:13px; margin-bottom:10px;">
                 Krok <strong>${step + 1}</strong> / ${groups.length}<br>
-                W planie: <strong>${escapeHtml(g.label)}</strong> (${g.items.length} wpisów) — przypisz do patrolu z zakładki Patrole
+                W planie: <strong style="color:var(--text-soft);">${escapeHtml(g.label)}</strong> (${g.items.length} wpisów)<br>
+                Zaznacz <strong>jeden lub więcej</strong> prawdziwych patroli (albo żadnego = bez patrolu).
             </p>
-            <div style="max-height:240px; overflow:auto; margin-bottom:12px; border:1px solid #334155; border-radius:10px; padding:10px;">
-                ${list || "<div style='color:#64748b;'>Brak wpisów</div>"}
+            <div style="max-height:200px; overflow:auto; margin-bottom:12px; border:1px solid var(--border); border-radius:10px; padding:10px; background:var(--bg-input);">
+                ${list || "<div style='color:var(--text-dim);'>Brak wpisów</div>"}
             </div>
-            <label>Przypisz te wpisy do patrolu</label>
-            <select id="planGroupMapSelect" style="width:100%; margin-bottom:14px;">
-                ${patrolOpts}
-            </select>
+            <label style="font-weight:600;">Przypisz do patroli (klik = zaznacz kilka)</label>
+            <div id="planGroupMapPills" class="card-grid" style="gap:8px; margin:10px 0 14px 0;">
+                ${pills}
+            </div>
+            <div id="planGroupMapSelectedLabel" style="font-size:13px; color:var(--text-dim); margin-bottom:12px;">
+                Wybrane: ${window._planGroupMapCurrent.length
+                    ? window._planGroupMapCurrent.map(i => escapeHtml((patrole[i] && patrole[i].nazwa) || ("Patrol " + (i + 1)))).join(", ")
+                    : "— bez patrolu —"}
+            </div>
             <div class="modal-actions">
                 <button class="btn-success" onclick="planGroupMapNext()">Dalej</button>
                 <button class="btn-danger" onclick="planGroupMapCancel()">Anuluj</button>
@@ -1615,18 +1720,26 @@ function planShowGroupMapStep() {
         </div>
     `;
     document.body.appendChild(overlay);
+}
 
-    // Abstrakcyjny slot → domyślnie puste (użytkownik wybiera prawdziwy patrol)
-    // Jeśli liczba realnych patroli >= slot+1, podpowiedz ten sam numer
-    const sel = document.getElementById("planGroupMapSelect");
-    if (sel) {
-        if (g.oldPatrolIndex == null) {
-            sel.value = "";
-        } else if (patrole[g.oldPatrolIndex]) {
-            sel.value = String(g.oldPatrolIndex); // podpowiedź: Patrol N → realny index N jeśli istnieje
-        } else {
-            sel.value = "";
-        }
+function planGroupMapToggleReal(realIdx) {
+    if (!Array.isArray(window._planGroupMapCurrent)) window._planGroupMapCurrent = [];
+    const pos = window._planGroupMapCurrent.indexOf(realIdx);
+    if (pos > -1) window._planGroupMapCurrent.splice(pos, 1);
+    else window._planGroupMapCurrent.push(realIdx);
+    window._planGroupMapCurrent = planNormalizeIndexes(window._planGroupMapCurrent);
+
+    const patrole = appState.patrole || [];
+    document.querySelectorAll("#planGroupMapPills .line-pill").forEach(el => {
+        const i = parseInt(el.getAttribute("data-pidx"), 10);
+        if (window._planGroupMapCurrent.includes(i)) el.classList.add("active");
+        else el.classList.remove("active");
+    });
+    const lab = document.getElementById("planGroupMapSelectedLabel");
+    if (lab) {
+        lab.textContent = "Wybrane: " + (window._planGroupMapCurrent.length
+            ? window._planGroupMapCurrent.map(i => (patrole[i] && patrole[i].nazwa) || ("Patrol " + (i + 1))).join(", ")
+            : "— bez patrolu —");
     }
 }
 
@@ -1638,14 +1751,13 @@ function planGroupMapNext() {
         planShowDopiszNadpiszModal();
         return;
     }
-    const sel = document.getElementById("planGroupMapSelect");
-    const v = sel ? sel.value : "";
-    window._planGroupMap[g.key] = (v === "" || v == null) ? null : parseInt(v, 10);
+    window._planGroupMap[g.key] = planNormalizeIndexes(window._planGroupMapCurrent || []);
 
     const m = document.getElementById("planGroupMapModal");
     if (m) m.remove();
 
     window._planGroupStep = step + 1;
+    window._planGroupMapCurrent = [];
     planShowGroupMapStep();
 }
 
@@ -1763,13 +1875,17 @@ async function planFinalizeWriteToKsiazka(mode) {
     }
 
     abs.forEach(p => {
-        const key = (p.patrole && p.patrole.length) ? String(p.patrole[0]) : "none";
-        const mapped = groupMap.hasOwnProperty(key) ? groupMap[key] : (p.patrole && p.patrole[0] != null ? p.patrole[0] : null);
-        const patrolIndexes = (mapped == null || mapped === "") ? [] : [Number(mapped)];
+        const key = planIndexesKey(p.patrole);
+        let patrolIndexes = [];
+        if (groupMap.hasOwnProperty(key)) {
+            patrolIndexes = planNormalizeIndexes(groupMap[key]);
+        } else {
+            // fallback: stare mapowanie single lub same abstrakcyjne indeksy
+            patrolIndexes = planNormalizeIndexes(p.patrole);
+        }
 
         const data = resolveDataForGodzina(p.godzinaStart);
         let tekst = planApplyTagsToText(p.tekst || "", patrolIndexes);
-        // @godzina / @data pod konkretny wpis
         tekst = tekst.replace(/@godzina\b/gi, p.godzinaStart || nowHHMM());
         tekst = tekst.replace(/@data\b/gi, data);
 
@@ -2993,6 +3109,10 @@ window.closePlanSluzbyModal = closePlanSluzbyModal;
 window.renderPlanSluzbyModal = renderPlanSluzbyModal;
 window.planDraftUpdateOffset = planDraftUpdateOffset;
 window.planDraftUpdatePatrol = planDraftUpdatePatrol;
+window.planDraftTogglePatrol = planDraftTogglePatrol;
+window.planAddTogglePatrol = planAddTogglePatrol;
+window.planCycTogglePatrol = planCycTogglePatrol;
+window.planGroupMapToggleReal = planGroupMapToggleReal;
 window.planDraftUpdateTekst = planDraftUpdateTekst;
 window.planDraftUsun = planDraftUsun;
 window.planDraftDodaj = planDraftDodaj;
