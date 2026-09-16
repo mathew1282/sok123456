@@ -77,7 +77,7 @@ function stripBulletsPlain(text) {
         .trim();
 }
 
-/** Duża litera na początku i po kropce (używa funkcji z generator.js jeśli jest) */
+/** Duża litera na początku i po kropce (NIE po dwukropku). */
 function capitalizeSentencesKs(text) {
     if (typeof capitalizeSentences === "function") return capitalizeSentences(text);
     let s = String(text || "");
@@ -95,9 +95,23 @@ function capitalizeSentencesHtmlKs(html) {
     if (typeof capitalizeSentencesHtml === "function") return capitalizeSentencesHtml(html);
     const raw = String(html || "");
     if (!/<[^>]+>/.test(raw)) return capitalizeSentencesKs(raw);
+    let firstDone = false;
     return raw.replace(/(^|>)([^<]*)/g, (full, boundary, text) => {
         if (!text) return full;
-        return boundary + capitalizeSentencesKs(text);
+        let t = text.replace(/([.!?…]+["»”']?)([ \t\n\r]+)([a-ząćęłńóśźż])/gi, (_, punct, sp, ch) =>
+            punct + sp + ch.toLocaleUpperCase("pl-PL")
+        );
+        t = t.replace(/([\n\r]+)([ \t]*)([a-ząćęłńóśźż])/gi, (_, br, sp, ch) =>
+            br + sp + ch.toLocaleUpperCase("pl-PL")
+        );
+        if (!firstDone) {
+            t = t.replace(/^([ \t]*)([a-ząćęłńóśźż])/i, (_, sp, ch) => {
+                firstDone = true;
+                return sp + ch.toLocaleUpperCase("pl-PL");
+            });
+            if (/[a-ząćęłńóśźż]/i.test(text)) firstDone = true;
+        }
+        return boundary + t;
     });
 }
 
