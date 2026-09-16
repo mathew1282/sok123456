@@ -112,7 +112,8 @@ const pages = {
         </div>
     </div>`,
     linie: `<div id="linieContainer"></div>`,
-    ksiazka: `<div id="ksiazkaContainer"></div>`
+    ksiazka: `<div id="ksiazkaContainer"></div>`,
+    porownania: `<div id="porownaniaContainer"></div>`
 };
 
 function loadPage(page) {
@@ -130,6 +131,7 @@ function loadPage(page) {
         case "generator":  if (typeof initGenerator === "function") initGenerator(); break;
         case "linie":      if (typeof initLinie === "function") initLinie(); break;
         case "ksiazka":    if (typeof initKsiazka === "function") initKsiazka(); break;
+        case "porownania": if (typeof initPorownania === "function") initPorownania(); break;
     }
 }
 
