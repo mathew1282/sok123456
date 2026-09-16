@@ -1225,16 +1225,47 @@ function applyTextWithPatrolOccurrences(text, occurrenceList) {
     return result;
 }
 
+/**
+ * Duża litera na początku tekstu, po kropce / ! / ? oraz na początku każdej linii.
+ * Działa niezależnie od tego, jak napisany jest szablon.
+ */
+function capitalizeSentences(text) {
+    let s = String(text || "");
+    if (!s) return s;
+    // początek tekstu oraz początek linii
+    s = s.replace(/(^|[\n\r]+)([ \t]*)([a-ząćęłńóśźż])/gi, (_, br, sp, ch) =>
+        br + sp + ch.toLocaleUpperCase("pl-PL")
+    );
+    // po . ! ? … (opcjonalny cudzysłów) + spacje/nowa linia
+    s = s.replace(/([.!?…]+["»”']?)([ \t\n\r]+)([a-ząćęłńóśźż])/gi, (_, punct, sp, ch) =>
+        punct + sp + ch.toLocaleUpperCase("pl-PL")
+    );
+    return s;
+}
+
+/** To samo dla HTML – nie rusza tagów, tylko tekst między nimi */
+function capitalizeSentencesHtml(html) {
+    const raw = String(html || "");
+    if (!raw) return raw;
+    // jeśli to zwykły tekst bez tagów
+    if (!/<[^>]+>/.test(raw)) return capitalizeSentences(raw);
+
+    return raw.replace(/(^|>)([^<]*)/g, (full, boundary, text) => {
+        if (!text) return full;
+        return boundary + capitalizeSentences(text);
+    });
+}
+
 function plainTextToHtml(text) {
-    // Jeśli już wygląda na HTML z formatowaniem – zostaw
-    const s = String(text || "");
+    // Najpierw wielkie litery (szablon może być małymi)
+    const s0 = capitalizeSentences(String(text || ""));
     // Biała kropka tylko wizualnie (klasa entry-bullet – nie trafia do schowka)
     const bulletHtml = '<span class="entry-bullet" style="color:#ffffff; font-weight:700; margin-right:6px;">•</span> ';
-    const withBullets = s.replace(/^• /gm, bulletHtml);
+    const withBullets = s0.replace(/^• /gm, bulletHtml);
     if (/<(?:b|strong|u|i|br|div|p|span)\b/i.test(withBullets)) {
-        return withBullets.replace(/\n/g, "<br>");
+        return capitalizeSentencesHtml(withBullets.replace(/\n/g, "<br>"));
     }
-    return escapeHtml(s)
+    return escapeHtml(s0)
         .replace(/^• /gm, bulletHtml)
         .replace(/\n/g, "<br>");
 }
@@ -1246,10 +1277,13 @@ function getGeneratedEntryEl() {
 function setGeneratedEntryContent(htmlOrText) {
     const el = getGeneratedEntryEl();
     if (!el) return;
+    const fixed = capitalizeSentencesHtml(htmlOrText);
     if (el.getAttribute("contenteditable") === "true") {
-        el.innerHTML = htmlOrText;
+        el.innerHTML = fixed;
     } else {
-        el.value = htmlOrText.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "");
+        el.value = capitalizeSentences(
+            String(fixed).replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "")
+        );
     }
 }
 
