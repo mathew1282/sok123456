@@ -787,10 +787,26 @@ function stripHtmlPlain(html) {
         .trim();
 }
 
+/** Stan kafelków 3-poziomowych w „Dodaj punkt” planu */
+let _planAddTiles = {
+    zglLine: null, zglOpis: null, zglIndex: null,
+    polLine: null, polOpis: null, polIndex: null,
+    zglSearch: "", polSearch: ""
+};
+
+function resetPlanAddTiles() {
+    _planAddTiles = {
+        zglLine: null, zglOpis: null, zglIndex: null,
+        polLine: null, polOpis: null, polIndex: null,
+        zglSearch: "", polSearch: ""
+    };
+}
+
 function openPlanSluzbyModal() {
     ensurePlanSzablonyState();
     _planDraft = [];
     _planEditTemplateId = null;
+    resetPlanAddTiles();
 
     const old = document.getElementById("planSluzbyModal");
     if (old) old.remove();
@@ -798,9 +814,14 @@ function openPlanSluzbyModal() {
     const overlay = document.createElement("div");
     overlay.id = "planSluzbyModal";
     overlay.className = "modal-overlay";
-    overlay.style.display = "flex";
+    overlay.style.cssText = "display:flex; align-items:stretch; justify-content:center; padding:12px;";
     document.body.appendChild(overlay);
     renderPlanSluzbyModal();
+}
+
+/** Style zależne od motywu (jasny/ciemny) – bez sztywnego czarnego tła */
+function planThemeBoxStyle(extra) {
+    return `background:var(--bg-input); border:1px solid var(--border); color:var(--text-soft); border-radius:10px; ${extra || ""}`;
 }
 
 function closePlanSluzbyModal() {
@@ -816,43 +837,25 @@ function renderPlanSluzbyModal() {
     ensurePlanSzablonyState();
 
     const szablony = appState.planSzablony || [];
-    const patrole = appState.patrole || [];
-
-    const szOptions = szablony.map((s, i) =>
-        `<option value="${i}">${escapeHtml(s.nazwa || ("Szablon " + (i + 1)))} (${(s.rekordy || []).length} pkt)</option>`
-    ).join("");
-
-    // Abstrakcyjne patrole (Patrol 1..N) – nie z zakładki Patrole
     const nPat = Math.max(1, Math.min(12, Number(_planNumPatroli) || 2));
     _planNumPatroli = nPat;
     const patrolOpts = planBuildAbstractPatrolOpts(null);
 
-    const zglOpts = (appState.zgloszenia?.rows || []).map((r, i) => {
-        const label = (r.OpisKrotki || r.Opis || ("Zgł. " + (i + 1))).slice(0, 50);
-        return `<option value="zgl_${i}">${escapeHtml(label)}</option>`;
-    }).join("");
-
-    const polOpts = (appState.polecenia?.rows || []).map((r, i) => {
-        const label = (r.OpisKrotki || r.Opis || ("Pol. " + (i + 1))).slice(0, 50);
-        return `<option value="pol_${i}">${escapeHtml(label)}</option>`;
-    }).join("");
-
     let draftHtml = "";
     if (_planDraft.length === 0) {
-        draftHtml = `<div style="color:#64748b; padding:12px 0;">Brak punktów – dodaj rekord lub wczytaj szablon.</div>`;
+        draftHtml = `<div style="color:var(--text-dim); padding:12px 0;">Brak punktów – dodaj rekord lub wczytaj szablon.</div>`;
     } else {
         let acc = 0;
         draftHtml = _planDraft.map((r, idx) => {
             acc += (idx === 0 ? 0 : (Number(r.offsetMin) || 0));
-            const godzPreview = minutesToHHMM(acc); // preview od 00:00 – przy starcie się przesunie
-            const patrolName = planAbstractPatrolName(r.patrolIndex);
+            const godzPreview = minutesToHHMM(acc);
             return `
-            <div style="border:1px solid #334155; border-radius:10px; padding:10px; margin-bottom:8px; background:#0f172a;">
+            <div style="${planThemeBoxStyle("padding:10px; margin-bottom:8px;")}">
                 <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-                    <div style="font-weight:600; color:#60a5fa;">
+                    <div style="font-weight:600; color:var(--primary-light);">
                         #${idx + 1}
                         ${idx === 0 ? "(start)" : ("+" + (Number(r.offsetMin) || 0) + " min")}
-                        <span style="color:#94a3b8; font-weight:500; font-size:12px;"> · od startu ~${godzPreview}</span>
+                        <span style="color:var(--text-dim); font-weight:500; font-size:12px;"> · od startu ~${godzPreview}</span>
                     </div>
                     <button type="button" class="btn-danger" style="padding:3px 8px; font-size:12px;" onclick="planDraftUsun(${idx})">Usuń</button>
                 </div>
@@ -878,132 +881,141 @@ function renderPlanSluzbyModal() {
     }
 
     overlay.innerHTML = `
-        <div class="modal" style="max-width:720px; max-height:92vh; overflow:auto;">
-            <h2 style="margin-top:0;">📋 Planowanie służby</h2>
-            <p style="color:#94a3b8; font-size:13px; margin-bottom:12px;">
+        <div class="modal" style="width:min(1100px,96vw); height:min(90vh,900px); max-width:none; max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
+                <h2 style="margin:0;">📋 Planowanie służby</h2>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn-success" onclick="planZapiszDoKsiazki()">Zapisz do Książki</button>
+                    <button class="btn-danger" onclick="closePlanSluzbyModal()">Zamknij</button>
+                </div>
+            </div>
+            <p style="color:var(--text-dim); font-size:13px; margin:0 0 10px 0;">
                 Szablon = kolejne rekordy z offsetem <strong>od poprzedniego</strong>.
-                Przy starcie podajesz godzinę rozpoczęcia – reszta się przelicza.
+                Przy starcie podajesz godzinę – reszta się przelicza. Treść: ręcznie lub z 3 poziomów kafelków.
             </p>
 
-            <div style="margin-bottom:14px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
-                    <label style="margin:0; font-weight:600;">Szablony (${szablony.length})</label>
-                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                        <button type="button" class="btn-success" style="padding:5px 10px; font-size:13px;" onclick="planZapiszJakoSzablon()">+ Zapisz bieżący jako szablon</button>
-                        <button type="button" class="btn-primary" style="padding:5px 10px; font-size:13px;" onclick="planWyczyscDraft()">Nowy / pusty</button>
+            <div style="flex:1; overflow:auto; min-height:0; display:flex; flex-direction:column; gap:12px;">
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+                        <label style="margin:0; font-weight:600;">Szablony (${szablony.length})</label>
+                        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                            <button type="button" class="btn-success" style="padding:5px 10px; font-size:13px;" onclick="planZapiszJakoSzablon()">+ Zapisz bieżący jako szablon</button>
+                            <button type="button" class="btn-primary" style="padding:5px 10px; font-size:13px;" onclick="planWyczyscDraft()">Nowy / pusty</button>
+                        </div>
+                    </div>
+                    <div id="planSzablonyList" style="${planThemeBoxStyle("max-height:140px; overflow:auto; padding:6px;")}">
+                        ${szablony.length === 0
+                            ? `<div style="color:var(--text-dim); padding:10px; font-size:13px;">Brak zapisanych szablonów</div>`
+                            : szablony.map((s, i) => {
+                                const active = _planEditTemplateId && s.id === _planEditTemplateId;
+                                return `
+                                <div style="display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; margin-bottom:4px; background:${active ? "rgba(59,130,246,0.15)" : "transparent"}; border:1px solid ${active ? "var(--primary)" : "transparent"};">
+                                    <div style="flex:1; min-width:0;">
+                                        <div style="font-weight:600; color:var(--text-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(s.nazwa || ("Szablon " + (i + 1)))}</div>
+                                        <div style="font-size:12px; color:var(--text-dim);">${(s.rekordy || []).length} pkt</div>
+                                    </div>
+                                    <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="planWczytajSzablonPoIndex(${i})">Wczytaj</button>
+                                    <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px;" onclick="planZmienNazweSzablonu(${i})" title="Zmień nazwę">✎</button>
+                                    <button type="button" class="btn-danger" style="padding:4px 8px; font-size:12px;" onclick="planUsunSzablonPoIndex(${i})">Usuń</button>
+                                </div>`;
+                            }).join("")
+                        }
                     </div>
                 </div>
-                <div id="planSzablonyList" style="max-height:180px; overflow:auto; border:1px solid #334155; border-radius:10px; padding:6px; background:#0f172a;">
-                    ${szablony.length === 0
-                        ? `<div style="color:#64748b; padding:10px; font-size:13px;">Brak zapisanych szablonów</div>`
-                        : szablony.map((s, i) => {
-                            const active = _planEditTemplateId && s.id === _planEditTemplateId;
-                            return `
-                            <div style="display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; margin-bottom:4px; background:${active ? "rgba(59,130,246,0.18)" : "transparent"}; border:1px solid ${active ? "#3b82f6" : "transparent"};">
-                                <div style="flex:1; min-width:0;">
-                                    <div style="font-weight:600; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(s.nazwa || ("Szablon " + (i + 1)))}</div>
-                                    <div style="font-size:12px; color:#94a3b8;">${(s.rekordy || []).length} pkt</div>
-                                </div>
-                                <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px; white-space:nowrap;" onclick="planWczytajSzablonPoIndex(${i})">Wczytaj</button>
-                                <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px;" onclick="planZmienNazweSzablonu(${i})" title="Zmień nazwę">✎</button>
-                                <button type="button" class="btn-danger" style="padding:4px 8px; font-size:12px;" onclick="planUsunSzablonPoIndex(${i})">Usuń</button>
-                            </div>`;
-                        }).join("")
-                    }
-                </div>
-            </div>
 
-            <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px;">
-                <div style="min-width:140px;">
-                    <label>Ilość patroli w planie</label>
-                    <input type="number" id="planNumPatroli" value="${nPat}" min="1" max="12" step="1" style="width:100%;"
-                           onchange="planSetNumPatroli(this.value)">
-                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">Tworzy: Patrol 1 … Patrol N (mapowanie na prawdziwe przy zapisie)</div>
-                </div>
-            </div>
-
-            <h3 style="margin:12px 0 8px;">Punkty planu</h3>
-            <div id="planDraftList">${draftHtml}</div>
-
-            <div style="border:1px dashed #334155; border-radius:10px; padding:12px; margin:14px 0;">
-                <div style="font-weight:600; margin-bottom:8px;">Dodaj punkt</div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                    <div style="min-width:100px;">
-                        <label style="font-size:12px;">+ min (0 = start / od poprz.)</label>
-                        <input type="number" id="planAddOffset" value="${_planDraft.length === 0 ? 0 : 60}" min="0" step="5" style="width:100%;">
+                <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+                    <div style="min-width:140px;">
+                        <label>Ilość patroli w planie</label>
+                        <input type="number" id="planNumPatroli" value="${nPat}" min="1" max="12" step="1" style="width:100%;"
+                               onchange="planSetNumPatroli(this.value)">
+                        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Patrol 1 … N (mapowanie przy zapisie)</div>
                     </div>
-                    <div style="flex:1; min-width:120px;">
-                        <label style="font-size:12px;">Patrol</label>
-                        <select id="planAddPatrol" style="width:100%;">${patrolOpts}</select>
-                    </div>
-                </div>
-                <div style="margin-bottom:8px;">
-                    <label style="font-size:12px;">Treść (ręcznie)</label>
-                    <textarea id="planAddTekst" rows="2" style="width:100%;" placeholder="Opis wpisu…" oninput="planUpdateAddPreview('Add')"></textarea>
-                </div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                    <div style="flex:1; min-width:140px;">
-                        <label style="font-size:12px;">lub ze Zgłoszeń</label>
-                        <select id="planAddZgl" style="width:100%;" onchange="planUpdateAddPreview('Add')">
-                            <option value="">—</option>${zglOpts}
-                        </select>
-                    </div>
-                    <div style="flex:1; min-width:140px;">
-                        <label style="font-size:12px;">lub z Poleceń</label>
-                        <select id="planAddPol" style="width:100%;" onchange="planUpdateAddPreview('Add')">
-                            <option value="">—</option>${polOpts}
-                        </select>
-                    </div>
-                </div>
-                <div id="planAddPreview" style="display:none; background:#0f172a; border:1px solid #334155; border-radius:8px; padding:10px; margin-bottom:8px; max-height:140px; overflow:auto; font-size:13px; white-space:pre-wrap; color:#e2e8f0;"></div>
-                <button type="button" class="btn-success" onclick="planDraftDodaj()">+ Dodaj punkt</button>
-            </div>
-
-            <div style="border:1px dashed #334155; border-radius:10px; padding:12px; margin:14px 0;">
-                <div style="font-weight:600; margin-bottom:8px;">Cykliczne zgłoszenia</div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                    <div style="min-width:90px;">
-                        <label style="font-size:12px;">Pierwszy +min</label>
-                        <input type="number" id="planCycOffset" value="60" min="0" step="5" style="width:100%;">
-                    </div>
-                    <div style="min-width:90px;">
-                        <label style="font-size:12px;">Co ile min</label>
-                        <input type="number" id="planCycInterwal" value="60" min="5" step="5" style="width:100%;">
-                    </div>
-                    <div style="min-width:90px;">
-                        <label style="font-size:12px;">Ile razy</label>
-                        <input type="number" id="planCycIle" value="8" min="1" max="48" style="width:100%;">
-                    </div>
-                    <div style="flex:1; min-width:120px;">
-                        <label style="font-size:12px;">Patrol</label>
-                        <select id="planCycPatrol" style="width:100%;">${patrolOpts}</select>
-                    </div>
-                </div>
-                <textarea id="planCycTekst" rows="2" style="width:100%; margin-bottom:8px;" placeholder="Treść cykliczna (lub wybierz zgł./pol. poniżej)" oninput="planUpdateAddPreview('Cyc')"></textarea>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                    <select id="planCycZgl" style="flex:1; min-width:120px;" onchange="planUpdateAddPreview('Cyc')"><option value="">Zgłoszenie —</option>${zglOpts}</select>
-                    <select id="planCycPol" style="flex:1; min-width:120px;" onchange="planUpdateAddPreview('Cyc')"><option value="">Polecenie —</option>${polOpts}</select>
-                </div>
-                <div id="planCycPreview" style="display:none; background:#0f172a; border:1px solid #334155; border-radius:8px; padding:10px; margin-bottom:8px; max-height:140px; overflow:auto; font-size:13px; white-space:pre-wrap; color:#e2e8f0;"></div>
-                <button type="button" class="btn-primary" onclick="planDraftDodajCykliczne()">+ Dodaj serię cykliczną</button>
-            </div>
-
-            <div style="border-top:1px solid #334155; padding-top:14px; margin-top:8px;">
-                <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px;">
                     <div style="min-width:140px;">
                         <label>Godzina startu planu</label>
                         <input type="time" id="planStartGodz" value="07:00" style="width:100%;">
                     </div>
                     <button type="button" class="btn-primary" onclick="planPodglad()">Podgląd godzin</button>
                 </div>
-                <div id="planPodgladBox" style="display:none; background:#0f172a; border:1px solid #334155; border-radius:10px; padding:10px; margin-bottom:12px; max-height:160px; overflow:auto; font-size:13px; white-space:pre-wrap;"></div>
-                <div class="modal-actions">
-                    <button class="btn-success" onclick="planZapiszDoKsiazki()">Zapisz do Książki</button>
-                    <button class="btn-danger" onclick="closePlanSluzbyModal()">Anuluj</button>
+
+                <div id="planPodgladBox" style="display:none; ${planThemeBoxStyle("padding:10px; max-height:140px; overflow:auto; font-size:13px; white-space:pre-wrap;")}"></div>
+
+                <h3 style="margin:4px 0 0;">Punkty planu (${_planDraft.length})</h3>
+                <div id="planDraftList">${draftHtml}</div>
+
+                <div style="border:1px dashed var(--border); border-radius:10px; padding:12px;">
+                    <div style="font-weight:600; margin-bottom:8px;">Dodaj punkt</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                        <div style="min-width:100px;">
+                            <label style="font-size:12px;">+ min (0 = start / od poprz.)</label>
+                            <input type="number" id="planAddOffset" value="${_planDraft.length === 0 ? 0 : 60}" min="0" step="5" style="width:100%;">
+                        </div>
+                        <div style="flex:1; min-width:120px;">
+                            <label style="font-size:12px;">Patrol</label>
+                            <select id="planAddPatrol" style="width:100%;">${patrolOpts}</select>
+                        </div>
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <label style="font-size:12px;">Treść (ręcznie)</label>
+                        <textarea id="planAddTekst" rows="2" style="width:100%;" placeholder="Wpisz treść ręcznie…" oninput="planUpdateAddPreviewFromTiles()"></textarea>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:8px;">
+                        <div>
+                            <div style="font-size:12px; font-weight:600; margin-bottom:4px;">Zgłoszenia (3 poziomy)</div>
+                            <input type="text" id="planAddZglSearch" placeholder="Szukaj…" style="width:100%; margin-bottom:6px;"
+                                   oninput="_planAddTiles.zglSearch=this.value; planRenderAddTilesZgl();">
+                            <div id="planAddZglLinie" class="card-grid" style="gap:6px; margin-bottom:6px;"></div>
+                            <div id="planAddZglItems" class="card-grid" style="gap:6px; margin-bottom:6px;"></div>
+                            <div id="planAddZglLevel3" class="card-grid" style="gap:6px;"></div>
+                        </div>
+                        <div>
+                            <div style="font-size:12px; font-weight:600; margin-bottom:4px;">Polecenia (3 poziomy)</div>
+                            <input type="text" id="planAddPolSearch" placeholder="Szukaj…" style="width:100%; margin-bottom:6px;"
+                                   oninput="_planAddTiles.polSearch=this.value; planRenderAddTilesPol();">
+                            <div id="planAddPolLinie" class="card-grid" style="gap:6px; margin-bottom:6px;"></div>
+                            <div id="planAddPolItems" class="card-grid" style="gap:6px; margin-bottom:6px;"></div>
+                            <div id="planAddPolLevel3" class="card-grid" style="gap:6px;"></div>
+                        </div>
+                    </div>
+                    <div id="planAddPreview" style="display:none; ${planThemeBoxStyle("padding:10px; margin-bottom:8px; max-height:120px; overflow:auto; font-size:13px; white-space:pre-wrap;")}"></div>
+                    <button type="button" class="btn-success" onclick="planDraftDodaj()">+ Dodaj punkt</button>
                 </div>
+
+                <div style="border:1px dashed var(--border); border-radius:10px; padding:12px;">
+                    <div style="font-weight:600; margin-bottom:8px;">Cykliczne zgłoszenia</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                        <div style="min-width:90px;">
+                            <label style="font-size:12px;">Pierwszy +min</label>
+                            <input type="number" id="planCycOffset" value="60" min="0" step="5" style="width:100%;">
+                        </div>
+                        <div style="min-width:90px;">
+                            <label style="font-size:12px;">Co ile min</label>
+                            <input type="number" id="planCycInterwal" value="60" min="5" step="5" style="width:100%;">
+                        </div>
+                        <div style="min-width:90px;">
+                            <label style="font-size:12px;">Ile razy</label>
+                            <input type="number" id="planCycIle" value="8" min="1" max="48" style="width:100%;">
+                        </div>
+                        <div style="flex:1; min-width:120px;">
+                            <label style="font-size:12px;">Patrol</label>
+                            <select id="planCycPatrol" style="width:100%;">${patrolOpts}</select>
+                        </div>
+                    </div>
+                    <textarea id="planCycTekst" rows="2" style="width:100%; margin-bottom:8px;" placeholder="Treść cykliczna (ręcznie)…" oninput="planUpdateAddPreview('Cyc')"></textarea>
+                    <div id="planCycPreview" style="display:none; ${planThemeBoxStyle("padding:10px; margin-bottom:8px; max-height:120px; overflow:auto; font-size:13px; white-space:pre-wrap;")}"></div>
+                    <button type="button" class="btn-primary" onclick="planDraftDodajCykliczne()">+ Dodaj serię cykliczną</button>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px; flex-wrap:wrap; border-top:1px solid var(--border); padding-top:12px;">
+                <button class="btn-success" onclick="planZapiszDoKsiazki()">Zapisz do Książki</button>
+                <button class="btn-danger" onclick="closePlanSluzbyModal()">Zamknij</button>
             </div>
         </div>
     `;
+
+    // Po renderze – kafelki 3-poziomowe
+    planRenderAddTilesZgl();
+    planRenderAddTilesPol();
 }
 
 function planDraftSyncFromUI() {
@@ -1042,25 +1054,171 @@ function planDraftUsun(idx) {
     renderPlanSluzbyModal();
 }
 
-function planResolveAddTekst(tekstId, zglId, polId) {
-    const manual = (document.getElementById(tekstId)?.value || "").trim();
-    if (manual) return manual;
+function planRowMatches(row, search) {
+    if (!search) return true;
+    const t = `${row.Linia || ""} ${row.OpisKrotki || ""} ${row.OpisPom || ""} ${row.Opis || ""} ${row.Nazwa || ""}`.toLowerCase();
+    return t.includes(String(search).toLowerCase().trim());
+}
 
+function planEscapeAttr(s) {
+    return String(s || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function planRenderAddTilesZgl() {
+    const linieEl = document.getElementById("planAddZglLinie");
+    const itemsEl = document.getElementById("planAddZglItems");
+    const lvl3El = document.getElementById("planAddZglLevel3");
+    if (!linieEl || !itemsEl || !lvl3El) return;
+
+    const allRows = (appState.zgloszenia?.rows || []).map((r, i) => ({ ...r, _index: i }));
+    const search = _planAddTiles.zglSearch;
+    let rows = search ? allRows.filter(r => planRowMatches(r, search)) : allRows;
+
+    const lines = [...new Set(rows.map(r => r.Linia || "(brak)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    linieEl.innerHTML = lines.map(line => {
+        const hasSel = _planAddTiles.zglIndex != null && rows.some(r => (r.Linia || "(brak)") === line && r._index === _planAddTiles.zglIndex);
+        let cls = "line-pill";
+        if (_planAddTiles.zglLine === line) cls += " active";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="planAddSelectZglLine('${planEscapeAttr(line)}')">${escapeHtml(line)}</div>`;
+    }).join("") || "<span style='color:var(--text-dim);font-size:12px;'>Brak</span>";
+
+    if (!_planAddTiles.zglLine && !search) {
+        itemsEl.innerHTML = "";
+        lvl3El.innerHTML = "";
+        return;
+    }
+    let filtered = rows;
+    if (_planAddTiles.zglLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === _planAddTiles.zglLine);
+
+    const krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    itemsEl.innerHTML = krotkie.map(k => {
+        const hasSel = _planAddTiles.zglIndex != null && filtered.some(r => (r.OpisKrotki || "(bez opisu)") === k && r._index === _planAddTiles.zglIndex);
+        let cls = "item-card";
+        if (_planAddTiles.zglOpis === k) cls += " selected";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="planAddSelectZglOpis('${planEscapeAttr(k)}')">${escapeHtml(k)}</div>`;
+    }).join("") || "";
+
+    if (!_planAddTiles.zglOpis) {
+        lvl3El.innerHTML = "";
+        return;
+    }
+    const level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === _planAddTiles.zglOpis);
+    lvl3El.innerHTML = level3.map(r => {
+        const sel = _planAddTiles.zglIndex === r._index ? "selected" : "";
+        const label = (r.OpisPom || r.Opis || "(brak)").substring(0, 100);
+        return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="planAddToggleZgl(${r._index})">${escapeHtml(label)}</div>`;
+    }).join("") || "";
+}
+
+function planRenderAddTilesPol() {
+    const linieEl = document.getElementById("planAddPolLinie");
+    const itemsEl = document.getElementById("planAddPolItems");
+    const lvl3El = document.getElementById("planAddPolLevel3");
+    if (!linieEl || !itemsEl || !lvl3El) return;
+
+    const allRows = (appState.polecenia?.rows || []).map((r, i) => ({ ...r, _index: i }));
+    const search = _planAddTiles.polSearch;
+    let rows = search ? allRows.filter(r => planRowMatches(r, search)) : allRows;
+
+    const lines = [...new Set(rows.map(r => r.Linia || "(brak)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    linieEl.innerHTML = lines.map(line => {
+        const hasSel = _planAddTiles.polIndex != null && rows.some(r => (r.Linia || "(brak)") === line && r._index === _planAddTiles.polIndex);
+        let cls = "line-pill";
+        if (_planAddTiles.polLine === line) cls += " active";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="planAddSelectPolLine('${planEscapeAttr(line)}')">${escapeHtml(line)}</div>`;
+    }).join("") || "<span style='color:var(--text-dim);font-size:12px;'>Brak</span>";
+
+    if (!_planAddTiles.polLine && !search) {
+        itemsEl.innerHTML = "";
+        lvl3El.innerHTML = "";
+        return;
+    }
+    let filtered = rows;
+    if (_planAddTiles.polLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === _planAddTiles.polLine);
+
+    const krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    itemsEl.innerHTML = krotkie.map(k => {
+        const hasSel = _planAddTiles.polIndex != null && filtered.some(r => (r.OpisKrotki || "(bez opisu)") === k && r._index === _planAddTiles.polIndex);
+        let cls = "item-card";
+        if (_planAddTiles.polOpis === k) cls += " selected";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="planAddSelectPolOpis('${planEscapeAttr(k)}')">${escapeHtml(k)}</div>`;
+    }).join("") || "";
+
+    if (!_planAddTiles.polOpis) {
+        lvl3El.innerHTML = "";
+        return;
+    }
+    const level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === _planAddTiles.polOpis);
+    lvl3El.innerHTML = level3.map(r => {
+        const sel = _planAddTiles.polIndex === r._index ? "selected" : "";
+        const label = (r.OpisPom || r.Opis || "(brak)").substring(0, 100);
+        return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="planAddTogglePol(${r._index})">${escapeHtml(label)}</div>`;
+    }).join("") || "";
+}
+
+function planAddSelectZglLine(line) {
+    if (_planAddTiles.zglLine === line) {
+        _planAddTiles.zglLine = null;
+        _planAddTiles.zglOpis = null;
+    } else {
+        _planAddTiles.zglLine = line;
+        _planAddTiles.zglOpis = null;
+    }
+    planRenderAddTilesZgl();
+}
+
+function planAddSelectZglOpis(k) {
+    _planAddTiles.zglOpis = (_planAddTiles.zglOpis === k) ? null : k;
+    planRenderAddTilesZgl();
+}
+
+function planAddToggleZgl(i) {
+    _planAddTiles.zglIndex = (_planAddTiles.zglIndex === i) ? null : i;
+    planRenderAddTilesZgl();
+    planUpdateAddPreviewFromTiles();
+}
+
+function planAddSelectPolLine(line) {
+    if (_planAddTiles.polLine === line) {
+        _planAddTiles.polLine = null;
+        _planAddTiles.polOpis = null;
+    } else {
+        _planAddTiles.polLine = line;
+        _planAddTiles.polOpis = null;
+    }
+    planRenderAddTilesPol();
+}
+
+function planAddSelectPolOpis(k) {
+    _planAddTiles.polOpis = (_planAddTiles.polOpis === k) ? null : k;
+    planRenderAddTilesPol();
+}
+
+function planAddTogglePol(i) {
+    _planAddTiles.polIndex = (_planAddTiles.polIndex === i) ? null : i;
+    planRenderAddTilesPol();
+    planUpdateAddPreviewFromTiles();
+}
+
+/** Treść z ręki + kafelków (3 poziomy) */
+function planResolveAddTekstFromTiles() {
+    const manual = (document.getElementById("planAddTekst")?.value || "").trim();
     const parts = [];
-    const zgl = document.getElementById(zglId)?.value || "";
-    const pol = document.getElementById(polId)?.value || "";
+    if (manual) parts.push(manual);
 
-    if (zgl.startsWith("zgl_")) {
-        const i = parseInt(zgl.slice(4), 10);
-        const row = appState.zgloszenia?.rows?.[i];
+    if (_planAddTiles.zglIndex != null) {
+        const row = appState.zgloszenia?.rows?.[_planAddTiles.zglIndex];
         if (row) {
             const t = stripHtmlPlain(row.Opis || row.OpisKrotki || "");
             if (t) parts.push(t);
         }
     }
-    if (pol.startsWith("pol_")) {
-        const i = parseInt(pol.slice(4), 10);
-        const row = appState.polecenia?.rows?.[i];
+    if (_planAddTiles.polIndex != null) {
+        const row = appState.polecenia?.rows?.[_planAddTiles.polIndex];
         if (row) {
             const t = stripHtmlPlain(row.Opis || row.OpisKrotki || "");
             if (t) parts.push(t);
@@ -1069,14 +1227,10 @@ function planResolveAddTekst(tekstId, zglId, polId) {
     return parts.join("\n\n");
 }
 
-function planUpdateAddPreview(prefix) {
-    const box = document.getElementById("plan" + prefix + "Preview");
+function planUpdateAddPreviewFromTiles() {
+    const box = document.getElementById("planAddPreview");
     if (!box) return;
-    const tekst = planResolveAddTekst(
-        "plan" + prefix + "Tekst",
-        "plan" + prefix + "Zgl",
-        "plan" + prefix + "Pol"
-    );
+    const tekst = planResolveAddTekstFromTiles();
     if (!tekst) {
         box.style.display = "none";
         box.textContent = "";
@@ -1086,17 +1240,39 @@ function planUpdateAddPreview(prefix) {
     box.textContent = tekst;
 }
 
+function planUpdateAddPreview(prefix) {
+    // Cykl: tylko ręczna treść
+    if (prefix === "Cyc") {
+        const box = document.getElementById("planCycPreview");
+        if (!box) return;
+        const tekst = (document.getElementById("planCycTekst")?.value || "").trim();
+        if (!tekst) {
+            box.style.display = "none";
+            box.textContent = "";
+            return;
+        }
+        box.style.display = "block";
+        box.textContent = tekst;
+        return;
+    }
+    planUpdateAddPreviewFromTiles();
+}
+
 function planDraftDodaj() {
     const offset = _planDraft.length === 0 ? 0 : Math.max(0, parseInt(document.getElementById("planAddOffset")?.value || "0", 10) || 0);
     const patrolVal = document.getElementById("planAddPatrol")?.value;
     const patrolIndex = (patrolVal === "" || patrolVal == null) ? null : parseInt(patrolVal, 10);
-    const tekst = planResolveAddTekst("planAddTekst", "planAddZgl", "planAddPol");
+    const tekst = planResolveAddTekstFromTiles();
     if (!tekst) {
-        if (typeof showToast === "function") showToast("Podaj treść lub wybierz zgłoszenie/polecenie");
-        else alert("Podaj treść lub wybierz zgłoszenie/polecenie");
+        if (typeof showToast === "function") showToast("Podaj treść ręcznie lub wybierz kafelek (zgłoszenie/polecenie)");
+        else alert("Podaj treść ręcznie lub wybierz kafelek");
         return;
     }
     _planDraft.push({ offsetMin: _planDraft.length === 0 ? 0 : offset, tekst, patrolIndex });
+    // wyczyść wybór kafelków i pole tekstu, zostaw offset/patrol
+    resetPlanAddTiles();
+    const ta = document.getElementById("planAddTekst");
+    if (ta) ta.value = "";
     renderPlanSluzbyModal();
 }
 
@@ -1106,7 +1282,7 @@ function planDraftDodajCykliczne() {
     const ile = Math.min(48, Math.max(1, parseInt(document.getElementById("planCycIle")?.value || "1", 10) || 1));
     const patrolVal = document.getElementById("planCycPatrol")?.value;
     const patrolIndex = (patrolVal === "" || patrolVal == null) ? null : parseInt(patrolVal, 10);
-    let tekst = planResolveAddTekst("planCycTekst", "planCycZgl", "planCycPol");
+    let tekst = (document.getElementById("planCycTekst")?.value || "").trim();
     if (!tekst) tekst = "Zgłoszenie sytuacji / lokalizacji";
 
     for (let i = 0; i < ile; i++) {
@@ -1288,6 +1464,9 @@ function planPodglad() {
     const box = document.getElementById("planPodgladBox");
     if (!box) return;
     box.style.display = "block";
+    box.style.color = "var(--text-soft)";
+    box.style.background = "var(--bg-input)";
+    box.style.border = "1px solid var(--border)";
     box.textContent = abs.map(p => {
         const pn = (p.patrole && p.patrole.length) ? planAbstractPatrolName(p.patrole[0]) : "bez patrolu";
         return p.godzinaStart + "  [" + pn + "]\n" + (p.tekst || "").slice(0, 120);
@@ -1829,6 +2008,45 @@ function findMatchingPolecenieForEntry(entry) {
     return pols.find(p => entryMatchesPolecenieSprawdzenie(entry, p)) || null;
 }
 
+/** Czy wpis z książki ma już zapisane sprawdzenie w statystykach */
+function isEntryAlreadyInSprawdzenia(entry) {
+    if (!entry) return false;
+    if (typeof ensureStatystykiState === "function") ensureStatystykiState();
+    else {
+        if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
+        if (!Array.isArray(appState.statystyki.sprawdzenia)) appState.statystyki.sprawdzenia = [];
+    }
+    const stats = appState.statystyki.sprawdzenia || [];
+
+    // 1) po entryId (nowe zapisy)
+    if (entry.id && stats.some(s => s.entryId && String(s.entryId) === String(entry.id))) {
+        return true;
+    }
+
+    // 2) heurystyka: data + godzina + nazwa z pasującego polecenia
+    const pol = findMatchingPolecenieForEntry(entry);
+    if (!pol) return false;
+    const nazwa = String(pol.Nazwa || pol.OpisKrotki || "").trim().toLowerCase();
+    const rodzaj = String(pol.Rodzaj || "").trim().toLowerCase();
+    const data = String(entry.data || "").trim();
+    const godz = String(entry.godzinaStart || "").trim();
+
+    return stats.some(s => {
+        if (s.entryId && entry.id && String(s.entryId) === String(entry.id)) return true;
+        const sn = String(s.nazwa || "").trim().toLowerCase();
+        const sr = String(s.rodzaj || "").trim().toLowerCase();
+        const sd = String(s.data || "").trim();
+        const sg = String(s.godzOd || "").trim();
+        if (nazwa && sn && sn === nazwa && sr === rodzaj) {
+            if (data && sd && data === sd) {
+                // ta sama data + (ta sama godzina startu albo brak godziny)
+                if (!godz || !sg || godz === sg) return true;
+            }
+        }
+        return false;
+    });
+}
+
 function openKsiazkaSprawdzenieModal() {
     const items = getKsiazkaWpisyDoSprawdzenia();
     if (items.length === 0) {
@@ -1848,49 +2066,70 @@ function openKsiazkaSprawdzenieModal() {
     overlay.className = "modal-overlay";
     overlay.style.display = "flex";
 
-    // domyślnie wszystkie zaznaczone
-    const selected = new Set(
-        items.map(e => appState.ksiazkaWydarzen.findIndex(x => x.id === e.id)).filter(i => i >= 0)
-    );
+    // domyślnie zaznaczone TYLKO te, które NIE są jeszcze w statystykach
+    const selected = new Set();
+    items.forEach(e => {
+        const idx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
+        if (idx < 0) return;
+        if (!isEntryAlreadyInSprawdzenia(e)) selected.add(idx);
+    });
     overlay._selectedEntryIndexes = selected;
 
     const list = items.map(e => {
         const idx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
-        const short = String(e.tekst || "").slice(0, 120);
+        const short = String(e.tekst || "").replace(/<[^>]+>/g, " ").slice(0, 120);
         const pol = findMatchingPolecenieForEntry(e);
         const polLabel = pol
             ? `${escapeHtml(pol.Rodzaj)} – ${escapeHtml(pol.Nazwa || pol.OpisKrotki || "")}`
             : "—";
+        const already = isEntryAlreadyInSprawdzenia(e);
+        const isSel = selected.has(idx);
+        const border = isSel ? "#22c55e" : "#475569";
+        const bg = isSel ? "rgba(34, 197, 94, 0.12)" : "rgba(71, 85, 105, 0.25)";
+        const opacity = isSel ? "1" : "0.65";
+        const badge = already
+            ? `<span style="position:absolute; top:8px; right:8px; background:#16a34a; color:#fff; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;">✓ Zrobione</span>`
+            : "";
         return `
         <div id="ksiazkaSprawdEntry_${idx}"
-             class="ksiazka-sprawd-entry selected"
+             class="ksiazka-sprawd-entry ${isSel ? "selected" : ""}"
              data-index="${idx}"
+             data-already="${already ? "1" : "0"}"
              onclick="ksiazkaSprawdzenieToggleEntry(${idx})"
              style="
-                border: 2px solid #22c55e;
-                background: rgba(34, 197, 94, 0.12);
+                position: relative;
+                border: 2px solid ${border};
+                background: ${bg};
                 border-radius: 10px;
                 padding: 10px;
                 margin-bottom: 8px;
                 cursor: pointer;
+                opacity: ${opacity};
                 transition: border-color 0.15s, background 0.15s, opacity 0.15s;
              ">
-            <div style="font-weight:600; color:#60a5fa;">${escapeHtml(e.godzinaStart || "—")} · ${escapeHtml(e.data || "")}</div>
-            <div style="font-size:12px; color:#94a3b8; margin-top:2px;">${polLabel}</div>
-            <div style="font-size:13px; color:#e2e8f0; margin-top:4px; white-space:pre-wrap;">${escapeHtml(short)}${(e.tekst || "").length > 120 ? "…" : ""}</div>
+            ${badge}
+            <div style="font-weight:600; color:var(--primary-light); padding-right:${already ? "90px" : "0"};">${escapeHtml(e.godzinaStart || "—")} · ${escapeHtml(e.data || "")}</div>
+            <div style="font-size:12px; color:var(--text-dim); margin-top:2px;">${polLabel}</div>
+            <div style="font-size:13px; color:var(--text-soft); margin-top:4px; white-space:pre-wrap;">${escapeHtml(short)}${(e.tekst || "").length > 120 ? "…" : ""}</div>
         </div>`;
     }).join("");
+
+    const doneCount = items.filter(e => isEntryAlreadyInSprawdzenia(e)).length;
+    const todoCount = items.length - doneCount;
 
     overlay.innerHTML = `
         <div class="modal" style="max-width:560px;">
             <h2 style="margin-top:0;">Sprawdzenie – wybierz wpisy</h2>
-            <p style="color:#94a3b8; font-size:14px; margin-bottom:12px;">
-                Kliknij wpis, aby go odznaczyć / zaznaczyć.
-                Zielone = zaznaczone, szare = odznaczone.
+            <p style="color:var(--text-dim); font-size:14px; margin-bottom:12px;">
+                Kliknij wpis, aby zaznaczyć / odznaczyć.
+                <strong>Zielone</strong> = zaznaczone do zapisu.
+                Wpisane już w statystykach mają znacznik <strong>✓ Zrobione</strong> i nie są automatycznie zaznaczone
+                (${todoCount} do zrobienia, ${doneCount} już w statystykach).
             </p>
             <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
                 <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="ksiazkaSprawdzenieZaznaczWszystkie(true)">Zaznacz wszystkie</button>
                 <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="ksiazkaSprawdzenieZaznaczWszystkie(false)">Odznacz wszystkie</button>
+                <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="ksiazkaSprawdzenieZaznaczTylkoNowe()">Tylko niezrobione</button>
             </div>
             <div style="max-height:360px; overflow:auto; margin-bottom:14px;">${list}</div>
             <div class="modal-actions">
@@ -1900,6 +2139,30 @@ function openKsiazkaSprawdzenieModal() {
         </div>
     `;
     document.body.appendChild(overlay);
+}
+
+function ksiazkaSprawdzenieZaznaczTylkoNowe() {
+    const modal = document.getElementById("ksiazkaSprawdModal");
+    if (!modal) return;
+    if (!modal._selectedEntryIndexes) modal._selectedEntryIndexes = new Set();
+    modal._selectedEntryIndexes.clear();
+
+    document.querySelectorAll(".ksiazka-sprawd-entry").forEach(el => {
+        const idx = parseInt(el.getAttribute("data-index"), 10);
+        const already = el.getAttribute("data-already") === "1";
+        if (!already) {
+            modal._selectedEntryIndexes.add(idx);
+            el.classList.add("selected");
+            el.style.borderColor = "#22c55e";
+            el.style.background = "rgba(34, 197, 94, 0.12)";
+            el.style.opacity = "1";
+        } else {
+            el.classList.remove("selected");
+            el.style.borderColor = "#475569";
+            el.style.background = "rgba(71, 85, 105, 0.25)";
+            el.style.opacity = "0.65";
+        }
+    });
 }
 
 function closeKsiazkaSprawdzenieModal() {
@@ -2063,6 +2326,10 @@ async function confirmKsiazkaSprawdzenie() {
             else alert("Uzupełnij godziny (gg:mm)");
             return;
         }
+        const entry = (it._entryIndex != null) ? appState.ksiazkaWydarzen[it._entryIndex] : null;
+        const entryId = entry?.id || null;
+        const entryData = entry?.data || todayPL();
+
         if (typeof logSprawdzenie === "function") {
             await logSprawdzenie({
                 rodzaj: it.Rodzaj,
@@ -2071,8 +2338,16 @@ async function confirmKsiazkaSprawdzenie() {
                 kmOd: it.KmOd || "",
                 kmDo: it.KmDo || "",
                 godzOd,
-                godzDo
+                godzDo,
+                entryId,
+                data: entryData
             });
+            // dopisz entryId jeśli logSprawdzenie go nie zapisuje
+            const last = appState.statystyki?.sprawdzenia?.slice(-1)[0];
+            if (last && entryId && !last.entryId) {
+                last.entryId = entryId;
+                if (!last.data) last.data = entryData;
+            }
         } else {
             if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
             if (!Array.isArray(appState.statystyki.sprawdzenia)) appState.statystyki.sprawdzenia = [];
@@ -2084,7 +2359,8 @@ async function confirmKsiazkaSprawdzenie() {
                 kmDo: it.KmDo || "",
                 godzOd,
                 godzDo,
-                data: todayPL(),
+                data: entryData,
+                entryId,
                 createdAt: new Date().toISOString()
             });
         }
@@ -2705,7 +2981,17 @@ window.openKsiazkaSprawdzenieModal = openKsiazkaSprawdzenieModal;
 window.closeKsiazkaSprawdzenieModal = closeKsiazkaSprawdzenieModal;
 window.ksiazkaSprawdzenieToggleEntry = ksiazkaSprawdzenieToggleEntry;
 window.ksiazkaSprawdzenieZaznaczWszystkie = ksiazkaSprawdzenieZaznaczWszystkie;
+window.ksiazkaSprawdzenieZaznaczTylkoNowe = ksiazkaSprawdzenieZaznaczTylkoNowe;
 window.ksiazkaSprawdzenieDalej = ksiazkaSprawdzenieDalej;
+window.planRenderAddTilesZgl = planRenderAddTilesZgl;
+window.planRenderAddTilesPol = planRenderAddTilesPol;
+window.planAddSelectZglLine = planAddSelectZglLine;
+window.planAddSelectZglOpis = planAddSelectZglOpis;
+window.planAddToggleZgl = planAddToggleZgl;
+window.planAddSelectPolLine = planAddSelectPolLine;
+window.planAddSelectPolOpis = planAddSelectPolOpis;
+window.planAddTogglePol = planAddTogglePol;
+window.planUpdateAddPreviewFromTiles = planUpdateAddPreviewFromTiles;
 window.ksiazkaSprawdGodzOdChange = ksiazkaSprawdGodzOdChange;
 window.confirmKsiazkaSprawdzenie = confirmKsiazkaSprawdzenie;
 window.openKsiazkaUwagiPicker = openKsiazkaUwagiPicker;
