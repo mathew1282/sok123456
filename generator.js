@@ -1226,8 +1226,11 @@ function applyTextWithPatrolOccurrences(text, occurrenceList) {
 }
 
 /**
- * Duża litera na początku tekstu, po kropce / ! / ? oraz na początku każdej linii.
- * Działa niezależnie od tego, jak napisany jest szablon.
+ * Duża litera:
+ * - na początku całego tekstu
+ * - na początku nowej linii
+ * - po kropce / ! / ? / …
+ * NIE po dwukropku ":", średniku, przecinku.
  */
 function capitalizeSentences(text) {
     let s = String(text || "");
@@ -1236,23 +1239,42 @@ function capitalizeSentences(text) {
     s = s.replace(/(^|[\n\r]+)([ \t]*)([a-ząćęłńóśźż])/gi, (_, br, sp, ch) =>
         br + sp + ch.toLocaleUpperCase("pl-PL")
     );
-    // po . ! ? … (opcjonalny cudzysłów) + spacje/nowa linia
+    // tylko po . ! ? … — celowo BEZ dwukropka
     s = s.replace(/([.!?…]+["»”']?)([ \t\n\r]+)([a-ząćęłńóśźż])/gi, (_, punct, sp, ch) =>
         punct + sp + ch.toLocaleUpperCase("pl-PL")
     );
     return s;
 }
 
-/** To samo dla HTML – nie rusza tagów, tylko tekst między nimi */
+/**
+ * HTML: nie traktuj każdego fragmentu po tagu jak nowego zdania
+ * (wcześniej dawało wielką literę np. po </b> albo „Opis: tekst”).
+ */
 function capitalizeSentencesHtml(html) {
     const raw = String(html || "");
     if (!raw) return raw;
-    // jeśli to zwykły tekst bez tagów
     if (!/<[^>]+>/.test(raw)) return capitalizeSentences(raw);
 
+    let firstDone = false;
     return raw.replace(/(^|>)([^<]*)/g, (full, boundary, text) => {
         if (!text) return full;
-        return boundary + capitalizeSentences(text);
+        // po . ! ? wewnątrz segmentu
+        let t = text.replace(/([.!?…]+["»”']?)([ \t\n\r]+)([a-ząćęłńóśźż])/gi, (_, punct, sp, ch) =>
+            punct + sp + ch.toLocaleUpperCase("pl-PL")
+        );
+        // początek linii wewnątrz segmentu
+        t = t.replace(/([\n\r]+)([ \t]*)([a-ząćęłńóśźż])/gi, (_, br, sp, ch) =>
+            br + sp + ch.toLocaleUpperCase("pl-PL")
+        );
+        // pierwsza litera CAŁEGO dokumentu – tylko raz
+        if (!firstDone) {
+            t = t.replace(/^([ \t]*)([a-ząćęłńóśźż])/i, (_, sp, ch) => {
+                firstDone = true;
+                return sp + ch.toLocaleUpperCase("pl-PL");
+            });
+            if (/[a-ząćęłńóśźż]/i.test(text)) firstDone = true;
+        }
+        return boundary + t;
     });
 }
 
