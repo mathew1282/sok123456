@@ -102,6 +102,7 @@ const pages = {
                 <button class="btn-primary" onclick="copyEntry()">Kopiuj</button>
                 <button class="btn-danger" onclick="clearEntry()">Wyczyść / odznacz wszystko</button>
                 <div style="flex:1; min-width:8px;"></div>
+                <button type="button" class="btn-primary" onclick="openRozbijPatrolModal()" title="Wpis na konkretne osoby z patrolu">Rozbij patrol</button>
                 <div id="sequentialPatrolPill" class="line-pill sequential-pill-on" onclick="toggleSequentialPatrolMode()" title="Tryb sekwencyjny @patrol">@patrol</div>
             </div>
             <div id="wybraniHintBanner" class="wybrani-hint-banner" style="display:none;">
