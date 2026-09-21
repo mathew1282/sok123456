@@ -1646,6 +1646,389 @@ function confirmWybrani() {
 }
 
 // =====================================
+// ROZBIJ PATROL – wpis na wybrane osoby
+// =====================================
+
+let _rozbij = {
+    persons: [],       // zaznaczone osoby (stringi Stopień Nazwisko Imię)
+    zglIndexes: [],
+    polIndexes: [],
+    zglLine: null,
+    zglOpis: null,
+    polLine: null,
+    polOpis: null,
+    zglSearch: "",
+    polSearch: ""
+};
+
+function openRozbijPatrolModal() {
+    if (!selectedPatrols.length) {
+        if (typeof showToast === "function") showToast("Najpierw zaznacz patrol");
+        else alert("Najpierw zaznacz patrol");
+        return;
+    }
+    const people = getSkladFromSelectedPatrols();
+    if (!people.length) {
+        if (typeof showToast === "function") showToast("Zaznaczony patrol nie ma składu");
+        else alert("Zaznaczony patrol nie ma składu");
+        return;
+    }
+
+    _rozbij.persons = [];
+    _rozbij.zglIndexes = [...(selectedZgloszeniaIndexes || [])];
+    _rozbij.polIndexes = [...(selectedPoleceniaIndexes || [])];
+    _rozbij.zglLine = null;
+    _rozbij.zglOpis = null;
+    _rozbij.polLine = null;
+    _rozbij.polOpis = null;
+    _rozbij.zglSearch = "";
+    _rozbij.polSearch = "";
+
+    const old = document.getElementById("rozbijPatrolModal");
+    if (old) old.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "rozbijPatrolModal";
+    overlay.className = "modal-overlay";
+    overlay.style.cssText = "display:flex; align-items:stretch; justify-content:center; padding:12px; z-index:10040;";
+    overlay.innerHTML = `
+        <div class="modal" style="width:min(1000px,96vw); height:min(90vh,880px); max-width:none; max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+                <h2 style="margin:0;">👥 Rozbij patrol</h2>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn-success" onclick="confirmRozbijPatrol()">Wstaw do wpisu</button>
+                    <button class="btn-danger" onclick="closeRozbijPatrolModal()">Zamknij</button>
+                </div>
+            </div>
+            <p style="margin:0 0 12px 0; font-size:13px; color:var(--text-dim);">
+                Wybierz <strong>osobę lub osoby</strong> ze składu zaznaczonego patrolu oraz
+                <strong>zgłoszenia / polecenia</strong>. Program wstawi stopień, nazwisko i imię
+                zamiast danych całego patrolu (tagi @patrol, @sklad, @dowodca itd.).
+            </p>
+
+            <div style="flex:1; overflow:auto; min-height:0; display:flex; flex-direction:column; gap:14px;">
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                        <div style="font-weight:600;">Osoby ze składu</div>
+                        <div style="display:flex; gap:6px;">
+                            <button type="button" class="btn-primary" style="padding:4px 10px; font-size:12px;" onclick="rozbijSelectAllPersons(true)">Zaznacz wszystkich</button>
+                            <button type="button" class="btn-primary" style="padding:4px 10px; font-size:12px;" onclick="rozbijSelectAllPersons(false)">Odznacz</button>
+                        </div>
+                    </div>
+                    <div id="rozbijPersons" class="card-grid" style="gap:8px;"></div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                    <div>
+                        <div style="font-weight:600; margin-bottom:6px;">Zgłoszenia</div>
+                        <input type="text" id="rozbijZglSearch" placeholder="Szukaj…" style="width:100%; margin-bottom:8px;"
+                               oninput="_rozbij.zglSearch=this.value; renderRozbijZgl();">
+                        <div id="rozbijZglLinie" class="card-grid" style="gap:6px; margin-bottom:6px;"></div>
+                        <div id="rozbijZglItems" class="card-grid" style="gap:6px; margin-bottom:6px;"></div>
+                        <div id="rozbijZglLevel3" class="card-grid" style="gap:6px;"></div>
+                    </div>
+                    <div>
+                        <div style="font-weight:600; margin-bottom:6px;">Polecenia</div>
+                        <input type="text" id="rozbijPolSearch" placeholder="Szukaj…" style="width:100%; margin-bottom:8px;"
+                               oninput="_rozbij.polSearch=this.value; renderRozbijPol();">
+                        <div id="rozbijPolLinie" class="card-grid" style="gap:6px; margin-bottom:6px;"></div>
+                        <div id="rozbijPolItems" class="card-grid" style="gap:6px; margin-bottom:6px;"></div>
+                        <div id="rozbijPolLevel3" class="card-grid" style="gap:6px;"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div style="font-weight:600; margin-bottom:6px;">Podgląd</div>
+                    <div id="rozbijPreview" style="background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px; min-height:80px; max-height:180px; overflow:auto; font-size:14px; line-height:1.5; white-space:pre-wrap; color:var(--text-soft);"></div>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px; border-top:1px solid var(--border); padding-top:12px; flex-wrap:wrap;">
+                <button class="btn-success" onclick="confirmRozbijPatrol()">Wstaw do wpisu</button>
+                <button class="btn-danger" onclick="closeRozbijPatrolModal()">Zamknij</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    renderRozbijPersons();
+    renderRozbijZgl();
+    renderRozbijPol();
+    updateRozbijPreview();
+}
+
+function closeRozbijPatrolModal() {
+    const m = document.getElementById("rozbijPatrolModal");
+    if (m) m.remove();
+}
+
+function renderRozbijPersons() {
+    const el = document.getElementById("rozbijPersons");
+    if (!el) return;
+    const people = getSkladFromSelectedPatrols();
+    el.innerHTML = people.map((name, i) => {
+        const sel = _rozbij.persons.includes(name) ? "selected" : "";
+        return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="toggleRozbijPerson(${i})">${escapeHtml(name)}</div>`;
+    }).join("") || `<span style="color:var(--text-dim);">Brak osób</span>`;
+}
+
+function toggleRozbijPerson(index) {
+    const people = getSkladFromSelectedPatrols();
+    const name = people[index];
+    if (!name) return;
+    const pos = _rozbij.persons.indexOf(name);
+    if (pos > -1) _rozbij.persons.splice(pos, 1);
+    else _rozbij.persons.push(name);
+    renderRozbijPersons();
+    updateRozbijPreview();
+}
+
+function rozbijSelectAllPersons(on) {
+    _rozbij.persons = on ? [...getSkladFromSelectedPatrols()] : [];
+    renderRozbijPersons();
+    updateRozbijPreview();
+}
+
+function _rozbijRowMatch(row, search) {
+    if (!search) return true;
+    const t = `${row.Linia || ""} ${row.OpisKrotki || ""} ${row.OpisPom || ""} ${row.Opis || ""} ${row.Nazwa || ""}`.toLowerCase();
+    return t.includes(String(search).toLowerCase().trim());
+}
+
+function _rozbijEsc(s) {
+    return String(s || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function renderRozbijZgl() {
+    const linieEl = document.getElementById("rozbijZglLinie");
+    const itemsEl = document.getElementById("rozbijZglItems");
+    const lvl3El = document.getElementById("rozbijZglLevel3");
+    if (!linieEl || !itemsEl || !lvl3El) return;
+
+    const allRows = (appState.zgloszenia?.rows || []).map((r, i) => ({ ...r, _index: i }));
+    let rows = _rozbij.zglSearch ? allRows.filter(r => _rozbijRowMatch(r, _rozbij.zglSearch)) : allRows;
+    const lines = [...new Set(rows.map(r => r.Linia || "(brak)"))].sort((a, b) => a.localeCompare(b, "pl"));
+
+    linieEl.innerHTML = lines.map(line => {
+        const hasSel = _rozbij.zglIndexes.some(i => {
+            const r = appState.zgloszenia?.rows?.[i];
+            return r && (r.Linia || "(brak)") === line;
+        });
+        let cls = "line-pill";
+        if (_rozbij.zglLine === line) cls += " active";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="rozbijSelectZglLine('${_rozbijEsc(line)}')">${escapeHtml(line)}</div>`;
+    }).join("") || "<span style='color:var(--text-dim);font-size:12px;'>Brak</span>";
+
+    if (!_rozbij.zglLine && !_rozbij.zglSearch) {
+        itemsEl.innerHTML = "";
+        lvl3El.innerHTML = "";
+        return;
+    }
+    let filtered = rows;
+    if (_rozbij.zglLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === _rozbij.zglLine);
+
+    const krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    itemsEl.innerHTML = krotkie.map(k => {
+        const hasSel = _rozbij.zglIndexes.some(i => {
+            const r = appState.zgloszenia?.rows?.[i];
+            return r && (r.OpisKrotki || "(bez opisu)") === k && (r.Linia || "(brak)") === (_rozbij.zglLine || r.Linia || "(brak)");
+        });
+        let cls = "item-card";
+        if (_rozbij.zglOpis === k) cls += " selected";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="rozbijSelectZglOpis('${_rozbijEsc(k)}')">${escapeHtml(k)}</div>`;
+    }).join("");
+
+    if (!_rozbij.zglOpis) {
+        lvl3El.innerHTML = "";
+        return;
+    }
+    const level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === _rozbij.zglOpis);
+    lvl3El.innerHTML = level3.map(r => {
+        const sel = _rozbij.zglIndexes.includes(r._index) ? "selected" : "";
+        const label = (r.OpisPom || r.Opis || "(brak)").substring(0, 100);
+        return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="rozbijToggleZgl(${r._index})">${escapeHtml(label)}</div>`;
+    }).join("");
+}
+
+function renderRozbijPol() {
+    const linieEl = document.getElementById("rozbijPolLinie");
+    const itemsEl = document.getElementById("rozbijPolItems");
+    const lvl3El = document.getElementById("rozbijPolLevel3");
+    if (!linieEl || !itemsEl || !lvl3El) return;
+
+    const allRows = (appState.polecenia?.rows || []).map((r, i) => ({ ...r, _index: i }));
+    let rows = _rozbij.polSearch ? allRows.filter(r => _rozbijRowMatch(r, _rozbij.polSearch)) : allRows;
+    const lines = [...new Set(rows.map(r => r.Linia || "(brak)"))].sort((a, b) => a.localeCompare(b, "pl"));
+
+    linieEl.innerHTML = lines.map(line => {
+        const hasSel = _rozbij.polIndexes.some(i => {
+            const r = appState.polecenia?.rows?.[i];
+            return r && (r.Linia || "(brak)") === line;
+        });
+        let cls = "line-pill";
+        if (_rozbij.polLine === line) cls += " active";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="rozbijSelectPolLine('${_rozbijEsc(line)}')">${escapeHtml(line)}</div>`;
+    }).join("") || "<span style='color:var(--text-dim);font-size:12px;'>Brak</span>";
+
+    if (!_rozbij.polLine && !_rozbij.polSearch) {
+        itemsEl.innerHTML = "";
+        lvl3El.innerHTML = "";
+        return;
+    }
+    let filtered = rows;
+    if (_rozbij.polLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === _rozbij.polLine);
+
+    const krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    itemsEl.innerHTML = krotkie.map(k => {
+        const hasSel = _rozbij.polIndexes.some(i => {
+            const r = appState.polecenia?.rows?.[i];
+            return r && (r.OpisKrotki || "(bez opisu)") === k;
+        });
+        let cls = "item-card";
+        if (_rozbij.polOpis === k) cls += " selected";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="rozbijSelectPolOpis('${_rozbijEsc(k)}')">${escapeHtml(k)}</div>`;
+    }).join("");
+
+    if (!_rozbij.polOpis) {
+        lvl3El.innerHTML = "";
+        return;
+    }
+    const level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === _rozbij.polOpis);
+    lvl3El.innerHTML = level3.map(r => {
+        const sel = _rozbij.polIndexes.includes(r._index) ? "selected" : "";
+        const label = (r.OpisPom || r.Opis || "(brak)").substring(0, 100);
+        return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="rozbijTogglePol(${r._index})">${escapeHtml(label)}</div>`;
+    }).join("");
+}
+
+function rozbijSelectZglLine(line) {
+    _rozbij.zglLine = (_rozbij.zglLine === line) ? null : line;
+    _rozbij.zglOpis = null;
+    renderRozbijZgl();
+}
+function rozbijSelectZglOpis(k) {
+    _rozbij.zglOpis = (_rozbij.zglOpis === k) ? null : k;
+    renderRozbijZgl();
+}
+function rozbijToggleZgl(i) {
+    const pos = _rozbij.zglIndexes.indexOf(i);
+    if (pos > -1) _rozbij.zglIndexes.splice(pos, 1);
+    else _rozbij.zglIndexes.push(i);
+    renderRozbijZgl();
+    updateRozbijPreview();
+}
+function rozbijSelectPolLine(line) {
+    _rozbij.polLine = (_rozbij.polLine === line) ? null : line;
+    _rozbij.polOpis = null;
+    renderRozbijPol();
+}
+function rozbijSelectPolOpis(k) {
+    _rozbij.polOpis = (_rozbij.polOpis === k) ? null : k;
+    renderRozbijPol();
+}
+function rozbijTogglePol(i) {
+    const pos = _rozbij.polIndexes.indexOf(i);
+    if (pos > -1) _rozbij.polIndexes.splice(pos, 1);
+    else _rozbij.polIndexes.push(i);
+    renderRozbijPol();
+    updateRozbijPreview();
+}
+
+/** Zamiana tagów na dane WYBRANYCH OSÓB (nie całego patrolu) */
+function buildReplacementsForPersons(personNames) {
+    const names = typeof uniqueNonEmpty === "function"
+        ? uniqueNonEmpty(personNames)
+        : [...new Set((personNames || []).filter(Boolean))];
+    const line = typeof forceOneLine === "function" ? forceOneLine(names) : names.join(", ");
+    const kz = document.getElementById("kzInput")?.value || appState.kz || "";
+    const mkk = document.getElementById("mkkInput")?.value || appState.mkk || "";
+    const now = new Date();
+    const data = now.toLocaleDateString("pl-PL");
+    const godzina = now.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+    return {
+        "@patrol": line,
+        "@dowodca": line,
+        "@kierowca": line,
+        "@sklad": line,
+        "@wszyscy": line,
+        "@wybrani": line,
+        "@data": data,
+        "@godzina": godzina,
+        "@KZ": kz,
+        "@MKK": mkk,
+        "@wot": "",
+        "@policjant": ""
+    };
+}
+
+function buildRozbijPlainText() {
+    if (!_rozbij.persons.length) return "";
+    const rep = buildReplacementsForPersons(_rozbij.persons);
+    const parts = [];
+    _rozbij.zglIndexes.forEach(i => {
+        const t = appState.zgloszenia?.rows?.[i]?.Opis;
+        if (t) parts.push(typeof applyTags === "function" ? applyTags(t, rep) : String(t));
+    });
+    _rozbij.polIndexes.forEach(i => {
+        const t = appState.polecenia?.rows?.[i]?.Opis;
+        if (t) parts.push(typeof applyTags === "function" ? applyTags(t, rep) : String(t));
+    });
+    return parts.filter(Boolean).map(p => String(p).trim()).filter(Boolean).join("\n\n");
+}
+
+function updateRozbijPreview() {
+    const box = document.getElementById("rozbijPreview");
+    if (!box) return;
+    if (!_rozbij.persons.length) {
+        box.textContent = "Zaznacz przynajmniej jedną osobę…";
+        return;
+    }
+    if (!_rozbij.zglIndexes.length && !_rozbij.polIndexes.length) {
+        box.textContent = "Zaznacz zgłoszenie lub polecenie…\n\nOsoby: " + _rozbij.persons.join(", ");
+        return;
+    }
+    const text = buildRozbijPlainText();
+    box.textContent = (typeof capitalizeSentences === "function" ? capitalizeSentences(text) : text) || "—";
+}
+
+function confirmRozbijPatrol() {
+    if (!_rozbij.persons.length) {
+        if (typeof showToast === "function") showToast("Zaznacz przynajmniej jedną osobę");
+        else alert("Zaznacz przynajmniej jedną osobę");
+        return;
+    }
+    if (!_rozbij.zglIndexes.length && !_rozbij.polIndexes.length) {
+        if (typeof showToast === "function") showToast("Zaznacz zgłoszenie lub polecenie");
+        else alert("Zaznacz zgłoszenie lub polecenie");
+        return;
+    }
+
+    let text = buildRozbijPlainText();
+    if (typeof capitalizeSentences === "function") text = capitalizeSentences(text);
+
+    // Wstaw do pola wygenerowanego wpisu (jak po „Generuj wpis”)
+    if (typeof plainTextToHtml === "function" && typeof setGeneratedEntryContent === "function") {
+        const items = text.split(/\n\n+/).filter(Boolean);
+        const withBullets = items.map(p => "• " + p.replace(/^•\s*/, "")).join("\n");
+        setGeneratedEntryContent(plainTextToHtml(withBullets));
+    } else {
+        const el = document.getElementById("generatedEntry");
+        if (el) {
+            if (el.getAttribute("contenteditable") === "true") el.innerText = text;
+            else el.value = text;
+        }
+    }
+
+    closeRozbijPatrolModal();
+    if (typeof showToast === "function") {
+        showToast("✅ Wpis na osoby: " + _rozbij.persons.join(", "));
+    }
+}
+
+// =====================================
 // PRZYCISKI
 // =====================================
 
@@ -1779,3 +2162,17 @@ window.onSequentialCheckboxChange = onSequentialCheckboxChange;
 window.toggleSequentialPatrolMode = toggleSequentialPatrolMode;
 window.updateSequentialPatrolPill = updateSequentialPatrolPill;
 window.updatePatrolAssignPreview = updatePatrolAssignPreview;
+
+window.openRozbijPatrolModal = openRozbijPatrolModal;
+window.closeRozbijPatrolModal = closeRozbijPatrolModal;
+window.toggleRozbijPerson = toggleRozbijPerson;
+window.rozbijSelectAllPersons = rozbijSelectAllPersons;
+window.rozbijSelectZglLine = rozbijSelectZglLine;
+window.rozbijSelectZglOpis = rozbijSelectZglOpis;
+window.rozbijToggleZgl = rozbijToggleZgl;
+window.rozbijSelectPolLine = rozbijSelectPolLine;
+window.rozbijSelectPolOpis = rozbijSelectPolOpis;
+window.rozbijTogglePol = rozbijTogglePol;
+window.confirmRozbijPatrol = confirmRozbijPatrol;
+window.renderRozbijZgl = renderRozbijZgl;
+window.renderRozbijPol = renderRozbijPol;
