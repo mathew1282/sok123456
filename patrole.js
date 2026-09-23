@@ -71,27 +71,35 @@ function renderPatrole() {
             </div>
         </div>
 
-        <!-- Linia 2: WOT -->
-        <div style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end; margin-bottom:15px;">
-            <div style="flex:1; min-width:180px;">
-                <label>WOT 1</label>
-                <input type="text" id="wot1Input" placeholder="Imię i nazwisko">
-            </div>
-            <div style="flex:1; min-width:180px;">
-                <label>WOT 2</label>
-                <input type="text" id="wot2Input" placeholder="Imię i nazwisko">
-            </div>
-        </div>
-
-        <!-- Linia 3: Policjanci -->
-        <div style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end; margin-bottom:20px;">
-            <div style="flex:1; min-width:180px;">
-                <label>Policjant 1</label>
-                <input type="text" id="policjant1Input" placeholder="Imię i nazwisko">
-            </div>
-            <div style="flex:1; min-width:180px;">
-                <label>Policjant 2</label>
-                <input type="text" id="policjant2Input" placeholder="Imię i nazwisko">
+        <!-- WOT + Policjanci – zwijane, zapamiętane w localStorage -->
+        <div style="margin-bottom:16px; border:1px solid var(--border); border-radius:10px; overflow:hidden;">
+            <button type="button" id="patroleWotToggleBtn"
+                    onclick="togglePatroleWotSection()"
+                    style="width:100%; display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 14px; background:var(--bg-input); border:none; color:var(--text-soft); cursor:pointer; font-size:14px; font-weight:600; text-align:left;">
+                <span>WOT / Policjant</span>
+                <span id="patroleWotToggleIcon" style="font-size:12px; color:var(--text-dim);">▼</span>
+            </button>
+            <div id="patroleWotSection" style="padding:12px 14px 14px 14px; border-top:1px solid var(--border);">
+                <div style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end; margin-bottom:15px;">
+                    <div style="flex:1; min-width:180px;">
+                        <label>WOT 1</label>
+                        <input type="text" id="wot1Input" placeholder="Imię i nazwisko">
+                    </div>
+                    <div style="flex:1; min-width:180px;">
+                        <label>WOT 2</label>
+                        <input type="text" id="wot2Input" placeholder="Imię i nazwisko">
+                    </div>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end;">
+                    <div style="flex:1; min-width:180px;">
+                        <label>Policjant 1</label>
+                        <input type="text" id="policjant1Input" placeholder="Imię i nazwisko">
+                    </div>
+                    <div style="flex:1; min-width:180px;">
+                        <label>Policjant 2</label>
+                        <input type="text" id="policjant2Input" placeholder="Imię i nazwisko">
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -139,6 +147,34 @@ function renderPatrole() {
     container.innerHTML = html;
 
     updatePatrolLists();
+    applyPatroleWotSection();
+}
+
+const PATROLE_WOT_COLLAPSED_KEY = "sok-patrole-wot-collapsed";
+
+function isPatroleWotCollapsed() {
+    try {
+        return localStorage.getItem(PATROLE_WOT_COLLAPSED_KEY) === "1";
+    } catch (e) {
+        return false;
+    }
+}
+
+function applyPatroleWotSection() {
+    const section = document.getElementById("patroleWotSection");
+    const icon = document.getElementById("patroleWotToggleIcon");
+    if (!section) return;
+    const collapsed = isPatroleWotCollapsed();
+    section.style.display = collapsed ? "none" : "block";
+    if (icon) icon.textContent = collapsed ? "▶" : "▼";
+}
+
+function togglePatroleWotSection() {
+    const next = !isPatroleWotCollapsed();
+    try {
+        localStorage.setItem(PATROLE_WOT_COLLAPSED_KEY, next ? "1" : "0");
+    } catch (e) { /* ignore */ }
+    applyPatroleWotSection();
 }
 
 // =====================================
@@ -267,3 +303,5 @@ window.togglePatrolPerson = togglePatrolPerson;
 window.createPatrol = createPatrol;
 window.editPatrol = editPatrol;
 window.removePatrol = removePatrol;
+window.togglePatroleWotSection = togglePatroleWotSection;
+window.applyPatroleWotSection = applyPatroleWotSection;
