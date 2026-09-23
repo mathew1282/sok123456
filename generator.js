@@ -1092,6 +1092,23 @@ function getSkladFromSelectedPatrols() {
     return uniqueNonEmpty(allSklad);
 }
 
+/** Osoby do „Rozbij patrol”: skład + WOT + policjant */
+function getRozbijPeopleFromSelectedPatrols() {
+    const all = [];
+    selectedPatrols.forEach(index => {
+        const patrol = appState.patrole?.[index];
+        if (!patrol) return;
+        if (Array.isArray(patrol.sklad)) {
+            patrol.sklad.forEach(p => { if (p) all.push(p); });
+        }
+        if (patrol.wot1) all.push(patrol.wot1);
+        if (patrol.wot2) all.push(patrol.wot2);
+        if (patrol.policjant1) all.push(patrol.policjant1);
+        if (patrol.policjant2) all.push(patrol.policjant2);
+    });
+    return uniqueNonEmpty(all);
+}
+
 function hasWybraniTag() {
     const texts = [];
     selectedZgloszeniaIndexes.forEach(i => texts.push(appState.zgloszenia?.rows?.[i]?.Opis || ""));
@@ -1667,10 +1684,10 @@ function openRozbijPatrolModal() {
         else alert("Najpierw zaznacz patrol");
         return;
     }
-    const people = getSkladFromSelectedPatrols();
+    const people = getRozbijPeopleFromSelectedPatrols();
     if (!people.length) {
-        if (typeof showToast === "function") showToast("Zaznaczony patrol nie ma składu");
-        else alert("Zaznaczony patrol nie ma składu");
+        if (typeof showToast === "function") showToast("Zaznaczony patrol nie ma osób (skład / WOT / policjant)");
+        else alert("Zaznaczony patrol nie ma osób (skład / WOT / policjant)");
         return;
     }
 
@@ -1701,7 +1718,7 @@ function openRozbijPatrolModal() {
                 </div>
             </div>
             <p style="margin:0 0 12px 0; font-size:13px; color:var(--text-dim);">
-                Wybierz <strong>osobę lub osoby</strong> ze składu zaznaczonego patrolu oraz
+                Wybierz <strong>osobę lub osoby</strong> (skład, WOT, policjant) z zaznaczonego patrolu oraz
                 <strong>zgłoszenia / polecenia</strong>. Program wstawi stopień, nazwisko i imię
                 zamiast danych całego patrolu (tagi @patrol, @sklad, @dowodca itd.).
             </p>
@@ -1709,7 +1726,7 @@ function openRozbijPatrolModal() {
             <div style="flex:1; overflow:auto; min-height:0; display:flex; flex-direction:column; gap:14px;">
                 <div>
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                        <div style="font-weight:600;">Osoby ze składu</div>
+                        <div style="font-weight:600;">Osoby (skład + WOT + policjant)</div>
                         <div style="display:flex; gap:6px;">
                             <button type="button" class="btn-primary" style="padding:4px 10px; font-size:12px;" onclick="rozbijSelectAllPersons(true)">Zaznacz wszystkich</button>
                             <button type="button" class="btn-primary" style="padding:4px 10px; font-size:12px;" onclick="rozbijSelectAllPersons(false)">Odznacz</button>
@@ -1764,7 +1781,7 @@ function closeRozbijPatrolModal() {
 function renderRozbijPersons() {
     const el = document.getElementById("rozbijPersons");
     if (!el) return;
-    const people = getSkladFromSelectedPatrols();
+    const people = getRozbijPeopleFromSelectedPatrols();
     el.innerHTML = people.map((name, i) => {
         const sel = _rozbij.persons.includes(name) ? "selected" : "";
         return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="toggleRozbijPerson(${i})">${escapeHtml(name)}</div>`;
@@ -1772,7 +1789,7 @@ function renderRozbijPersons() {
 }
 
 function toggleRozbijPerson(index) {
-    const people = getSkladFromSelectedPatrols();
+    const people = getRozbijPeopleFromSelectedPatrols();
     const name = people[index];
     if (!name) return;
     const pos = _rozbij.persons.indexOf(name);
@@ -1783,7 +1800,7 @@ function toggleRozbijPerson(index) {
 }
 
 function rozbijSelectAllPersons(on) {
-    _rozbij.persons = on ? [...getSkladFromSelectedPatrols()] : [];
+    _rozbij.persons = on ? [...getRozbijPeopleFromSelectedPatrols()] : [];
     renderRozbijPersons();
     updateRozbijPreview();
 }
