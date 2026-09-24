@@ -1,12 +1,17 @@
 // =====================================
-// NOTATKI – czytelna lista + bogaty edytor
+// NOTATKI – lista + edytor + załączniki
 // =====================================
 
 const NOTATKI_KATEGORIE = ["Wszystkie", "Linia / km", "Pisma", "Ogólne", "Inne"];
 const NOTATKI_KAT_EDIT = ["Linia / km", "Pisma", "Ogólne", "Inne"];
+const NOTATKI_MAX_FILE_BYTES = 1.8 * 1024 * 1024; // ~1.8 MB
+const NOTATKI_MAX_FILES = 3;
+const NOTATKI_ACCEPT = "application/pdf,image/jpeg,image/png,image/jpg,image/webp";
 
 let _notatkiFilter = "Wszystkie";
 let _notatkiSearch = "";
+/** Tymczasowe załączniki w otwartym edytorze */
+let _notatkiDraftAtt = [];
 
 function ensureNotatkiState() {
     if (!Array.isArray(appState.notatki)) appState.notatki = [];
@@ -28,6 +33,7 @@ function initNotatki() {
     ensureNotatkiState();
     _notatkiFilter = "Wszystkie";
     _notatkiSearch = "";
+    _notatkiDraftAtt = [];
     renderNotatki();
 }
 
@@ -41,7 +47,8 @@ function getFilteredNotatki() {
     if (q) {
         list = list.filter(n => {
             const plain = String(n.tresc || "").replace(/<[^>]+>/g, " ");
-            const blob = [n.tytul, plain, n.linia, n.kmOd, n.kmDo, n.kategoria]
+            const names = (n.zalaczniki || []).map(z => z.name || "").join(" ");
+            const blob = [n.tytul, plain, n.linia, n.kmOd, n.kmDo, n.kategoria, names]
                 .map(x => String(x || "").toLowerCase()).join(" ");
             return blob.includes(q);
         });
@@ -79,6 +86,25 @@ function notatkiKatStyle(kat) {
     return "background:rgba(34,197,94,.15);color:#86efac;";
 }
 
+function notatkiIsImage(type) {
+    return /^image\//i.test(type || "");
+}
+
+function notatkiIsPdf(type, name) {
+    return /pdf/i.test(type || "") || /\.pdf$/i.test(name || "");
+}
+
+function notatkiFmtSize(bytes) {
+    if (!bytes && bytes !== 0) return "";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+// =====================================
+// LISTA
+// =====================================
+
 function renderNotatki() {
     const container = document.getElementById("notatkiContainer");
     if (!container) return;
@@ -103,6 +129,7 @@ function renderNotatki() {
         : list.map(n => {
             const kat = n.kategoria || "Ogólne";
             const meta = notatkiMetaBits(n);
+            const hasAtt = Array.isArray(n.zalaczniki) && n.zalaczniki.length > 0;
             return `
             <div class="notatka-row" onclick="openNotatkaView('${n.id}')"
                  style="display:flex; align-items:center; gap:14px; padding:14px 16px; border-bottom:1px solid var(--border);
@@ -116,6 +143,7 @@ function renderNotatki() {
                     ${meta.length ? `<div style="font-size:12px; color:var(--text-dim); margin-top:3px;">${escapeHtmlNot(meta.join(" · "))}</div>` : ""}
                 </div>
                 <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                    ${hasAtt ? `<span title="Załączniki (${n.zalaczniki.length})" style="font-size:13px;">📎${n.zalaczniki.length > 1 ? n.zalaczniki.length : ""}</span>` : ""}
                     <span style="font-size:11px; font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; ${notatkiKatStyle(kat)}">${escapeHtmlNot(kat)}</span>
                     <button type="button" class="btn-danger" style="padding:3px 8px; font-size:12px;"
                             onclick="event.stopPropagation(); deleteNotatka('${n.id}')">Usuń</button>
@@ -153,6 +181,152 @@ function setNotatkiFilter(kat) {
     renderNotatki();
 }
 
+// =====================================
+// ZAŁĄCZNIKI – UI
+// =====================================
+
+function notatkiRenderAttachments(list, { editable }) {
+    const arr = Array.isArray(list) ? list : [];
+    if (!arr.length) {
+        return editable
+            ? `<div style="font-size:13px; color:var(--text-dim); padding:6px 0;">Brak załączników</div>`
+            : "";
+    }
+    return `<div style="display:flex; flex-direction:column; gap:10px;">` + arr.map((z, i) => {
+        const isImg = notatkiIsImage(z.type);
+        const isPdf = notatkiIsPdf(z.type, z.name);
+        const icon = isPdf ? "📄" : (isImg ? "🖼️" : "📎");
+        const size = notatkiFmtSize(z.size);
+        let preview = "";
+        if (isImg && z.data) {
+            preview = `<img src="${z.data}" alt="${escapeHtmlNot(z.name)}"
+                style="max-width:100%; max-height:180px; border-radius:8px; margin-top:6px; border:1px solid var(--border); object-fit:contain; background:#000;">`;
+        }
+        const openBtn = z.data
+            ? `<button type="button" class="btn-primary" style="padding:3px 8px; font-size:12px;" onclick="event.stopPropagation(); notatkiOpenAttachment(${i}, ${editable ? "true" : "false"})">Otwórz</button>`
+            : "";
+        const delBtn = editable
+            ? `<button type="button" class="btn-danger" style="padding:3px 8px; font-size:12px;" onclick="event.stopPropagation(); notatkiRemoveDraftAtt(${i})">Usuń</button>`
+            : "";
+        return `
+        <div style="border:1px solid var(--border); border-radius:10px; padding:10px 12px; background:var(--bg-input);">
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span>${icon}</span>
+                <span style="font-size:13px; font-weight:600; color:var(--text-soft); word-break:break-all; flex:1;">${escapeHtmlNot(z.name || "plik")}</span>
+                ${size ? `<span style="font-size:11px; color:var(--text-dim);">${size}</span>` : ""}
+                ${openBtn}
+                ${delBtn}
+            </div>
+            ${preview}
+        </div>`;
+    }).join("") + `</div>`;
+}
+
+function notatkiOpenAttachment(index, fromDraft) {
+    const list = fromDraft ? _notatkiDraftAtt : null;
+    // z podglądu: bierzemy z aktualnie otwartej notatki przez data na modalu
+    let att = null;
+    if (fromDraft) {
+        att = _notatkiDraftAtt[index];
+    } else {
+        const modal = document.getElementById("notatkaModal");
+        const noteId = modal && modal._viewId;
+        const n = noteId ? appState.notatki.find(x => x.id === noteId) : null;
+        att = n && n.zalaczniki ? n.zalaczniki[index] : null;
+    }
+    if (!att || !att.data) return;
+    const w = window.open();
+    if (!w) {
+        // fallback: download link
+        const a = document.createElement("a");
+        a.href = att.data;
+        a.download = att.name || "plik";
+        a.target = "_blank";
+        a.click();
+        return;
+    }
+    if (notatkiIsImage(att.type)) {
+        w.document.write(`<title>${escapeHtmlNot(att.name)}</title><img src="${att.data}" style="max-width:100%;height:auto;">`);
+    } else if (notatkiIsPdf(att.type, att.name)) {
+        w.location.href = att.data;
+    } else {
+        const a = w.document.createElement("a");
+        a.href = att.data;
+        a.download = att.name || "plik";
+        a.textContent = "Pobierz plik";
+        w.document.body.appendChild(a);
+    }
+}
+
+function notatkiRemoveDraftAtt(index) {
+    _notatkiDraftAtt.splice(index, 1);
+    const box = document.getElementById("notAttList");
+    if (box) box.innerHTML = notatkiRenderAttachments(_notatkiDraftAtt, { editable: true });
+}
+
+function notatkiOnFileSelected(event) {
+    const files = event.target.files;
+    if (!files || !files.length) return;
+
+    const remaining = NOTATKI_MAX_FILES - _notatkiDraftAtt.length;
+    if (remaining <= 0) {
+        if (typeof showToast === "function") showToast("Max " + NOTATKI_MAX_FILES + " pliki na notatkę");
+        else alert("Max " + NOTATKI_MAX_FILES + " pliki na notatkę");
+        event.target.value = "";
+        return;
+    }
+
+    const toRead = [...files].slice(0, remaining);
+    let pending = toRead.length;
+
+    toRead.forEach(file => {
+        const okType = /^(application\/pdf|image\/(jpeg|jpg|png|webp))$/i.test(file.type)
+            || /\.(pdf|jpe?g|png|webp)$/i.test(file.name);
+        if (!okType) {
+            if (typeof showToast === "function") showToast("Dozwolone: PDF, JPG, PNG");
+            else alert("Dozwolone: PDF, JPG, PNG");
+            pending--;
+            if (pending <= 0) finish();
+            return;
+        }
+        if (file.size > NOTATKI_MAX_FILE_BYTES) {
+            if (typeof showToast === "function") showToast("Plik za duży (max ~1,8 MB): " + file.name);
+            else alert("Plik za duży (max ~1,8 MB): " + file.name);
+            pending--;
+            if (pending <= 0) finish();
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            _notatkiDraftAtt.push({
+                id: notatkiNewId(),
+                name: file.name,
+                type: file.type || "application/octet-stream",
+                size: file.size,
+                data: reader.result
+            });
+            pending--;
+            if (pending <= 0) finish();
+        };
+        reader.onerror = () => {
+            pending--;
+            if (pending <= 0) finish();
+        };
+        reader.readAsDataURL(file);
+    });
+
+    function finish() {
+        const box = document.getElementById("notAttList");
+        if (box) box.innerHTML = notatkiRenderAttachments(_notatkiDraftAtt, { editable: true });
+        event.target.value = "";
+        if (typeof showToast === "function") showToast("Dodano załącznik");
+    }
+}
+
+// =====================================
+// PODGLĄD
+// =====================================
+
 function openNotatkaView(id) {
     ensureNotatkiState();
     const n = appState.notatki.find(x => x.id === id);
@@ -170,10 +344,13 @@ function openNotatkaView(id) {
         ? n.tresc
         : escapeHtmlNot(n.tresc || "").replace(/\n/g, "<br>");
 
+    const attHtml = notatkiRenderAttachments(n.zalaczniki || [], { editable: false });
+
     const overlay = document.createElement("div");
     overlay.id = "notatkaModal";
     overlay.className = "modal-overlay";
     overlay.style.cssText = "display:flex; align-items:center; justify-content:center; padding:12px; z-index:10040;";
+    overlay._viewId = id;
     overlay.onclick = (e) => { if (e.target === overlay) closeNotatkaModal(); };
 
     overlay.innerHTML = `
@@ -192,9 +369,14 @@ function openNotatkaView(id) {
                     <button class="btn-danger" onclick="closeNotatkaModal()">Zamknij</button>
                 </div>
             </div>
-            <div class="notatka-body" style="padding:20px 22px 28px; font-size:15px; line-height:1.6; color:var(--text-soft); word-break:break-word;">
+            <div class="notatka-body" style="padding:20px 22px 16px; font-size:15px; line-height:1.6; color:var(--text-soft); word-break:break-word;">
                 ${bodyHtml || "<span style='color:var(--text-dim);'>Brak treści</span>"}
             </div>
+            ${attHtml ? `
+            <div style="padding:0 22px 24px;">
+                <div style="font-size:13px; font-weight:600; color:var(--text-dim); margin-bottom:8px;">Załączniki</div>
+                ${attHtml}
+            </div>` : ""}
         </div>
     `;
     document.body.appendChild(overlay);
@@ -222,17 +404,25 @@ function notatkiStyleBody(el) {
     });
 }
 
+// =====================================
+// EDYCJA
+// =====================================
+
 function openNotatkaEdit(id) {
     ensureNotatkiState();
     const isNew = !id;
     const n = isNew
-        ? { id: null, tytul: "", linia: "", kmOd: "", kmDo: "", kategoria: "Ogólne", tresc: "" }
+        ? { id: null, tytul: "", linia: "", kmOd: "", kmDo: "", kategoria: "Ogólne", tresc: "", zalaczniki: [] }
         : appState.notatki.find(x => x.id === id);
 
     if (!isNew && !n) {
         if (typeof showToast === "function") showToast("Nie znaleziono notatki");
         return;
     }
+
+    _notatkiDraftAtt = Array.isArray(n.zalaczniki)
+        ? n.zalaczniki.map(z => ({ ...z }))
+        : [];
 
     const old = document.getElementById("notatkaModal");
     if (old) old.remove();
@@ -298,7 +488,19 @@ function openNotatkaEdit(id) {
             </div>
             <div id="notTresc"
                  contenteditable="true"
-                 style="min-height:220px; max-height:42vh; overflow:auto; padding:14px 16px; border:1px solid var(--border); border-radius:0 0 10px 10px; background:var(--bg); color:var(--text-soft); font-size:15px; line-height:1.55; outline:none;">${initialHtml}</div>
+                 style="min-height:200px; max-height:36vh; overflow:auto; padding:14px 16px; border:1px solid var(--border); border-radius:0 0 10px 10px; background:var(--bg); color:var(--text-soft); font-size:15px; line-height:1.55; outline:none;">${initialHtml}</div>
+
+            <div style="margin-top:16px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+                    <div style="font-size:13px; font-weight:600; color:var(--text-dim);">Załączniki (PDF / JPG / PNG · max ${NOTATKI_MAX_FILES} · ~1,8 MB)</div>
+                    <div>
+                        <input type="file" id="notFileInput" accept="${NOTATKI_ACCEPT}" multiple hidden onchange="notatkiOnFileSelected(event)">
+                        <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;"
+                                onclick="document.getElementById('notFileInput').click()">📎 Wgraj plik PDF lub zdjęcie</button>
+                    </div>
+                </div>
+                <div id="notAttList">${notatkiRenderAttachments(_notatkiDraftAtt, { editable: true })}</div>
+            </div>
 
             <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px; flex-wrap:wrap;">
                 <button class="btn-success" onclick="saveNotatkaFromModal()">Zapisz</button>
@@ -360,6 +562,7 @@ function notatkiInsertTable() {
 function closeNotatkaModal() {
     const m = document.getElementById("notatkaModal");
     if (m) m.remove();
+    _notatkiDraftAtt = [];
 }
 
 function sanitizeNotatkaHtml(html) {
@@ -388,10 +591,17 @@ async function saveNotatkaFromModal() {
     const kmOd = (document.getElementById("notKmOd")?.value || "").trim();
     const kmDo = (document.getElementById("notKmDo")?.value || "").trim();
     const kategoria = (document.getElementById("notKategoria")?.value || "Ogólne").trim();
+    const zalaczniki = _notatkiDraftAtt.map(z => ({
+        id: z.id || notatkiNewId(),
+        name: z.name,
+        type: z.type,
+        size: z.size,
+        data: z.data
+    }));
 
-    if (!tytul && !plain) {
-        if (typeof showToast === "function") showToast("Podaj tytuł lub treść");
-        else alert("Podaj tytuł lub treść");
+    if (!tytul && !plain && !zalaczniki.length) {
+        if (typeof showToast === "function") showToast("Podaj tytuł, treść lub załącznik");
+        else alert("Podaj tytuł, treść lub załącznik");
         return;
     }
 
@@ -407,6 +617,7 @@ async function saveNotatkaFromModal() {
         n.kmOd = kmOd;
         n.kmDo = kmDo;
         n.kategoria = kategoria;
+        n.zalaczniki = zalaczniki;
         n.updatedAt = now;
     } else {
         appState.notatki.push({
@@ -417,6 +628,7 @@ async function saveNotatkaFromModal() {
             kmOd,
             kmDo,
             kategoria,
+            zalaczniki,
             createdAt: now,
             updatedAt: now
         });
@@ -449,3 +661,6 @@ window.saveNotatkaFromModal = saveNotatkaFromModal;
 window.deleteNotatka = deleteNotatka;
 window.notatkiCmd = notatkiCmd;
 window.notatkiInsertTable = notatkiInsertTable;
+window.notatkiOnFileSelected = notatkiOnFileSelected;
+window.notatkiRemoveDraftAtt = notatkiRemoveDraftAtt;
+window.notatkiOpenAttachment = notatkiOpenAttachment;
