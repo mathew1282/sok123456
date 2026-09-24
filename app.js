@@ -114,7 +114,8 @@ const pages = {
     </div>`,
     linie: `<div id="linieContainer"></div>`,
     ksiazka: `<div id="ksiazkaContainer"></div>`,
-    porownania: `<div id="porownaniaContainer"></div>`
+    porownania: `<div id="porownaniaContainer"></div>`,
+    notatki: `<div id="notatkiContainer"></div>`
 };
 
 function loadPage(page) {
@@ -133,6 +134,7 @@ function loadPage(page) {
         case "linie":      if (typeof initLinie === "function") initLinie(); break;
         case "ksiazka":    if (typeof initKsiazka === "function") initKsiazka(); break;
         case "porownania": if (typeof initPorownania === "function") initPorownania(); break;
+        case "notatki":    if (typeof initNotatki === "function") initNotatki(); break;
     }
 }
 
