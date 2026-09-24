@@ -53,7 +53,8 @@ const defaultState = {
     wot1: "",
     wot2: "",
     policjant1: "",
-    policjant2: ""
+    policjant2: "",
+    notatki: []
 };
 
 let appState = { ...defaultState };
@@ -98,6 +99,7 @@ function normalizeState() {
     if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
     if (!Array.isArray(appState.statystyki.interwencje)) appState.statystyki.interwencje = [];
     if (!Array.isArray(appState.statystyki.sprawdzenia)) appState.statystyki.sprawdzenia = [];
+    if (!Array.isArray(appState.notatki)) appState.notatki = [];
 }
 
 async function loadState() {
