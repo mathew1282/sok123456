@@ -39,9 +39,8 @@ function startApp() {
 
 const pages = {
     dane: `<div id="daneContainer"></div>`,
-    zgloszenia: `<div id="proceduryContainer"></div>`,
-    polecenia: `<div id="proceduryContainer"></div>`,
-    procedury: `<div id="proceduryContainer"></div>`,
+    zgloszenia: `<div id="zgloszeniaContainer"></div>`,
+    polecenia: `<div id="poleceniaContainer"></div>`,
     patrole: `<div id="patroleContainer"></div>`,
     statystyki: `<div id="statystykiContainer"></div>`,
     generator: `
@@ -127,12 +126,8 @@ function loadPage(page) {
 
     switch (page) {
         case "dane":       if (typeof initDane === "function") initDane(); break;
-        case "zgloszenia":
-        case "polecenia":
-        case "procedury":
-            if (typeof initProcedury === "function") initProcedury();
-            else if (typeof initPolecenia === "function") initPolecenia();
-            break;
+        case "zgloszenia": if (typeof initZgloszenia === "function") initZgloszenia(); break;
+        case "polecenia":  if (typeof initPolecenia === "function") initPolecenia(); break;
         case "patrole":    if (typeof initPatrole === "function") initPatrole(); break;
         case "statystyki": if (typeof initStatystyki === "function") initStatystyki(); break;
         case "generator":  if (typeof initGenerator === "function") initGenerator(); break;
