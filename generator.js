@@ -517,7 +517,10 @@ function renderZgloszeniaLevel3() {
     let html = "";
     rows.forEach(row => {
         const isSelected = selectedZgloszeniaIndexes.includes(row._index);
-        const label = (row.OpisPom || "(brak opisu pom)").substring(0, 120);
+        let rolePrefix = "";
+        if (row.procedureRole === "start") rolePrefix = "▶ start · ";
+        else if (row.procedureRole === "end") rolePrefix = "■ koniec · ";
+        const label = (rolePrefix + (row.OpisPom || "(brak opisu pom)")).substring(0, 140);
         html += `
         <div class="item-card ${isSelected ? "selected" : ""}" onclick="toggleZgloszenie(${row._index})">
             ${escapeHtml(label)}
