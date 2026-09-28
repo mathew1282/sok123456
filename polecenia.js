@@ -205,30 +205,7 @@ function renderPolecenia() {
                  style="width:100%; min-height:140px; padding:10px; font-family: monospace; margin-bottom:14px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; white-space:pre-wrap; outline:none;"
                  data-placeholder="Pełny opis z znacznikami..."></div>
 
-            <!-- Rząd 2: Rodzaj | Nazwa | Km od | Km do -->
-            <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:14px;">
-                <div style="flex:1; min-width:150px;">
-                    <label>Rodzaj</label>
-                    <select id="polecenieRodzaj" style="width:100%; padding:8px; border-radius:8px;">
-                        <option value="Inne">Inne (nie do statystyk)</option>
-                        <option value="Szlak">Szlak</option>
-                        <option value="Stacja towarowa">Stacja towarowa</option>
-                        <option value="Stacja osobowa">Stacja osobowa</option>
-                    </select>
-                </div>
-                <div style="flex:1.4; min-width:160px;">
-                    <label>Nazwa (szlaku / stacji)</label>
-                    <input type="text" id="polecenieNazwa" placeholder="np. Legnica" style="width:100%;">
-                </div>
-                <div style="flex:0.8; min-width:110px;">
-                    <label>Km od</label>
-                    <input type="text" id="polecenieKmOd" placeholder="12,450" style="width:100%;">
-                </div>
-                <div style="flex:0.8; min-width:110px;">
-                    <label>Km do</label>
-                    <input type="text" id="polecenieKmDo" placeholder="18,200" style="width:100%;">
-                </div>
-            </div>
+            <!-- Rodzaj/km przeniesione do procedur w zgłoszeniach -->
 
             <h3>Dostępne znaczniki</h3>
             <div class="tag-buttons">
@@ -278,10 +255,14 @@ function openPolecenieModal() {
     document.getElementById("polecenieOpisPom").value = "";
     const opisEl = document.getElementById("polecenieOpis");
     if (opisEl) opisEl.innerHTML = "";
-    document.getElementById("polecenieRodzaj").value = "Inne";
-    document.getElementById("polecenieNazwa").value = "";
-    document.getElementById("polecenieKmOd").value = "";
-    document.getElementById("polecenieKmDo").value = "";
+    const pr = document.getElementById("polecenieRodzaj");
+    if (pr) pr.value = "Inne";
+    const pn = document.getElementById("polecenieNazwa");
+    if (pn) pn.value = "";
+    const pk1 = document.getElementById("polecenieKmOd");
+    if (pk1) pk1.value = "";
+    const pk2 = document.getElementById("polecenieKmDo");
+    if (pk2) pk2.value = "";
     const linkSel = document.getElementById("polecenieLinkedZgl");
     if (linkSel) linkSel.innerHTML = getZgloszeniaForLinkSelect("");
     document.getElementById("polecenieModal").style.display = "flex";
@@ -298,10 +279,10 @@ async function savePolecenie() {
     const opisPom = document.getElementById("polecenieOpisPom").value.trim();
     const opisEl = document.getElementById("polecenieOpis");
     const opis = opisEl ? (opisEl.innerHTML || "").trim() : "";
-    const rodzaj = document.getElementById("polecenieRodzaj").value || "Inne";
-    const nazwa = document.getElementById("polecenieNazwa").value.trim();
-    const kmOd = document.getElementById("polecenieKmOd").value.trim();
-    const kmDo = document.getElementById("polecenieKmDo").value.trim();
+    const rodzaj = document.getElementById("polecenieRodzaj")?.value || "Inne";
+    const nazwa = (document.getElementById("polecenieNazwa")?.value || "").trim();
+    const kmOd = (document.getElementById("polecenieKmOd")?.value || "").trim();
+    const kmDo = (document.getElementById("polecenieKmDo")?.value || "").trim();
 
     if (!linia) { alert("Podaj nr linii"); return; }
     if (!opisKrotki) { alert("Podaj opis krótki"); return; }
@@ -366,10 +347,14 @@ async function editPolecenie(index) {
         if (/<(?:b|strong|u|i|br|div|p)\b/i.test(raw)) opisEl.innerHTML = raw;
         else opisEl.innerHTML = String(raw).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
     }
-    document.getElementById("polecenieRodzaj").value = row.Rodzaj || "Inne";
-    document.getElementById("polecenieNazwa").value = row.Nazwa || row.NazwaSzlaku || "";
-    document.getElementById("polecenieKmOd").value = row.KmOd || row.Km || "";
-    document.getElementById("polecenieKmDo").value = row.KmDo || "";
+    const pr2 = document.getElementById("polecenieRodzaj");
+    if (pr2) pr2.value = row.Rodzaj || "Inne";
+    const pn2 = document.getElementById("polecenieNazwa");
+    if (pn2) pn2.value = row.Nazwa || row.NazwaSzlaku || "";
+    const pk12 = document.getElementById("polecenieKmOd");
+    if (pk12) pk12.value = row.KmOd || row.Km || "";
+    const pk22 = document.getElementById("polecenieKmDo");
+    if (pk22) pk22.value = row.KmDo || "";
     ensureRowId(row);
     const linkSel = document.getElementById("polecenieLinkedZgl");
     if (linkSel) linkSel.innerHTML = getZgloszeniaForLinkSelect(row.linkedZgloszenieId || "");
