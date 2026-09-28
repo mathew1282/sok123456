@@ -23,6 +23,9 @@ let patrolAssignments = {};
 /** Tryb sekwencyjny: każde @patrol przełącza kontekst na wybrany patrol */
 let sequentialPatrolMode = true;
 
+/** true = użytkownik ręcznie edytował pole wpisu – nie nadpisuj z kafelków */
+let entryManuallyEdited = false;
+
 const defaultUwagiSzablony = {
     "MKK": "Przeprowadzono kontrolę dokumentów. MKK: @MKK.",
     "Pouczony": "Osoba została pouczona o obowiązujących przepisach.",
@@ -341,7 +344,9 @@ function initGenerator() {
 
     setupPersistentInputs();
     ensureWybraniModal();
-    updateLiveEntry();
+    entryManuallyEdited = false;
+    bindGeneratedEntryEditLock();
+    updateLiveEntry(true);
 }
 
 function setupPersistentInputs() {
@@ -1313,6 +1318,16 @@ function getGeneratedEntryEl() {
     return document.getElementById("generatedEntry");
 }
 
+/** Nasłuchuje ręcznej edycji w polu „Wygenerowany wpis” */
+function bindGeneratedEntryEditLock() {
+    const el = getGeneratedEntryEl();
+    if (!el || el._manualLockBound) return;
+    el._manualLockBound = true;
+    const mark = () => { entryManuallyEdited = true; };
+    el.addEventListener("input", mark);
+    el.addEventListener("paste", mark);
+}
+
 function setGeneratedEntryContent(htmlOrText) {
     const el = getGeneratedEntryEl();
     if (!el) return;
@@ -1353,7 +1368,12 @@ function getGeneratedEntryHtml() {
     return plainTextToHtml(el.value || "");
 }
 
-function updateLiveEntry() {
+/**
+ * Buduje wpis z kafelków.
+ * force=true – nadpisuje nawet po ręcznej edycji (Generuj / Wyczyść).
+ * Bez force – jeśli użytkownik edytował ręcznie, zostawia jego tekst.
+ */
+function updateLiveEntry(force) {
     const el = getGeneratedEntryEl();
     const banner = document.getElementById("wybraniHintBanner");
     if (!el) return;
@@ -1361,6 +1381,11 @@ function updateLiveEntry() {
     syncSequentialCheckbox();
 
     const needsWybraniHint = hasWybraniTag() && selectedWybrani.length === 0;
+    if (banner) banner.style.display = needsWybraniHint ? "block" : "none";
+
+    // Ręczna edycja: nie nadpisuj treści z kafelków
+    if (entryManuallyEdited && !force) return;
+
     const hintPlain = "⚠ KLIKNIJ „GENERUJ WPIS”, ABY WYBRAĆ OSOBY";
     const parts = [];
 
@@ -1385,11 +1410,12 @@ function updateLiveEntry() {
     const items = parts.filter(Boolean).map(p => String(p).trim()).filter(Boolean);
     const joined = items.map(p => "• " + p).join("\n");
     setGeneratedEntryContent(plainTextToHtml(joined));
-    if (banner) banner.style.display = needsWybraniHint ? "block" : "none";
+    // regeneracja z kafelków – odblokuj auto-aktualizację
+    if (force) entryManuallyEdited = false;
 }
 
 function updateLiveEntryWithAssignments() {
-    updateLiveEntry();
+    updateLiveEntry(true);
 }
 
 // =====================================
@@ -2038,6 +2064,8 @@ function confirmRozbijPatrol() {
             else el.value = text;
         }
     }
+    // Rozbij patrol = świadomy wpis – nie nadpisuj przy zmianie kafelków
+    entryManuallyEdited = true;
 
     closeRozbijPatrolModal();
     if (typeof showToast === "function") {
@@ -2050,6 +2078,19 @@ function confirmRozbijPatrol() {
 // =====================================
 
 function generateEntry() {
+    // Ręcznie poprawiony wpis – zostaw jak jest (książka weźmie treść z pola)
+    if (entryManuallyEdited) {
+        const plain = (typeof getGeneratedEntryPlain === "function" ? getGeneratedEntryPlain() : "") || "";
+        if (!plain.trim()) {
+            entryManuallyEdited = false;
+        } else {
+            if (typeof showToast === "function") {
+                showToast("Zapisuję ręcznie poprawiony wpis");
+            }
+            return;
+        }
+    }
+
     if (needsPatrolAssignmentModal()) {
         openPatrolAssignModal();
         return;
@@ -2061,13 +2102,13 @@ function generateEntry() {
         const opened = openWybraniModal();
         if (!opened) {
             selectedWybrani = [];
-            updateLiveEntry();
+            updateLiveEntry(true);
         }
         return;
     }
 
     selectedWybrani = [];
-    updateLiveEntry();
+    updateLiveEntry(true);
 }
 
 function copyEntry() {
@@ -2082,6 +2123,7 @@ function copyEntry() {
 }
 
 function clearEntry() {
+    entryManuallyEdited = false;
     setGeneratedEntryContent("");
 
     const banner = document.getElementById("wybraniHintBanner");
@@ -2108,7 +2150,7 @@ function clearEntry() {
     renderZgloszeniaLines();
     renderPoleceniaLines();
     renderUwagiCards();
-    updateLiveEntry();
+    updateLiveEntry(true);
     showToast("Odznaczono wszystko");
 }
 
