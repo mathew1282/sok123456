@@ -46,6 +46,38 @@ function escapeHtml(str) {
         .replace(/"/g, "&quot;");
 }
 
+
+function ensureZglRowId(row) {
+    if (!row) return null;
+    if (!row.id) row.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    return row.id;
+}
+
+function getPoleceniaForLinkSelect(selectedId) {
+    const rows = appState.polecenia?.rows || [];
+    let html = '<option value="">— brak powiązania —</option>';
+    rows.forEach((r) => {
+        if (typeof ensureRowId === "function") ensureRowId(r);
+        else ensureZglRowId(r);
+        const label = ((r.Linia || "?") + " · " + (r.OpisKrotki || r.Opis || "(bez nazwy)")).substring(0, 80);
+        const sel = selectedId && r.id === selectedId ? " selected" : "";
+        html += `<option value="${r.id}"${sel}>${label.replace(/</g, "&lt;")}</option>`;
+    });
+    return html;
+}
+
+function findPolecenieById(id) {
+    if (!id) return null;
+    const rows = appState.polecenia?.rows || [];
+    return rows.find(r => r.id === id) || null;
+}
+
+function labelForPolecenieId(id) {
+    const r = findPolecenieById(id);
+    if (!r) return "";
+    return (r.Linia || "?") + " · " + (r.OpisKrotki || "").substring(0, 40);
+}
+
 function renderZgloszenia() {
     const container = document.getElementById("zgloszeniaContainer");
     if (!container) return;
@@ -97,6 +129,7 @@ function renderZgloszenia() {
                     <th>Opis krótki</th>
                     <th>Opis pom</th>
                     <th>Opis</th>
+                    <th>Powiązane polecenie</th>
                     <th>Akcje</th>
                 </tr>
             </thead>
@@ -115,6 +148,7 @@ function renderZgloszenia() {
             <td>${escapeHtml(krotki)}</td>
             <td>${escapeHtml(pom)}</td>
             <td style="white-space: pre-wrap; max-width: 360px;">${escapeHtml(opis)}${(row.Opis || "").length > 120 ? "…" : ""}</td>
+            <td style="font-size:12px; max-width:180px;">${row.linkedPolecenieId ? "🔗 " + escapeHtml(labelForPolecenieId(row.linkedPolecenieId)) : "<span style=\"color:#94a3b8;\">—</span>"}</td>
             <td style="white-space:nowrap;">
                 <button class="btn-primary" onclick="editZgloszenie(${index})">Edytuj</button>
                 <button class="btn-danger" onclick="removeZgloszenie(${index})">Usuń</button>
@@ -123,7 +157,7 @@ function renderZgloszenia() {
     });
 
     if (rows.length === 0) {
-        html += `<tr><td colspan="5" style="text-align:center; color:#94a3b8;">Brak zgłoszeń</td></tr>`;
+        html += `<tr><td colspan="6" style="text-align:center; color:#94a3b8;">Brak zgłoszeń</td></tr>`;
     }
 
     html += `
@@ -177,6 +211,14 @@ function renderZgloszenia() {
                 <button type="button" class="btn-primary" onclick="insertZgloszenieTag('@wybrani')">@wybrani</button>
             </div>
 
+            <div style="margin:16px 0 10px 0; padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--bg-input);">
+                <label style="font-weight:600;">🔗 Powiązane polecenie (start procedury)</label>
+                <p style="font-size:12px; color:var(--text-dim); margin:4px 0 8px 0;">
+                    Zgłoszenie = zakończenie; polecenie = rozpoczęcie (np. zakończenie patrolu ↔ polecono patrol).
+                </p>
+                <select id="zgloszenieLinkedPol" style="width:100%; padding:8px; border-radius:8px;"></select>
+            </div>
+
             <div class="modal-actions">
                 <button class="btn-success" onclick="saveZgloszenie()">Zapisz zgłoszenie</button>
                 <button class="btn-danger" onclick="closeZgloszenieModal()">Anuluj</button>
@@ -201,6 +243,8 @@ function openZgloszenieModal() {
     document.getElementById("zgloszenieOpisPom").value = "";
     const opisEl = document.getElementById("zgloszenieOpis");
     if (opisEl) opisEl.innerHTML = "";
+    const linkSel = document.getElementById("zgloszenieLinkedPol");
+    if (linkSel) linkSel.innerHTML = getPoleceniaForLinkSelect("");
     document.getElementById("zgloszenieModal").style.display = "flex";
 }
 
@@ -225,11 +269,14 @@ async function saveZgloszenie() {
         return;
     }
 
+    const linkedPol = (document.getElementById("zgloszenieLinkedPol")?.value || "").trim();
+
     const item = {
         Linia: linia,
         OpisKrotki: opisKrotki,
         OpisPom: opisPom,
-        Opis: opis
+        Opis: opis,
+        linkedPolecenieId: linkedPol || null
     };
 
     if (!appState.zgloszenia) {
@@ -240,9 +287,21 @@ async function saveZgloszenie() {
     }
 
     if (currentZgloszenieEdit === null) {
+        ensureZglRowId(item);
         appState.zgloszenia.rows.push(item);
     } else {
+        const prev = appState.zgloszenia.rows[currentZgloszenieEdit] || {};
+        item.id = prev.id || ensureZglRowId(item);
+        if (prev.linkedPolecenieId && prev.linkedPolecenieId !== item.linkedPolecenieId) {
+            const oldP = findPolecenieById(prev.linkedPolecenieId);
+            if (oldP && oldP.linkedZgloszenieId === prev.id) oldP.linkedZgloszenieId = null;
+        }
         appState.zgloszenia.rows[currentZgloszenieEdit] = item;
+    }
+
+    if (item.linkedPolecenieId) {
+        const pol = findPolecenieById(item.linkedPolecenieId);
+        if (pol) pol.linkedZgloszenieId = item.id;
     }
 
     await saveState();
