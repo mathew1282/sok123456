@@ -109,7 +109,7 @@ const pages = {
                 ⚠ W tekście jest @wybrani — kliknij „Generuj wpis”, aby wybrać osoby
             </div>
             <div id="generatedEntry" class="generated-entry-editable" contenteditable="true"
-                 style="width:100%; min-height:280px; padding:14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; line-height:1.55; white-space:pre-wrap; outline:none;"></div>
+                 style="width:100%; min-height:280px; padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); line-height:1.55; white-space:pre-wrap; outline:none;"></div>
         </div>
     </div>`,
     linie: `<div id="linieContainer"></div>`,
