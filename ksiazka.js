@@ -150,8 +150,96 @@ function sortEntriesOldestFirst(entries) {
 }
 
 // =====================================
-// MODAL PO GENERUJ WPIS (tylko godzina rozpoczęcia)
+// MODAL PO GENERUJ WPIS
+// Zwykły: 1 godzina | Procedura: start + koniec (2 wpisy)
 // =====================================
+
+/** Wykryj wybraną procedurę (start+koniec tego samego procedureId) */
+function detectSelectedProcedurePair() {
+    const idxs = (typeof selectedZgloszeniaIndexes !== "undefined" && Array.isArray(selectedZgloszeniaIndexes))
+        ? selectedZgloszeniaIndexes
+        : [];
+    const rows = appState.zgloszenia?.rows || [];
+    const selected = idxs.map(i => ({ i, row: rows[i] })).filter(x => x.row);
+
+    // Oba końce tej samej procedury zaznaczone
+    const starts = selected.filter(x => x.row.procedureRole === "start" && x.row.procedureId);
+    for (const s of starts) {
+        const end = selected.find(x =>
+            x.row.procedureRole === "end" && x.row.procedureId === s.row.procedureId
+        );
+        if (end) {
+            return {
+                procedureId: s.row.procedureId,
+                startIndex: s.i,
+                endIndex: end.i,
+                startRow: s.row,
+                endRow: end.row
+            };
+        }
+    }
+    // Tylko start zaznaczony → dociągnij koniec z bazy
+    for (const s of starts) {
+        const endIdx = rows.findIndex(r =>
+            r.procedureId === s.row.procedureId && r.procedureRole === "end"
+        );
+        if (endIdx >= 0) {
+            return {
+                procedureId: s.row.procedureId,
+                startIndex: s.i,
+                endIndex: endIdx,
+                startRow: s.row,
+                endRow: rows[endIdx]
+            };
+        }
+    }
+    // Tylko koniec → dociągnij start
+    const ends = selected.filter(x => x.row.procedureRole === "end" && x.row.procedureId);
+    for (const e of ends) {
+        const startIdx = rows.findIndex(r =>
+            r.procedureId === e.row.procedureId && r.procedureRole === "start"
+        );
+        if (startIdx >= 0) {
+            return {
+                procedureId: e.row.procedureId,
+                startIndex: startIdx,
+                endIndex: e.i,
+                startRow: rows[startIdx],
+                endRow: e.row
+            };
+        }
+    }
+    return null;
+}
+
+function buildTekstFromZglIndex(index) {
+    const row = appState.zgloszenia?.rows?.[index];
+    if (!row?.Opis) return "";
+    // Użyj logiki generatora jeśli dostępna
+    if (typeof applyTextWithPatrolOccurrences === "function" && typeof getOccurrenceListForKey === "function") {
+        const key = "zgl_" + index;
+        let text = applyTextWithPatrolOccurrences(row.Opis, getOccurrenceListForKey(key, row.Opis));
+        if (typeof selectedWybrani !== "undefined" && selectedWybrani.length > 0 && typeof forceOneLine === "function") {
+            text = text.replace(/@wybrani/gi, forceOneLine(selectedWybrani));
+        }
+        return text;
+    }
+    return row.Opis;
+}
+
+function resolveKsiazkaDataForTime(godz) {
+    const parts = parseTimeParts(godz);
+    let dataWpisu = todayPL();
+    if (parts) {
+        const now = new Date();
+        const chosen = new Date();
+        chosen.setHours(parts.h, parts.m, 0, 0);
+        if (chosen < now && now.getHours() >= 18 && parts.h < 12) {
+            dataWpisu = tomorrowPL();
+        }
+    }
+    return dataWpisu;
+}
 
 function openKsiazkaSaveModal(tekst, patrolIndexes) {
     ensureKsiazkaState();
@@ -161,45 +249,91 @@ function openKsiazkaSaveModal(tekst, patrolIndexes) {
 
     const now = nowHHMM();
     const patrolNames = (patrolIndexes || []).map(i => getPatrolName(i)).join(", ") || "Brak patrolu";
+    const pair = detectSelectedProcedurePair();
 
     const overlay = document.createElement("div");
     overlay.id = "ksiazkaSaveModal";
     overlay.className = "modal-overlay";
     overlay.style.display = "flex";
 
-    overlay.innerHTML = `
+    if (pair) {
+        const tekstStart = buildTekstFromZglIndex(pair.startIndex) || tekst;
+        const tekstKoniec = buildTekstFromZglIndex(pair.endIndex) || "";
+        const nazwa = pair.startRow.OpisKrotki || pair.endRow.OpisKrotki || "Procedura";
+
+        overlay.innerHTML = `
+        <div class="modal" style="max-width:560px;">
+            <h2 style="margin-top:0;">Zapisz procedurę do książki</h2>
+            <p style="color:var(--text-dim); font-size:14px; margin-bottom:12px;">
+                Patrol: <strong>${escapeHtml(patrolNames)}</strong><br>
+                Procedura: <strong>${escapeHtml(nazwa)}</strong> — dwa wpisy (start + koniec)
+            </p>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+                <div>
+                    <label>▶ Godzina rozpoczęcia</label>
+                    <input type="time" id="ksiazkaGodzStart" value="${now}" style="width:100%;">
+                </div>
+                <div>
+                    <label>■ Godzina zakończenia</label>
+                    <input type="time" id="ksiazkaGodzKoniec" value="${now}" style="width:100%;">
+                </div>
+            </div>
+            <div style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">
+                Po 18:00 godziny 0:00–11:59 → następny dzień (noc).
+            </div>
+            <div style="margin-bottom:10px;">
+                <label>Podgląd start</label>
+                <div style="background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:10px; max-height:100px; overflow:auto; font-size:12px; white-space:pre-wrap; color:var(--text);">
+${formatKsiazkaTekstHtml(tekstStart)}
+                </div>
+            </div>
+            <div style="margin-bottom:16px;">
+                <label>Podgląd koniec</label>
+                <div style="background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:10px; max-height:100px; overflow:auto; font-size:12px; white-space:pre-wrap; color:var(--text);">
+${formatKsiazkaTekstHtml(tekstKoniec)}
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-success" onclick="confirmSaveToKsiazka()">Zapisz oba wpisy</button>
+                <button class="btn-danger" onclick="closeKsiazkaSaveModal()">Anuluj</button>
+            </div>
+        </div>`;
+
+        overlay._procedure = true;
+        overlay._tekstStart = tekstStart;
+        overlay._tekstKoniec = tekstKoniec;
+        overlay._procedureId = pair.procedureId;
+        overlay._tekst = tekst;
+    } else {
+        overlay.innerHTML = `
         <div class="modal" style="max-width:480px;">
             <h2 style="margin-top:0;">Zapisz do Książki wydarzeń</h2>
-            <p style="color:#94a3b8; font-size:14px; margin-bottom:16px;">
+            <p style="color:var(--text-dim); font-size:14px; margin-bottom:16px;">
                 Patrol: <strong>${escapeHtml(patrolNames)}</strong>
             </p>
-
             <div style="margin-bottom:14px;">
                 <label>Godzina rozpoczęcia</label>
                 <input type="time" id="ksiazkaGodzStart" value="${now}" style="width:100%;">
-                <div style="font-size:12px; color:#94a3b8; margin-top:6px;">
+                <div style="font-size:12px; color:var(--text-dim); margin-top:6px;">
                     Po 18:00 godziny 0:00–11:59 → następny dzień (noc).
-                    Wcześniejsze godziny wieczorem (np. 22 przy 23) → dziś.
                 </div>
             </div>
-
             <div style="margin-bottom:16px;">
                 <label>Podgląd wpisu</label>
-                <div style="background:#0f172a; border:1px solid #334155; border-radius:10px; padding:12px; max-height:160px; overflow:auto; font-size:13px; white-space:pre-wrap; color:#e2e8f0;">
+                <div style="background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px; max-height:160px; overflow:auto; font-size:13px; white-space:pre-wrap; color:var(--text);">
 ${formatKsiazkaTekstHtml(tekst)}
                 </div>
             </div>
-
             <div class="modal-actions">
                 <button class="btn-success" onclick="confirmSaveToKsiazka()">Zapisz</button>
                 <button class="btn-danger" onclick="closeKsiazkaSaveModal()">Anuluj</button>
             </div>
-        </div>
-    `;
+        </div>`;
+        overlay._procedure = false;
+        overlay._tekst = tekst;
+    }
 
-    overlay._tekst = tekst;
     overlay._patrolIndexes = patrolIndexes || [];
-
     document.body.appendChild(overlay);
 }
 
@@ -212,29 +346,52 @@ async function confirmSaveToKsiazka() {
     const modal = document.getElementById("ksiazkaSaveModal");
     if (!modal) return;
 
-    const tekst = modal._tekst || "";
     const patrolIndexes = modal._patrolIndexes || [];
-    const godzStart = document.getElementById("ksiazkaGodzStart")?.value || nowHHMM();
+    ensureKsiazkaState();
 
-    // Po 18:00: tylko godziny 0:00–11:59 (noc/poranek) → następny dzień.
-    // Wcześniejsza godzina wieczorem (np. 22:00 przy 23:00) → dziś.
-    // Przed 18:00: zawsze dziś (uzupełnianie wstecz).
-    const parts = parseTimeParts(godzStart);
-    let dataWpisu = todayPL();
-    if (parts) {
-        const now = new Date();
-        const chosen = new Date();
-        chosen.setHours(parts.h, parts.m, 0, 0);
-        if (chosen < now && now.getHours() >= 18 && parts.h < 12) {
-            dataWpisu = tomorrowPL();
+    if (modal._procedure) {
+        const godzStart = document.getElementById("ksiazkaGodzStart")?.value || nowHHMM();
+        const godzKoniec = document.getElementById("ksiazkaGodzKoniec")?.value || godzStart;
+        const procId = modal._procedureId || null;
+        const base = Date.now();
+
+        appState.ksiazkaWydarzen.push({
+            id: base + "-s",
+            data: resolveKsiazkaDataForTime(godzStart),
+            godzinaStart: godzStart,
+            tekst: capitalizeSentencesHtmlKs(modal._tekstStart || ""),
+            patrole: [...patrolIndexes],
+            zrobione: false,
+            procedureId: procId,
+            procedureRole: "start",
+            createdAt: new Date().toISOString()
+        });
+        appState.ksiazkaWydarzen.push({
+            id: base + "-e",
+            data: resolveKsiazkaDataForTime(godzKoniec),
+            godzinaStart: godzKoniec,
+            tekst: capitalizeSentencesHtmlKs(modal._tekstKoniec || ""),
+            patrole: [...patrolIndexes],
+            zrobione: false,
+            procedureId: procId,
+            procedureRole: "end",
+            createdAt: new Date().toISOString()
+        });
+
+        await saveState();
+        closeKsiazkaSaveModal();
+        if (typeof showToast === "function") {
+            showToast("✅ Zapisano procedurę (start + koniec)");
         }
+        return;
     }
 
-    ensureKsiazkaState();
+    const tekst = modal._tekst || "";
+    const godzStart = document.getElementById("ksiazkaGodzStart")?.value || nowHHMM();
 
     appState.ksiazkaWydarzen.push({
         id: Date.now() + Math.random().toString(36).slice(2),
-        data: dataWpisu,
+        data: resolveKsiazkaDataForTime(godzStart),
         godzinaStart: godzStart,
         tekst: capitalizeSentencesHtmlKs(tekst),
         patrole: [...patrolIndexes],
