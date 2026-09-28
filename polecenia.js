@@ -49,6 +49,37 @@ function escapeHtml(str) {
         .replace(/"/g, "&quot;");
 }
 
+
+function ensureRowId(row) {
+    if (!row) return null;
+    if (!row.id) row.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    return row.id;
+}
+
+function getZgloszeniaForLinkSelect(selectedId) {
+    const rows = appState.zgloszenia?.rows || [];
+    let html = '<option value="">— brak powiązania —</option>';
+    rows.forEach((r, i) => {
+        ensureRowId(r);
+        const label = ((r.Linia || "?") + " · " + (r.OpisKrotki || r.Opis || "(bez nazwy)")).substring(0, 80);
+        const sel = selectedId && r.id === selectedId ? " selected" : "";
+        html += `<option value="${r.id}"${sel}>${label.replace(/</g, "&lt;")}</option>`;
+    });
+    return html;
+}
+
+function findZgloszenieById(id) {
+    if (!id) return null;
+    const rows = appState.zgloszenia?.rows || [];
+    return rows.find(r => r.id === id) || null;
+}
+
+function labelForZgloszenieId(id) {
+    const r = findZgloszenieById(id);
+    if (!r) return "";
+    return (r.Linia || "?") + " · " + (r.OpisKrotki || "").substring(0, 40);
+}
+
 function renderPolecenia() {
     const container = document.getElementById("poleceniaContainer");
     if (!container) return;
@@ -104,6 +135,7 @@ function renderPolecenia() {
                     <th>Nazwa</th>
                     <th>Km od</th>
                     <th>Km do</th>
+                    <th>Powiązane zgłoszenie</th>
                     <th>Akcje</th>
                 </tr>
             </thead>
@@ -126,6 +158,7 @@ function renderPolecenia() {
             <td>${escapeHtml(row.Nazwa || "")}</td>
             <td>${escapeHtml(row.KmOd || "")}</td>
             <td>${escapeHtml(row.KmDo || "")}</td>
+            <td style="font-size:12px; max-width:180px;">${row.linkedZgloszenieId ? "🔗 " + escapeHtml(labelForZgloszenieId(row.linkedZgloszenieId)) : "<span style=\"color:#94a3b8;\">—</span>"}</td>
             <td style="white-space:nowrap;">
                 <button class="btn-primary" onclick="editPolecenie(${index})">Edytuj</button>
                 <button class="btn-danger" onclick="removePolecenie(${index})">Usuń</button>
@@ -134,7 +167,7 @@ function renderPolecenia() {
     });
 
     if (rows.length === 0) {
-        html += `<tr><td colspan="9" style="text-align:center; color:#94a3b8;">Brak poleceń</td></tr>`;
+        html += `<tr><td colspan="10" style="text-align:center; color:#94a3b8;">Brak poleceń</td></tr>`;
     }
 
     html += `
@@ -213,6 +246,14 @@ function renderPolecenia() {
                 <button type="button" class="btn-primary" onclick="insertPolecenieTag('@wybrani')">@wybrani</button>
             </div>
 
+            <div style="margin:16px 0 10px 0; padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--bg-input);">
+                <label style="font-weight:600;">🔗 Powiązane zgłoszenie (zakończenie procedury)</label>
+                <p style="font-size:12px; color:var(--text-dim); margin:4px 0 8px 0;">
+                    Polecenie = start, zgłoszenie = koniec (np. patrol szlaku → zakończenie patrolu).
+                </p>
+                <select id="polecenieLinkedZgl" style="width:100%; padding:8px; border-radius:8px;"></select>
+            </div>
+
             <div class="modal-actions">
                 <button class="btn-success" onclick="savePolecenie()">Zapisz polecenie</button>
                 <button class="btn-danger" onclick="closePolecenieModal()">Anuluj</button>
@@ -241,6 +282,8 @@ function openPolecenieModal() {
     document.getElementById("polecenieNazwa").value = "";
     document.getElementById("polecenieKmOd").value = "";
     document.getElementById("polecenieKmDo").value = "";
+    const linkSel = document.getElementById("polecenieLinkedZgl");
+    if (linkSel) linkSel.innerHTML = getZgloszeniaForLinkSelect("");
     document.getElementById("polecenieModal").style.display = "flex";
 }
 
@@ -263,6 +306,8 @@ async function savePolecenie() {
     if (!linia) { alert("Podaj nr linii"); return; }
     if (!opisKrotki) { alert("Podaj opis krótki"); return; }
 
+    const linkedZgl = (document.getElementById("polecenieLinkedZgl")?.value || "").trim();
+
     const item = {
         Linia: linia,
         OpisKrotki: opisKrotki,
@@ -271,7 +316,8 @@ async function savePolecenie() {
         Rodzaj: rodzaj,
         Nazwa: nazwa,
         KmOd: kmOd,
-        KmDo: kmDo
+        KmDo: kmDo,
+        linkedZgloszenieId: linkedZgl || null
     };
 
     if (!appState.polecenia) {
@@ -280,9 +326,23 @@ async function savePolecenie() {
     if (!Array.isArray(appState.polecenia.rows)) appState.polecenia.rows = [];
 
     if (currentPolecenieEdit === null) {
+        ensureRowId(item);
         appState.polecenia.rows.push(item);
     } else {
+        const prev = appState.polecenia.rows[currentPolecenieEdit] || {};
+        item.id = prev.id || ensureRowId(item);
+        // odłącz stare zgłoszenie
+        if (prev.linkedZgloszenieId && prev.linkedZgloszenieId !== item.linkedZgloszenieId) {
+            const oldZ = findZgloszenieById(prev.linkedZgloszenieId);
+            if (oldZ && oldZ.linkedPolecenieId === prev.id) oldZ.linkedPolecenieId = null;
+        }
         appState.polecenia.rows[currentPolecenieEdit] = item;
+    }
+
+    // dwukierunkowo: zgłoszenie wie o poleceniu
+    if (item.linkedZgloszenieId) {
+        const z = findZgloszenieById(item.linkedZgloszenieId);
+        if (z) z.linkedPolecenieId = item.id;
     }
 
     await saveState();
@@ -310,11 +370,19 @@ async function editPolecenie(index) {
     document.getElementById("polecenieNazwa").value = row.Nazwa || row.NazwaSzlaku || "";
     document.getElementById("polecenieKmOd").value = row.KmOd || row.Km || "";
     document.getElementById("polecenieKmDo").value = row.KmDo || "";
+    ensureRowId(row);
+    const linkSel = document.getElementById("polecenieLinkedZgl");
+    if (linkSel) linkSel.innerHTML = getZgloszeniaForLinkSelect(row.linkedZgloszenieId || "");
     document.getElementById("polecenieModal").style.display = "flex";
 }
 
 async function removePolecenie(index) {
     if (!confirm("Usunąć polecenie?")) return;
+    const row = appState.polecenia.rows[index];
+    if (row?.linkedZgloszenieId) {
+        const z = findZgloszenieById(row.linkedZgloszenieId);
+        if (z && z.linkedPolecenieId === row.id) z.linkedPolecenieId = null;
+    }
     appState.polecenia.rows.splice(index, 1);
     await saveState();
     renderPolecenia();
