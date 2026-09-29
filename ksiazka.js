@@ -478,6 +478,36 @@ function initKsiazka() {
 }
 
 /** Skróty tylko w zakładce Książka: D = dodaj, S = sprawdzenie, E = eksport */
+
+/** Zamyka najwyższe (najbardziej „wewnętrzne”) otwarte okno książki. Zwraca true jeśli coś zamknięto. */
+function ksiazkaCloseTopModal() {
+    const stack = [
+        { id: "planPodgladModal", close: () => typeof closePlanPodgladModal === "function" && closePlanPodgladModal() },
+        { id: "planDopiszModal", close: () => { const m = document.getElementById("planDopiszModal"); if (m) m.remove(); } },
+        { id: "zapiszKsiazkeJakoSzablonModal", close: () => typeof closeZapiszKsiazkeJakoSzablon === "function" && closeZapiszKsiazkeJakoSzablon() },
+        { id: "ksiazkaUwagiEditModal", close: () => typeof closeKsiazkaUwagiEditModal === "function" && closeKsiazkaUwagiEditModal() },
+        { id: "ksiazkaUwagiPicker", close: () => typeof closeKsiazkaUwagiPicker === "function" && closeKsiazkaUwagiPicker() },
+        { id: "ksiazkaSprawdModal", close: () => typeof closeKsiazkaSprawdzenieModal === "function" && closeKsiazkaSprawdzenieModal() },
+        { id: "ksiazkaEditModal", close: () => typeof closeKsiazkaEditModal === "function" && closeKsiazkaEditModal() },
+        { id: "ksiazkaSaveModal", close: () => typeof closeKsiazkaSaveModal === "function" && closeKsiazkaSaveModal() },
+        { id: "ksiazkaAddModal", close: () => typeof closeKsiazkaAddModal === "function" && closeKsiazkaAddModal() },
+        { id: "planSluzbyModal", close: () => typeof closePlanSluzbyModal === "function" && closePlanSluzbyModal() }
+    ];
+    for (const item of stack) {
+        if (document.getElementById(item.id)) {
+            try { item.close(); } catch (err) { console.warn(err); }
+            return true;
+        }
+    }
+    // fallback: dowolny overlay książki
+    const any = document.querySelector(".modal-overlay");
+    if (any && document.getElementById("ksiazkaContainer")) {
+        any.remove();
+        return true;
+    }
+    return false;
+}
+
 function setupKsiazkaShortcuts() {
     if (window._ksiazkaKeyHandler) {
         document.removeEventListener("keydown", window._ksiazkaKeyHandler);
@@ -485,12 +515,21 @@ function setupKsiazkaShortcuts() {
     window._ksiazkaKeyHandler = function (e) {
         // tylko gdy widoczna książka
         if (!document.getElementById("ksiazkaContainer")) return;
-        // nie w polach tekstowych / edytorach
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+        // ESC zamyka otwarte okno (działa też w polach tekstowych)
+        if (e.key === "Escape" || e.key === "Esc") {
+            if (ksiazkaCloseTopModal()) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            return;
+        }
+
+        // D / S / E – nie w polach tekstowych / edytorach
         const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : "";
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
         if (e.target && e.target.isContentEditable) return;
-        // nie gdy otwarte inne modale (poza samym skrótem)
-        if (e.ctrlKey || e.metaKey || e.altKey) return;
 
         const key = (e.key || "").toLowerCase();
         if (key === "d") {
