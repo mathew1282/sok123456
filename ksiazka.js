@@ -460,6 +460,7 @@ function getGeneratedEntryPlainForKsiazka() {
 
 let ksiazkaFilterPatrole = [];
 let ksiazkaFilterInne = false; // filtr "Inne" = wpisy bez patroli
+let ksiazkaInterwencjeMode = false; // tryb Interwencje (MKK / P / L / Inne)
 
 function initKsiazka() {
     ensureKsiazkaState();
@@ -3237,7 +3238,7 @@ function openKsiazkaInterwencjaModal(index, typ) {
             </p>
             <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
                 <button type="button" class="btn-primary" onclick="ksiazkaInterwencjaWstawSzablon()">Wstaw szablon „${escapeHtml(meta.label)}”</button>
-                <button type="button" class="btn-primary" style="padding:6px 10px;font-size:12px;" onclick="openUwagiSzablonyModal && openUwagiSzablonyModal()">Edytuj szablony</button>
+                <button type="button" class="btn-primary" style="padding:6px 10px;font-size:12px;" onclick="if(typeof openUwagiSzablonyModal==='function')openUwagiSzablonyModal()">Edytuj szablony</button>
             </div>
             <label>Treść wpisu</label>
             <textarea id="ksUwagiTekst" rows="10" style="width:100%; margin-bottom:14px; font-size:14px; line-height:1.45;">${escapeHtml(base)}</textarea>
@@ -3914,7 +3915,7 @@ window.planAddTogglePol = planAddTogglePol;
 window.planUpdateAddPreviewFromTiles = planUpdateAddPreviewFromTiles;
 window.closePlanPodgladModal = closePlanPodgladModal;
 window.planPodgladZatwierdz = planPodgladZatwierdz;
-window.ksiazkaSprawdGodzOdChange = ksiazkaSprawdGodzOdChange;
+window.ksiazkaSprawdGodzOdChange = (typeof ksiazkaSprawdGodzOdChange === "function") ? ksiazkaSprawdGodzOdChange : function(){};
 window.confirmKsiazkaSprawdzenie = confirmKsiazkaSprawdzenie;
 
 window.toggleKsiazkaInterwencjeMode = toggleKsiazkaInterwencjeMode;
