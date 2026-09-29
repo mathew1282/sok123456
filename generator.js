@@ -693,17 +693,24 @@ function filterGeneratorTiles() {
 // =====================================
 
 function getSelectedPoleceniaDoSprawdzen() {
-    const rows = appState.polecenia?.rows || [];
+    // Dane do sprawdzeń: zgłoszenia typu Szlak / stacje (nie polecenia)
+    const rows = appState.zgloszenia?.rows || [];
     const allowed = ["Szlak", "Stacja towarowa", "Stacja osobowa"];
-    return selectedPoleceniaIndexes
+    const fromZgl = (typeof selectedZgloszeniaIndexes !== "undefined" ? selectedZgloszeniaIndexes : [])
         .map(i => ({ ...rows[i], _index: i }))
+        .filter(r => r && allowed.includes(r.Rodzaj));
+    if (fromZgl.length) return fromZgl;
+    // fallback: stare polecenia jeśli ktoś jeszcze ma Rodzaj
+    const pols = appState.polecenia?.rows || [];
+    return (typeof selectedPoleceniaIndexes !== "undefined" ? selectedPoleceniaIndexes : [])
+        .map(i => ({ ...pols[i], _index: i }))
         .filter(r => r && allowed.includes(r.Rodzaj));
 }
 
 function openLogSprawdzenModal() {
     const items = getSelectedPoleceniaDoSprawdzen();
     if (items.length === 0) {
-        showToast("Zaznacz polecenie typu Szlak / Stacja towarowa / Stacja osobowa");
+        showToast("Zaznacz zgłoszenie typu Szlak / Stacja towarowa / Stacja osobowa");
         return;
     }
 
