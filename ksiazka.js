@@ -2329,46 +2329,85 @@ async function exportKsiazkaFiltered() {
 
 // =====================================
 // SPRAWDZENIE
-// 1) lista wpisów z książki – kliknięcie odznacza/zaznacza (domyślnie wszystkie zaznaczone)
-// 2) Dalej → okno zbiorcze z godzinami
-//    (linia / nazwa / km pobrane z pasującego polecenia Szlak|towarowa|osobowa)
+// Dane z ZGŁOSZEŃ (Szlak / Stacja towarowa / Stacja osobowa)
+// Procedury start+stop → automatyczne godziny + czas przez północ
 // =====================================
 
 const SPRAWDZENIE_RODZAJE = ["Szlak", "Stacja towarowa", "Stacja osobowa"];
 
-function getPoleceniaSprawdzenie() {
-    const rows = appState.polecenia?.rows || [];
+function getZgloszeniaSprawdzenie() {
+    const rows = appState.zgloszenia?.rows || [];
     return rows
         .map((r, i) => ({ ...r, _index: i }))
         .filter(r => r && SPRAWDZENIE_RODZAJE.includes(r.Rodzaj));
 }
 
-function entryMatchesPolecenieSprawdzenie(entry, pol) {
+function entryMatchesZgloszenieSprawdzenie(entry, zgl) {
     const t = String(entry.tekst || "").toLowerCase();
     if (!t) return false;
-    const keys = [pol.Nazwa, pol.OpisKrotki, pol.Opis, pol.NazwaSzlaku]
-        .map(x => String(x || "").trim())
+    const keys = [zgl.Nazwa, zgl.OpisKrotki, zgl.OpisPom, zgl.Opis, zgl.NazwaSzlaku]
+        .map(x => String(x || "").replace(/<[^>]+>/g, " ").trim())
         .filter(x => x.length >= 3);
     return keys.some(k => t.includes(k.toLowerCase()));
 }
 
 function getKsiazkaWpisyDoSprawdzenia() {
     ensureKsiazkaState();
-    const pols = getPoleceniaSprawdzenie();
-    if (!pols.length) return [];
+    const zgls = getZgloszeniaSprawdzenie();
+    if (!zgls.length) return [];
     const entries = (typeof sortEntriesOldestFirst === "function")
         ? sortEntriesOldestFirst(appState.ksiazkaWydarzen)
         : [...(appState.ksiazkaWydarzen || [])];
-    return entries.filter(e => pols.some(p => entryMatchesPolecenieSprawdzenie(e, p)));
+    return entries.filter(e => zgls.some(z => entryMatchesZgloszenieSprawdzenie(e, z)));
 }
 
-/** Dla wpisu zwraca pierwsze pasujące polecenie (Szlak / towarowa / osobowa) */
-function findMatchingPolecenieForEntry(entry) {
-    const pols = getPoleceniaSprawdzenie();
-    return pols.find(p => entryMatchesPolecenieSprawdzenie(entry, p)) || null;
+function findMatchingZgloszenieForEntry(entry) {
+    const zgls = getZgloszeniaSprawdzenie();
+    return zgls.find(z => entryMatchesZgloszenieSprawdzenie(entry, z)) || null;
 }
 
-/** Czy wpis z książki ma już zapisane sprawdzenie w statystykach */
+/** Kompatybilność ze starymi nazwami */
+function getPoleceniaSprawdzenie() { return getZgloszeniaSprawdzenie(); }
+function findMatchingPolecenieForEntry(entry) { return findMatchingZgloszenieForEntry(entry); }
+function entryMatchesPolecenieSprawdzenie(entry, pol) { return entryMatchesZgloszenieSprawdzenie(entry, pol); }
+
+function parseDatePL(str) {
+    const m = String(str || "").trim().match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+    if (!m) return null;
+    const d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+    d.setHours(0, 0, 0, 0);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function combineDateTimePL(dataStr, hhmm) {
+    const base = parseDatePL(dataStr) || new Date();
+    const parts = typeof parseTimeParts === "function" ? parseTimeParts(hhmm) : null;
+    const d = new Date(base.getTime());
+    if (parts) d.setHours(parts.h, parts.m, 0, 0);
+    else d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+/** Czas trwania w minutach – uwzględnia daty i przejście przez północ */
+function durationMinutesBetween(dataOd, godzOd, dataDo, godzDo) {
+    let start = combineDateTimePL(dataOd, godzOd);
+    let end = combineDateTimePL(dataDo || dataOd, godzDo);
+    if (!(start instanceof Date) || isNaN(start.getTime())) return 0;
+    if (!(end instanceof Date) || isNaN(end.getTime())) return 0;
+    // Jeśli koniec ≤ start (ta sama data albo błąd) → +1 dzień
+    if (end.getTime() <= start.getTime()) {
+        end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+    }
+    return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+}
+
+function formatDurationMin(mins) {
+    const m = Math.max(0, parseInt(mins, 10) || 0);
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return h + ":" + String(mm).padStart(2, "0");
+}
+
 function isEntryAlreadyInSprawdzenia(entry) {
     if (!entry) return false;
     if (typeof ensureStatystykiState === "function") ensureStatystykiState();
@@ -2378,16 +2417,26 @@ function isEntryAlreadyInSprawdzenia(entry) {
     }
     const stats = appState.statystyki.sprawdzenia || [];
 
-    // 1) po entryId (nowe zapisy)
     if (entry.id && stats.some(s => s.entryId && String(s.entryId) === String(entry.id))) {
         return true;
     }
+    // para procedury – sprawdź też entryId końca
+    if (entry.procedureId && entry.procedureRole === "start") {
+        const endE = (appState.ksiazkaWydarzen || []).find(e =>
+            e.procedureId === entry.procedureId && e.procedureRole === "end"
+        );
+        if (endE?.id && stats.some(s => s.entryIdEnd && String(s.entryIdEnd) === String(endE.id))) {
+            return true;
+        }
+        if (stats.some(s => s.procedureId && String(s.procedureId) === String(entry.procedureId))) {
+            return true;
+        }
+    }
 
-    // 2) heurystyka: data + godzina + nazwa z pasującego polecenia
-    const pol = findMatchingPolecenieForEntry(entry);
-    if (!pol) return false;
-    const nazwa = String(pol.Nazwa || pol.OpisKrotki || "").trim().toLowerCase();
-    const rodzaj = String(pol.Rodzaj || "").trim().toLowerCase();
+    const zgl = findMatchingZgloszenieForEntry(entry);
+    if (!zgl) return false;
+    const nazwa = String(zgl.Nazwa || zgl.OpisKrotki || "").trim().toLowerCase();
+    const rodzaj = String(zgl.Rodzaj || "").trim().toLowerCase();
     const data = String(entry.data || "").trim();
     const godz = String(entry.godzinaStart || "").trim();
 
@@ -2399,7 +2448,6 @@ function isEntryAlreadyInSprawdzenia(entry) {
         const sg = String(s.godzOd || "").trim();
         if (nazwa && sn && sn === nazwa && sr === rodzaj) {
             if (data && sd && data === sd) {
-                // ta sama data + (ta sama godzina startu albo brak godziny)
                 if (!godz || !sg || godz === sg) return true;
             }
         }
@@ -2411,9 +2459,9 @@ function openKsiazkaSprawdzenieModal() {
     const items = getKsiazkaWpisyDoSprawdzenia();
     if (items.length === 0) {
         if (typeof showToast === "function") {
-            showToast("Brak wpisów powiązanych z Szlak / Stacja towarowa / Stacja osobowa");
+            showToast("Brak wpisów powiązanych ze zgłoszeniami: Szlak / Stacja towarowa / Stacja osobowa");
         } else {
-            alert("Brak wpisów powiązanych z Szlak / Stacja towarowa / Stacja osobowa");
+            alert("Brak wpisów powiązanych ze zgłoszeniami: Szlak / Stacja towarowa / Stacja osobowa");
         }
         return;
     }
@@ -2426,7 +2474,6 @@ function openKsiazkaSprawdzenieModal() {
     overlay.className = "modal-overlay";
     overlay.style.display = "flex";
 
-    // domyślnie zaznaczone TYLKO te, które NIE są jeszcze w statystykach
     const selected = new Set();
     items.forEach(e => {
         const idx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
@@ -2438,9 +2485,10 @@ function openKsiazkaSprawdzenieModal() {
     const list = items.map(e => {
         const idx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
         const short = String(e.tekst || "").replace(/<[^>]+>/g, " ").slice(0, 120);
-        const pol = findMatchingPolecenieForEntry(e);
-        const polLabel = pol
-            ? `${escapeHtml(pol.Rodzaj)} – ${escapeHtml(pol.Nazwa || pol.OpisKrotki || "")}`
+        const zgl = findMatchingZgloszenieForEntry(e);
+        const role = e.procedureRole === "start" ? "▶ start" : (e.procedureRole === "end" ? "■ koniec" : "");
+        const polLabel = zgl
+            ? `${escapeHtml(zgl.Rodzaj)} – ${escapeHtml(zgl.Nazwa || zgl.OpisKrotki || "")}${role ? " · " + role : ""}`
             : "—";
         const already = isEntryAlreadyInSprawdzenia(e);
         const isSel = selected.has(idx);
@@ -2481,10 +2529,9 @@ function openKsiazkaSprawdzenieModal() {
         <div class="modal" style="max-width:560px;">
             <h2 style="margin-top:0;">Sprawdzenie – wybierz wpisy</h2>
             <p style="color:var(--text-dim); font-size:14px; margin-bottom:12px;">
-                Kliknij wpis, aby zaznaczyć / odznaczyć.
-                <strong>Zielone</strong> = zaznaczone do zapisu.
-                Wpisane już w statystykach mają znacznik <strong>✓ Zrobione</strong> i nie są automatycznie zaznaczone
-                (${todoCount} do zrobienia, ${doneCount} już w statystykach).
+                Dopasowanie do <strong>zgłoszeń</strong> typu Szlak / Stacja towarowa / Stacja osobowa.
+                Procedury (start + koniec) łączone są automatycznie przy „Dalej”.
+                <br>${todoCount} do zrobienia, ${doneCount} już w statystykach.
             </p>
             <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
                 <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="ksiazkaSprawdzenieZaznaczWszystkie(true)">Zaznacz wszystkie</button>
@@ -2575,6 +2622,107 @@ function ksiazkaSprawdzenieZaznaczWszystkie(zaznacz) {
     });
 }
 
+/**
+ * Buduje listę sprawdzeń z zaznaczonych wpisów.
+ * Procedury start+koniec → jeden rekord z obiema godzinami i datami.
+ */
+function buildSprawdzenieItemsFromSelected(selectedIndexes) {
+    ensureKsiazkaState();
+    const used = new Set();
+    const items = [];
+
+    for (const idx of selectedIndexes) {
+        if (used.has(idx)) continue;
+        const entry = appState.ksiazkaWydarzen[idx];
+        if (!entry) continue;
+        const zgl = findMatchingZgloszenieForEntry(entry);
+        if (!zgl) continue;
+
+        // Procedura: start + szukaj końca
+        if (entry.procedureId && entry.procedureRole === "start") {
+            const endIdx = appState.ksiazkaWydarzen.findIndex((e, i) =>
+                e && e.procedureId === entry.procedureId && e.procedureRole === "end"
+            );
+            const endEntry = endIdx >= 0 ? appState.ksiazkaWydarzen[endIdx] : null;
+            if (endIdx >= 0) used.add(endIdx);
+            used.add(idx);
+
+            const godzOd = entry.godzinaStart || "";
+            const godzDo = (endEntry && endEntry.godzinaStart) || "";
+            const dataOd = entry.data || todayPL();
+            const dataDo = (endEntry && endEntry.data) || dataOd;
+            const mins = (godzOd && godzDo)
+                ? durationMinutesBetween(dataOd, godzOd, dataDo, godzDo)
+                : 0;
+
+            items.push({
+                Rodzaj: zgl.Rodzaj,
+                Nazwa: zgl.Nazwa || zgl.OpisKrotki || "",
+                Linia: zgl.Linia || entry.linia || "",
+                KmOd: zgl.KmOd || "",
+                KmDo: zgl.KmDo || "",
+                _entryIndex: idx,
+                _entryIndexEnd: endIdx >= 0 ? endIdx : null,
+                _entryGodzina: godzOd,
+                _entryGodzinaKoniec: godzDo,
+                _dataOd: dataOd,
+                _dataDo: dataDo,
+                _durationMin: mins,
+                _procedureId: entry.procedureId,
+                _isProcedure: true
+            });
+            continue;
+        }
+
+        // Koniec bez startu w zaznaczeniu – spróbuj dociągnąć start
+        if (entry.procedureId && entry.procedureRole === "end") {
+            const startIdx = appState.ksiazkaWydarzen.findIndex((e, i) =>
+                e && e.procedureId === entry.procedureId && e.procedureRole === "start"
+            );
+            if (startIdx >= 0 && !used.has(startIdx)) {
+                // przetwórz jako start w kolejnej iteracji jeśli start też zaznaczony
+                if (selectedIndexes.includes(startIdx)) {
+                    continue; // start obsłuży parę
+                }
+            }
+            // sam koniec
+            used.add(idx);
+            items.push({
+                Rodzaj: zgl.Rodzaj,
+                Nazwa: zgl.Nazwa || zgl.OpisKrotki || "",
+                Linia: zgl.Linia || "",
+                KmOd: zgl.KmOd || "",
+                KmDo: zgl.KmDo || "",
+                _entryIndex: idx,
+                _entryGodzina: entry.godzinaStart || "",
+                _entryGodzinaKoniec: "",
+                _dataOd: entry.data || todayPL(),
+                _dataDo: entry.data || todayPL(),
+                _durationMin: 0,
+                _isProcedure: false
+            });
+            continue;
+        }
+
+        used.add(idx);
+        items.push({
+            Rodzaj: zgl.Rodzaj,
+            Nazwa: zgl.Nazwa || zgl.OpisKrotki || "",
+            Linia: zgl.Linia || "",
+            KmOd: zgl.KmOd || "",
+            KmDo: zgl.KmDo || "",
+            _entryIndex: idx,
+            _entryGodzina: entry.godzinaStart || "",
+            _entryGodzinaKoniec: "",
+            _dataOd: entry.data || todayPL(),
+            _dataDo: entry.data || todayPL(),
+            _durationMin: 0,
+            _isProcedure: false
+        });
+    }
+    return items;
+}
+
 function ksiazkaSprawdzenieDalej() {
     const modal = document.getElementById("ksiazkaSprawdModal");
     if (!modal) return;
@@ -2588,27 +2736,10 @@ function ksiazkaSprawdzenieDalej() {
         return;
     }
 
-    ensureKsiazkaState();
-    const items = [];
-    for (const idx of selected) {
-        const entry = appState.ksiazkaWydarzen[idx];
-        if (!entry) continue;
-        const pol = findMatchingPolecenieForEntry(entry);
-        if (!pol) continue;
-        items.push({
-            Rodzaj: pol.Rodzaj,
-            Nazwa: pol.Nazwa || pol.OpisKrotki || "",
-            Linia: pol.Linia || "",
-            KmOd: pol.KmOd || "",
-            KmDo: pol.KmDo || "",
-            _entryIndex: idx,
-            _entryGodzina: entry.godzinaStart || ""
-        });
-    }
-
+    const items = buildSprawdzenieItemsFromSelected(selected);
     if (!items.length) {
-        if (typeof showToast === "function") showToast("Nie znaleziono pasujących poleceń do zaznaczonych wpisów");
-        else alert("Nie znaleziono pasujących poleceń do zaznaczonych wpisów");
+        if (typeof showToast === "function") showToast("Nie znaleziono pasujących zgłoszeń do zaznaczonych wpisów");
+        else alert("Nie znaleziono pasujących zgłoszeń do zaznaczonych wpisów");
         return;
     }
 
@@ -2626,30 +2757,55 @@ function ksiazkaSprawdzenieDalej() {
 
     let body = items.map((it, i) => {
         const startVal = it._entryGodzina || startRounded;
-        const endVal = (typeof addHoursHHMM === "function")
-            ? addHoursHHMM(startVal, 2)
-            : startVal;
+        let endVal = it._entryGodzinaKoniec || "";
+        if (!endVal) {
+            endVal = (typeof addHoursHHMM === "function")
+                ? addHoursHHMM(startVal, 2)
+                : startVal;
+        }
+        // przelicz czas z datami
+        const mins = durationMinutesBetween(
+            it._dataOd || todayPL(), startVal,
+            it._dataDo || it._dataOd || todayPL(), endVal
+        );
+        const durLabel = formatDurationMin(mins);
+        const dateHint = it._isProcedure
+            ? `<div style="font-size:12px; color:var(--text-dim); margin-bottom:6px;">
+                    Data start: <strong>${escapeHtml(it._dataOd || "")}</strong>
+                    · Data koniec: <strong>${escapeHtml(it._dataDo || "")}</strong>
+                    · Czas: <strong id="ksSprawdCzas_${i}" style="color:var(--primary-light);">${durLabel}</strong> h
+               </div>`
+            : `<div style="font-size:12px; color:var(--text-dim); margin-bottom:6px;">
+                    Czas: <strong id="ksSprawdCzas_${i}" style="color:var(--primary-light);">${durLabel}</strong> h
+                    <span style="opacity:0.8;">(przez północ liczony z dat)</span>
+               </div>`;
+
         return `
-        <div style="border:1px solid #334155; border-radius:10px; padding:12px; margin-bottom:12px;">
-            <div style="font-weight:600; margin-bottom:8px;">${escapeHtml(it.Rodzaj)} – ${escapeHtml(it.Nazwa)}</div>
-            <div style="font-size:13px; color:#94a3b8; margin-bottom:8px;">
+        <div style="border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:12px;">
+            <div style="font-weight:600; margin-bottom:4px;">
+                ${escapeHtml(it.Rodzaj)} – ${escapeHtml(it.Nazwa)}
+                ${it._isProcedure ? '<span style="font-size:11px; color:#d8b4fe;"> · procedura</span>' : ""}
+            </div>
+            <div style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">
                 Linia: ${escapeHtml(it.Linia)} | Km: ${escapeHtml(it.KmOd)} – ${escapeHtml(it.KmDo)}
             </div>
+            ${dateHint}
             <label>Godzina rozpoczęcia</label>
             <input type="text" id="ksSprawdGodzOd_${i}" value="${escapeHtml(startVal)}" placeholder="gg:mm"
                    style="width:100%; margin-bottom:8px;"
-                   oninput="ksiazkaSprawdGodzOdChange(${i})">
-            <label>Szacunkowa godzina zakończenia (+2h, edytowalna)</label>
-            <input type="text" id="ksSprawdGodzDo_${i}" value="${escapeHtml(endVal)}" placeholder="gg:mm" style="width:100%;">
+                   oninput="ksiazkaSprawdGodzChange(${i})">
+            <label>Godzina zakończenia</label>
+            <input type="text" id="ksSprawdGodzDo_${i}" value="${escapeHtml(endVal)}" placeholder="gg:mm" style="width:100%;"
+                   oninput="ksiazkaSprawdGodzChange(${i})">
         </div>`;
     }).join("");
 
     overlay.innerHTML = `
         <div class="modal" style="max-width:560px;">
             <h2 style="margin-top:0;">Zaloguj sprawdzenie</h2>
-            <p style="color:#94a3b8; font-size:14px;">
-                Okno zbiorcze – dane (linia, nazwa, km) pobrane z polecenia.
-                Uzupełnij tylko godziny.
+            <p style="color:var(--text-dim); font-size:14px;">
+                Linia, nazwa i km ze <strong>zgłoszeń</strong>. Godziny z książki (procedura = start + stop).
+                Czas liczony z dat – np. 23:00 → 01:30 = 2:30 h.
             </p>
             ${body}
             <div class="modal-actions">
@@ -2661,14 +2817,32 @@ function ksiazkaSprawdzenieDalej() {
     document.body.appendChild(overlay);
 }
 
+function ksiazkaSprawdGodzChange(idx) {
+    const modal = document.getElementById("ksiazkaSprawdModal");
+    const it = modal && modal._items ? modal._items[idx] : null;
+    const odEl = document.getElementById(`ksSprawdGodzOd_${idx}`);
+    const doEl = document.getElementById(`ksSprawdGodzDo_${idx}`);
+    const czasEl = document.getElementById(`ksSprawdCzas_${idx}`);
+    if (!odEl || !doEl) return;
+
+    const dataOd = it?._dataOd || todayPL();
+    const dataDo = it?._dataDo || dataOd;
+    const mins = durationMinutesBetween(dataOd, odEl.value, dataDo, doEl.value);
+    if (czasEl) czasEl.textContent = formatDurationMin(mins);
+}
+
 function ksiazkaSprawdGodzOdChange(idx) {
+    // kompatybilność – przelicz czas; nie nadpisuj końca przy procedurze
+    const modal = document.getElementById("ksiazkaSprawdModal");
+    const it = modal && modal._items ? modal._items[idx] : null;
     const odEl = document.getElementById(`ksSprawdGodzOd_${idx}`);
     const doEl = document.getElementById(`ksSprawdGodzDo_${idx}`);
     if (!odEl || !doEl) return;
-    if (typeof parseHHMM !== "function" || typeof addHoursHHMM !== "function" || typeof formatHHMM !== "function") return;
-    const parsed = parseHHMM(odEl.value);
-    if (!parsed) return;
-    doEl.value = addHoursHHMM(formatHHMM(parsed), 2);
+    if (!it?._isProcedure && typeof parseHHMM === "function" && typeof addHoursHHMM === "function") {
+        const parsed = parseHHMM(odEl.value);
+        if (parsed) doEl.value = addHoursHHMM(formatHHMM(parsed), 2);
+    }
+    ksiazkaSprawdGodzChange(idx);
 }
 
 async function confirmKsiazkaSprawdzenie() {
@@ -2687,40 +2861,48 @@ async function confirmKsiazkaSprawdzenie() {
             return;
         }
         const entry = (it._entryIndex != null) ? appState.ksiazkaWydarzen[it._entryIndex] : null;
+        const entryEnd = (it._entryIndexEnd != null) ? appState.ksiazkaWydarzen[it._entryIndexEnd] : null;
         const entryId = entry?.id || null;
-        const entryData = entry?.data || todayPL();
+        const entryIdEnd = entryEnd?.id || null;
+        const dataOd = it._dataOd || entry?.data || todayPL();
+        const dataDo = it._dataDo || entryEnd?.data || dataOd;
+        const czasMin = durationMinutesBetween(dataOd, godzOd, dataDo, godzDo);
+        const czas = formatDurationMin(czasMin);
+
+        const payload = {
+            rodzaj: it.Rodzaj,
+            nazwa: it.Nazwa || "",
+            linia: it.Linia || "",
+            kmOd: it.KmOd || "",
+            kmDo: it.KmDo || "",
+            godzOd,
+            godzDo,
+            data: dataOd,
+            dataDo,
+            czas,
+            czasMin,
+            entryId,
+            entryIdEnd,
+            procedureId: it._procedureId || null
+        };
 
         if (typeof logSprawdzenie === "function") {
-            await logSprawdzenie({
-                rodzaj: it.Rodzaj,
-                nazwa: it.Nazwa || "",
-                linia: it.Linia || "",
-                kmOd: it.KmOd || "",
-                kmDo: it.KmDo || "",
-                godzOd,
-                godzDo,
-                entryId,
-                data: entryData
-            });
-            // dopisz entryId jeśli logSprawdzenie go nie zapisuje
+            await logSprawdzenie(payload);
             const last = appState.statystyki?.sprawdzenia?.slice(-1)[0];
-            if (last && entryId && !last.entryId) {
-                last.entryId = entryId;
-                if (!last.data) last.data = entryData;
+            if (last) {
+                if (entryId && !last.entryId) last.entryId = entryId;
+                if (entryIdEnd) last.entryIdEnd = entryIdEnd;
+                if (!last.data) last.data = dataOd;
+                last.dataDo = dataDo;
+                last.czas = czas;
+                last.czasMin = czasMin;
+                if (it._procedureId) last.procedureId = it._procedureId;
             }
         } else {
             if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
             if (!Array.isArray(appState.statystyki.sprawdzenia)) appState.statystyki.sprawdzenia = [];
             appState.statystyki.sprawdzenia.push({
-                rodzaj: it.Rodzaj,
-                nazwa: it.Nazwa || "",
-                linia: it.Linia || "",
-                kmOd: it.KmOd || "",
-                kmDo: it.KmDo || "",
-                godzOd,
-                godzDo,
-                data: entryData,
-                entryId,
+                ...payload,
                 createdAt: new Date().toISOString()
             });
         }
