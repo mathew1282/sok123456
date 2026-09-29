@@ -473,6 +473,38 @@ function initKsiazka() {
             renderKsiazka();
         }
     }, 20000);
+
+    setupKsiazkaShortcuts();
+}
+
+/** Skróty tylko w zakładce Książka: D = dodaj, S = sprawdzenie, E = eksport */
+function setupKsiazkaShortcuts() {
+    if (window._ksiazkaKeyHandler) {
+        document.removeEventListener("keydown", window._ksiazkaKeyHandler);
+    }
+    window._ksiazkaKeyHandler = function (e) {
+        // tylko gdy widoczna książka
+        if (!document.getElementById("ksiazkaContainer")) return;
+        // nie w polach tekstowych / edytorach
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (e.target && e.target.isContentEditable) return;
+        // nie gdy otwarte inne modale (poza samym skrótem)
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+        const key = (e.key || "").toLowerCase();
+        if (key === "d") {
+            e.preventDefault();
+            if (typeof openKsiazkaAddModal === "function") openKsiazkaAddModal();
+        } else if (key === "s") {
+            e.preventDefault();
+            if (typeof openKsiazkaSprawdzenieModal === "function") openKsiazkaSprawdzenieModal();
+        } else if (key === "e") {
+            e.preventDefault();
+            if (typeof exportKsiazkaFiltered === "function") exportKsiazkaFiltered();
+        }
+    };
+    document.addEventListener("keydown", window._ksiazkaKeyHandler);
 }
 
 function toggleKsiazkaFilter(patrolIndex) {
@@ -554,12 +586,12 @@ function renderKsiazka() {
                 </div>
             </div>
             <div class="ksiazka-sticky-right">
-                <button class="btn-success" onclick="openKsiazkaAddModal()">➕ Dodaj wpis</button>
+                <button class="btn-success" onclick="openKsiazkaAddModal()">➕ Dodaj wpis <span style="opacity:.7;font-size:11px;">(D)</span></button>
                 <button class="btn-primary" onclick="openPlanSluzbyModal()">📋 Planowanie</button>
                 <button class="btn-primary" onclick="openZapiszKsiazkeJakoSzablon()">💾 Zapisz książkę jako szablon</button>
                 <button class="btn-primary" onclick="openKsiazkaUwagiPicker()">Uwagi</button>
-                <button class="btn-success" onclick="openKsiazkaSprawdzenieModal()">Sprawdzenie</button>
-                <button class="btn-primary" onclick="exportKsiazkaFiltered()">📋 Eksport (kopiuj)</button>
+                <button class="btn-success" onclick="openKsiazkaSprawdzenieModal()">Sprawdzenie <span style="opacity:.7;font-size:11px;">(S)</span></button>
+                <button class="btn-primary" onclick="exportKsiazkaFiltered()">📋 Eksport (kopiuj) <span style="opacity:.7;font-size:11px;">(E)</span></button>
                 <button class="btn-danger" onclick="clearAllKsiazka()">Kasuj wszystkie</button>
             </div>
         </div>
@@ -1127,7 +1159,7 @@ function renderPlanSluzbyModal() {
     }
 
     overlay.innerHTML = `
-        <div class="modal" style="width:min(1100px,96vw); height:min(90vh,900px); max-width:none; max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
+        <div class="modal" style="width:80vw; max-width:80vw; height:min(90vh,900px); max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
                 <h2 style="margin:0;">📋 Planowanie służby</h2>
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -1777,7 +1809,7 @@ function planPodglad() {
     overlay.className = "modal-overlay";
     overlay.style.cssText = "display:flex; align-items:stretch; justify-content:center; padding:12px; z-index:10050;";
     overlay.innerHTML = `
-        <div class="modal" style="width:min(900px,96vw); height:min(88vh,820px); max-width:none; max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
+        <div class="modal" style="width:80vw; max-width:80vw; height:min(88vh,820px); max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
                 <h2 style="margin:0;">👁 Podgląd planu</h2>
                 <div style="font-size:14px; color:var(--text-dim);">
@@ -3241,7 +3273,7 @@ function openKsiazkaAddModal() {
     overlay.className = "modal-overlay";
     overlay.style.cssText = "display:flex; align-items:stretch; justify-content:center; padding:12px;";
     overlay.innerHTML = `
-        <div class="modal" style="width:min(1100px,96vw); height:min(90vh,900px); max-width:none; max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
+        <div class="modal" style="width:80vw; max-width:80vw; height:min(90vh,900px); max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
                 <h2 style="margin:0;">➕ Dodaj wpis do Książki wydarzeń</h2>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -3283,7 +3315,7 @@ function openKsiazkaAddModal() {
                         <button class="btn-primary" style="padding:4px 10px; font-size:12px;" onclick="ksiazkaAddWyczyscWybor()">Wyczyść wybór</button>
                     </div>
                     <div id="ksAddPreview" contenteditable="true"
-                         style="min-height:140px; max-height:220px; overflow:auto; background:#0f172a; border:1px solid #334155; border-radius:10px; padding:12px; font-size:14px; line-height:1.45; color:#e2e8f0; white-space:pre-wrap;"></div>
+                         style="min-height:140px; max-height:280px; overflow:auto; background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px; font-size:14px; line-height:1.45; color:var(--text); white-space:pre-wrap;"></div>
                 </div>
             </div>
             <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px; flex-wrap:wrap;">
@@ -3620,6 +3652,7 @@ async function ksiazkaAddZapisz() {
 // EXPOSE
 // =====================================
 window.initKsiazka = initKsiazka;
+window.setupKsiazkaShortcuts = setupKsiazkaShortcuts;
 window.renderKsiazka = renderKsiazka;
 window.openKsiazkaSaveModal = openKsiazkaSaveModal;
 window.closeKsiazkaSaveModal = closeKsiazkaSaveModal;
