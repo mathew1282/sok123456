@@ -7,6 +7,7 @@
 let currentZgloszenieEdit = null; // { mode: 'single'|'proc', index?, startIndex?, endIndex? }
 let zgloszeniaFilterLinia = "";
 let zgloszeniaFilterTyp = "wszystkie"; // wszystkie | pojedyncze | procedury
+let zgloszeniaFilterQuery = ""; // autofiltr nr linii (wpisywany)
 
 function initZgloszenia() {
     if (!appState.zgloszenia) {
@@ -110,6 +111,14 @@ function getZgloszeniaDisplayList() {
     if (zgloszeniaFilterLinia) {
         list = list.filter(i => String(i.linia) === String(zgloszeniaFilterLinia));
     }
+    const q = (zgloszeniaFilterQuery || "").trim().toLowerCase();
+    if (q) {
+        list = list.filter(i => {
+            const linia = String(i.linia || "").toLowerCase();
+            const tytul = String(i.tytul || "").toLowerCase();
+            return linia.includes(q) || tytul.includes(q);
+        });
+    }
     list.sort((a, b) => String(a.linia).localeCompare(String(b.linia), "pl", { numeric: true })
         || String(a.tytul).localeCompare(String(b.tytul), "pl"));
     return list;
@@ -136,12 +145,14 @@ function renderZgloszenia() {
 
     const list = getZgloszeniaDisplayList();
     const body = list.length === 0
-        ? `<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:20px;">Brak zgłoszeń. Dodaj zgłoszenie lub procedurę (start + koniec).</td></tr>`
-        : list.map(item => {
+        ? `<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:20px;">Brak zgłoszeń. Dodaj zgłoszenie lub procedurę (start + koniec).</td></tr>`
+        : list.map((item, li) => {
             if (item.typ === "procedura") {
                 const meta = [item.start?.Rodzaj, item.start?.Nazwa || item.end?.Nazwa].filter(Boolean).join(" · ");
                 const preview = "▶ " + zglPlain(item.start?.Opis).slice(0, 40) + " → ■ " + zglPlain(item.end?.Opis).slice(0, 40);
+                const key = "p:" + (item.startIndex ?? "") + ":" + (item.endIndex ?? "");
                 return `<tr>
+                    <td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>
                     <td>${escapeHtml(item.linia)}</td>
                     <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(168,85,247,.2);color:#d8b4fe;">Procedura</span></td>
                     <td style="font-weight:600;">${escapeHtml(item.tytul)}${meta ? `<div style="font-size:11px;color:var(--text-dim);font-weight:400;">${escapeHtml(meta)}</div>` : ""}</td>
@@ -153,7 +164,9 @@ function renderZgloszenia() {
                 </tr>`;
             }
             const r = item.row;
+            const key = "s:" + item.index;
             return `<tr>
+                <td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>
                 <td>${escapeHtml(item.linia)}</td>
                 <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(34,197,94,.15);color:#86efac;">Zgłoszenie</span></td>
                 <td style="font-weight:600;">${escapeHtml(item.tytul)}</td>
@@ -175,19 +188,39 @@ function renderZgloszenia() {
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn-primary" onclick="openZgloszenieModal()">+ Zgłoszenie</button>
                 <button class="btn-success" onclick="openProceduraZglModal()">+ Procedura</button>
+                <button class="btn-danger" onclick="removeSelectedZgloszenia()">Usuń zaznaczone</button>
             </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">
+            <label style="font-size:13px;color:var(--text-dim);white-space:nowrap;">Autofiltr linii:</label>
+            <input type="text" id="zgloszeniaAutoFilter" placeholder="np. 275…" value="${escapeHtml(zgloszeniaFilterQuery || "")}"
+                   style="flex:1;min-width:140px;max-width:220px;padding:8px 10px;border-radius:8px;"
+                   oninput="zgloszeniaFilterQuery=this.value;renderZgloszenia();">
+            ${zgloszeniaFilterQuery || zgloszeniaFilterLinia ? `<button type="button" class="btn-primary" style="padding:6px 12px;font-size:13px;" onclick="zgloszeniaFilterQuery='';zgloszeniaFilterLinia='';renderZgloszenia();">Wyczyść filtr</button>` : ""}
         </div>
         <div class="card-grid" style="gap:8px;margin-bottom:8px;">${typPills}</div>
         <div class="card-grid" style="gap:8px;margin-bottom:14px;">${linePills}</div>
         <table>
             <thead>
-                <tr><th>Linia</th><th>Typ</th><th>Nazwa</th><th>Podgląd</th><th>Akcje</th></tr>
+                <tr>
+                    <th style="width:36px;"><input type="checkbox" id="zglSelectAll" title="Zaznacz widoczne" onclick="zglToggleSelectAll(this.checked)"></th>
+                    <th>Linia</th><th>Typ</th><th>Nazwa</th><th>Podgląd</th><th>Akcje</th>
+                </tr>
             </thead>
             <tbody>${body}</tbody>
         </table>
     </div>
     <div id="zglModalRoot"></div>
     `;
+    // przywróć fokus i kursor w polu autofiltra
+    const af = document.getElementById("zgloszeniaAutoFilter");
+    if (af && document.activeElement === af) {
+        /* już fokus */
+    } else if (af && zgloszeniaFilterQuery) {
+        const pos = af.value.length;
+        af.focus();
+        try { af.setSelectionRange(pos, pos); } catch (e) {}
+    }
 }
 
 function setZgloszeniaFilterLinia(line) {
@@ -495,6 +528,45 @@ async function removeProceduraZgl(startIndex, endIndex) {
 // Excel import – keep simple compatibility
 const ZGLOSZENIA_EXCEL_COLUMNS = ["Linia", "OpisKrotki", "OpisPom", "Opis"];
 
+
+function zglToggleSelectAll(checked) {
+    document.querySelectorAll(".zgl-sel").forEach(cb => { cb.checked = !!checked; });
+}
+
+async function removeSelectedZgloszenia() {
+    const keys = [...document.querySelectorAll(".zgl-sel:checked")].map(cb => cb.getAttribute("data-key")).filter(Boolean);
+    if (!keys.length) {
+        if (typeof showToast === "function") showToast("Zaznacz pozycje do usunięcia");
+        else alert("Zaznacz pozycje do usunięcia");
+        return;
+    }
+    if (!confirm("Usunąć zaznaczone pozycje (" + keys.length + ")?")) return;
+
+    // zbierz indeksy wierszy do usunięcia (od największego)
+    const toRemove = new Set();
+    keys.forEach(k => {
+        if (k.startsWith("p:")) {
+            const parts = k.slice(2).split(":");
+            const si = parseInt(parts[0], 10);
+            const ei = parseInt(parts[1], 10);
+            if (!isNaN(si) && si >= 0) toRemove.add(si);
+            if (!isNaN(ei) && ei >= 0) toRemove.add(ei);
+        } else if (k.startsWith("s:")) {
+            const i = parseInt(k.slice(2), 10);
+            if (!isNaN(i) && i >= 0) toRemove.add(i);
+        }
+    });
+    const idxs = [...toRemove].sort((a, b) => b - a);
+    idxs.forEach(i => {
+        if (i >= 0 && i < (appState.zgloszenia.rows || []).length) {
+            appState.zgloszenia.rows.splice(i, 1);
+        }
+    });
+    if (typeof saveState === "function") await saveState();
+    renderZgloszenia();
+    if (typeof showToast === "function") showToast("Usunięto " + idxs.length + " pozycji");
+}
+
 window.initZgloszenia = initZgloszenia;
 window.renderZgloszenia = renderZgloszenia;
 window.setZgloszeniaFilterLinia = setZgloszeniaFilterLinia;
@@ -507,6 +579,8 @@ window.closeZgloszenieModal = closeZgloszenieModal;
 window.saveZgloszenie = saveZgloszenie;
 window.removeZgloszenie = removeZgloszenie;
 window.removeProceduraZgl = removeProceduraZgl;
+window.removeSelectedZgloszenia = removeSelectedZgloszenia;
+window.zglToggleSelectAll = zglToggleSelectAll;
 window.zglSyncShared = zglSyncShared;
 window.zglFormat = zglFormat;
 window.zglInsertTag = zglInsertTag;
