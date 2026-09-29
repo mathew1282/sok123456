@@ -77,6 +77,110 @@ function sortStatNewestFirst(arr) {
     });
 }
 
+
+function normalizeInterwencjaTyp(t) {
+    t = String(t || "Inne").trim();
+    if (t === "M" || t.toUpperCase() === "MKK") return "MKK";
+    if (t === "P" || /^poucz/i.test(t)) return "Pouczony";
+    if (t === "L" || /^legitym/i.test(t)) return "Legitymowany";
+    if (t === "I" || /^inne$/i.test(t)) return "Inne";
+    return t;
+}
+
+function findKsiazkaEntryById(id) {
+    if (!id) return null;
+    const list = appState.ksiazkaWydarzen || [];
+    return list.find(e => String(e.id) === String(id)) || null;
+}
+
+function stripHtmlPreview(html, maxLen) {
+    let s = String(html || "")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/p>/gi, "\n")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (maxLen && s.length > maxLen) s = s.slice(0, maxLen) + "…";
+    return s;
+}
+
+function getInterwencjeDlaTypu(typFilter) {
+    ensureStatystykiState();
+    const all = sortStatNewestFirst(appState.statystyki.interwencje || []);
+    if (typFilter === "ALL") return all;
+    return all.filter(i => normalizeInterwencjaTyp(i.typ) === typFilter);
+}
+
+function openInterwencjeSzczegoly(typFilter) {
+    const items = getInterwencjeDlaTypu(typFilter);
+    const title = typFilter === "ALL" ? "Wszystkie interwencje" : ("Interwencje: " + typFilter);
+
+    const old = document.getElementById("interwencjeSzczegolyModal");
+    if (old) old.remove();
+
+    let body;
+    if (!items.length) {
+        body = `<p style="color:var(--text-dim); padding:12px 0;">Brak zapisanych interwencji tego typu.</p>`;
+    } else {
+        body = items.map((i, n) => {
+            const entry = findKsiazkaEntryById(i.entryId);
+            const data = i.data || entry?.data || "—";
+            const godz = i.godzina || entry?.godzinaStart || "—";
+            const typ = normalizeInterwencjaTyp(i.typ);
+            let preview = "";
+            if (entry) {
+                preview = stripHtmlPreview(entry.tekst, 180);
+            } else {
+                preview = "(brak powiązanego wpisu w książce – interwencja zapisana tylko w statystykach)";
+            }
+            const patrol = entry && Array.isArray(entry.patrole)
+                ? entry.patrole.map(pi => {
+                    const p = (appState.patrole || [])[pi];
+                    return p ? (p.nazwa || ("Patrol " + (pi + 1))) : "";
+                }).filter(Boolean).join(", ")
+                : "";
+            return `
+            <div style="border:1px solid var(--border,#334155); border-radius:10px; padding:12px; margin-bottom:10px; background:var(--bg-input,#1e293b);">
+                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:6px;">
+                    <span style="font-weight:800; color:var(--primary-light,#60a5fa);">${escapeHtml(typ)}</span>
+                    <span style="font-size:13px; color:var(--text-dim);">${escapeHtml(String(data))} · <strong>${escapeHtml(String(godz))}</strong></span>
+                    ${patrol ? `<span style="font-size:12px; color:var(--text-dim);">· ${escapeHtml(patrol)}</span>` : ""}
+                    <span style="font-size:11px; color:var(--text-dim); margin-left:auto;">#${n + 1}</span>
+                </div>
+                <div style="font-size:13.5px; line-height:1.45; white-space:pre-wrap; color:var(--text,#e2e8f0);">${escapeHtml(preview)}</div>
+            </div>`;
+        }).join("");
+    }
+
+    const overlay = document.createElement("div");
+    overlay.id = "interwencjeSzczegolyModal";
+    overlay.className = "modal-overlay";
+    overlay.style.display = "flex";
+    overlay.innerHTML = `
+        <div class="modal" style="max-width:640px; max-height:90vh; display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
+                <h2 style="margin:0;">${escapeHtml(title)}</h2>
+                <span style="font-size:13px; color:var(--text-dim);">${items.length} szt.</span>
+            </div>
+            <p style="color:var(--text-dim); font-size:13px; margin:0 0 12px 0;">
+                Lista interwencji z podglądem treści z <strong>Książki wydarzeń</strong> (jeśli jest powiązanie).
+            </p>
+            <div style="flex:1; overflow:auto; min-height:0;">${body}</div>
+            <div class="modal-actions" style="margin-top:12px;">
+                <button class="btn-danger" onclick="closeInterwencjeSzczegoly()">Zamknij</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+function closeInterwencjeSzczegoly() {
+    const m = document.getElementById("interwencjeSzczegolyModal");
+    if (m) m.remove();
+}
+
+
 function initStatystyki() {
     ensureStatystykiState();
     renderStatystyki();
@@ -118,24 +222,30 @@ function renderStatystyki() {
             Usuwają się dopiero po kliknięciu „Kasuj wszystkie” albo pojedynczego „Usuń”.
         </p>
 
+        <p style="color:var(--text-dim,#94a3b8); font-size:13px; margin:0 0 10px 0;">Kliknij kafelkę MKK / P / L / Inne, aby zobaczyć powiązane wpisy z książki.</p>
         <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin-bottom:22px;">
-            <div style="background:rgba(96,165,250,.12); border:1px solid #60a5fa; border-radius:12px; padding:14px; text-align:center;">
+            <div role="button" tabindex="0" onclick="openInterwencjeSzczegoly('MKK')"
+                 style="cursor:pointer; background:rgba(96,165,250,.12); border:1px solid #60a5fa; border-radius:12px; padding:14px; text-align:center;">
                 <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">MKK</div>
                 <div style="font-size:26px; font-weight:800; color:#60a5fa;">${counts.MKK}</div>
             </div>
-            <div style="background:rgba(52,211,153,.12); border:1px solid #34d399; border-radius:12px; padding:14px; text-align:center;">
+            <div role="button" tabindex="0" onclick="openInterwencjeSzczegoly('Pouczony')"
+                 style="cursor:pointer; background:rgba(52,211,153,.12); border:1px solid #34d399; border-radius:12px; padding:14px; text-align:center;">
                 <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">Pouczony (P)</div>
                 <div style="font-size:26px; font-weight:800; color:#34d399;">${counts.Pouczony}</div>
             </div>
-            <div style="background:rgba(251,146,60,.12); border:1px solid #fb923c; border-radius:12px; padding:14px; text-align:center;">
+            <div role="button" tabindex="0" onclick="openInterwencjeSzczegoly('Legitymowany')"
+                 style="cursor:pointer; background:rgba(251,146,60,.12); border:1px solid #fb923c; border-radius:12px; padding:14px; text-align:center;">
                 <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">Legitymowany (L)</div>
                 <div style="font-size:26px; font-weight:800; color:#fb923c;">${counts.Legitymowany}</div>
             </div>
-            <div style="background:var(--bg-input,#1e293b); border:1px solid var(--border,#334155); border-radius:12px; padding:14px; text-align:center;">
+            <div role="button" tabindex="0" onclick="openInterwencjeSzczegoly('Inne')"
+                 style="cursor:pointer; background:var(--bg-input,#1e293b); border:1px solid var(--border,#334155); border-radius:12px; padding:14px; text-align:center;">
                 <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">Inne</div>
                 <div style="font-size:26px; font-weight:800;">${counts.Inne}</div>
             </div>
-            <div style="background:var(--bg-input,#1e293b); border:1px solid var(--border,#334155); border-radius:12px; padding:14px; text-align:center;">
+            <div role="button" tabindex="0" onclick="openInterwencjeSzczegoly('ALL')"
+                 style="cursor:pointer; background:var(--bg-input,#1e293b); border:1px solid var(--border,#334155); border-radius:12px; padding:14px; text-align:center;">
                 <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">Razem interwencje</div>
                 <div style="font-size:26px; font-weight:800;">${counts.MKK + counts.Pouczony + counts.Legitymowany + counts.Inne}</div>
             </div>
@@ -413,3 +523,6 @@ window.closeEditSprawdzenieModal = closeEditSprawdzenieModal;
 window.removeSprawdzenie = removeSprawdzenie;
 window.copySzlaki = copySzlaki;
 window.clearAllStatystyki = clearAllStatystyki;
+window.openInterwencjeSzczegoly = openInterwencjeSzczegoly;
+window.closeInterwencjeSzczegoly = closeInterwencjeSzczegoly;
+
