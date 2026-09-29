@@ -7,7 +7,11 @@
 let currentZgloszenieEdit = null; // { mode: 'single'|'proc', index?, startIndex?, endIndex? }
 let zgloszeniaFilterLinia = "";
 let zgloszeniaFilterTyp = "wszystkie"; // wszystkie | pojedyncze | procedury
-let zgloszeniaFilterQuery = ""; // autofiltr nr linii (wpisywany)
+let zgloszeniaFilterQuery = "";
+let zglDeleteMode = false;
+/** Excel-like: { Linia?: string, Typ?: string, Nazwa?: string } partial match */
+let zglColFilters = { Linia: "", Typ: "", Nazwa: "" };
+let zglOpenFilterCol = null; // "Linia" | "Typ" | "Nazwa" | null
 
 function initZgloszenia() {
     if (!appState.zgloszenia) {
@@ -23,9 +27,9 @@ function initZgloszenia() {
         if (!row.id) row.id = zglNewId();
     });
     appState.zgloszenia.columns = ["Linia", "OpisKrotki", "OpisPom", "Opis"];
-    zgloszeniaFilterLinia = "";
-    zgloszeniaFilterTyp = "wszystkie";
     currentZgloszenieEdit = null;
+    zglDeleteMode = false;
+    zglOpenFilterCol = null;
     renderZgloszenia();
 }
 
@@ -111,14 +115,19 @@ function getZgloszeniaDisplayList() {
     if (zgloszeniaFilterLinia) {
         list = list.filter(i => String(i.linia) === String(zgloszeniaFilterLinia));
     }
-    const q = (zgloszeniaFilterQuery || "").trim().toLowerCase();
-    if (q) {
+    // Excel-like filtry kolumn
+    const fLinia = (zglColFilters.Linia || "").trim().toLowerCase();
+    const fTyp = (zglColFilters.Typ || "").trim().toLowerCase();
+    const fNazwa = (zglColFilters.Nazwa || "").trim().toLowerCase();
+    if (fLinia) list = list.filter(i => String(i.linia || "").toLowerCase().includes(fLinia));
+    if (fTyp) {
         list = list.filter(i => {
-            const linia = String(i.linia || "").toLowerCase();
-            const tytul = String(i.tytul || "").toLowerCase();
-            return linia.includes(q) || tytul.includes(q);
+            const typ = i.typ === "procedura" ? "procedura" : "zgłoszenie";
+            return typ.includes(fTyp) || (i.typ || "").toLowerCase().includes(fTyp);
         });
     }
+    if (fNazwa) list = list.filter(i => String(i.tytul || "").toLowerCase().includes(fNazwa));
+
     list.sort((a, b) => String(a.linia).localeCompare(String(b.linia), "pl", { numeric: true })
         || String(a.tytul).localeCompare(String(b.tytul), "pl"));
     return list;
@@ -128,83 +137,100 @@ function renderZgloszenia() {
     const container = document.getElementById("zgloszeniaContainer");
     if (!container) return;
 
-    const allRows = (appState.zgloszenia.rows || []).map((r, i) => ({ ...r, _index: i }));
-    const lines = sortLinesNatural([...new Set(allRows.map(r => r.Linia || "").filter(Boolean))]);
-
-    const linePills = [`<div class="line-pill ${!zgloszeniaFilterLinia ? "active" : ""}" style="cursor:pointer;" onclick="setZgloszeniaFilterLinia('')">Wszystkie</div>`]
-        .concat(lines.map(l => `<div class="line-pill ${zgloszeniaFilterLinia === l ? "active" : ""}" style="cursor:pointer;" onclick="setZgloszeniaFilterLinia('${String(l).replace(/'/g, "\\'")}')">${escapeHtml(l)}</div>`))
-        .join("");
-
-    const typPills = [
-        ["wszystkie", "Wszystkie"],
-        ["procedury", "Procedury"],
-        ["pojedyncze", "Zgłoszenia"]
-    ].map(([k, lab]) =>
-        `<div class="line-pill ${zgloszeniaFilterTyp === k ? "active" : ""}" style="cursor:pointer;" onclick="setZgloszeniaFilterTyp('${k}')">${lab}</div>`
-    ).join("");
-
     const list = getZgloszeniaDisplayList();
+    const delMode = !!zglDeleteMode;
+    const usunStyle = delMode
+        ? "background:#dc2626;border-color:#dc2626;color:#fff;"
+        : "background:#16a34a;border-color:#16a34a;color:#fff;";
+    const usunLabel = delMode ? "Usuń zaznaczone" : "Usuń zaznaczone";
+
+    function thFilter(col, label) {
+        const active = (zglColFilters[col] || "").trim();
+        const open = zglOpenFilterCol === col;
+        const arrow = active ? "▼" : "▽";
+        return `<th style="position:relative; user-select:none;">
+            <span style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
+                  onclick="event.stopPropagation();zglToggleColFilter('${col}')">
+                ${label} <span style="font-size:10px;opacity:0.8;">${arrow}</span>
+                ${active ? `<span style="font-size:10px;color:#60a5fa;">●</span>` : ""}
+            </span>
+            ${open ? `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:180px;padding:8px;background:var(--bg,#0f172a);border:1px solid var(--border,#334155);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);"
+                onclick="event.stopPropagation()">
+                <input type="text" placeholder="Filtruj…" value="${escapeHtml(zglColFilters[col] || "")}"
+                       style="width:100%;padding:6px 8px;border-radius:6px;margin-bottom:6px;"
+                       oninput="zglColFilters['${col}']=this.value;renderZgloszenia();"
+                       onclick="event.stopPropagation()">
+                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;"
+                        onclick="zglColFilters['${col}']='';zglOpenFilterCol=null;renderZgloszenia();">Wyczyść</button>
+            </div>` : ""}
+        </th>`;
+    }
+
     const body = list.length === 0
-        ? `<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:20px;">Brak zgłoszeń. Dodaj zgłoszenie lub procedurę (start + koniec).</td></tr>`
-        : list.map((item, li) => {
+        ? `<tr><td colspan="${delMode ? 6 : 5}" style="text-align:center;color:var(--text-dim);padding:20px;">Brak zgłoszeń.</td></tr>`
+        : list.map(item => {
             if (item.typ === "procedura") {
                 const meta = [item.start?.Rodzaj, item.start?.Nazwa || item.end?.Nazwa].filter(Boolean).join(" · ");
                 const preview = "▶ " + zglPlain(item.start?.Opis).slice(0, 40) + " → ■ " + zglPlain(item.end?.Opis).slice(0, 40);
                 const key = "p:" + (item.startIndex ?? "") + ":" + (item.endIndex ?? "");
+                const cb = delMode
+                    ? `<td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>`
+                    : "";
                 return `<tr>
-                    <td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>
+                    ${cb}
                     <td>${escapeHtml(item.linia)}</td>
                     <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(168,85,247,.2);color:#d8b4fe;">Procedura</span></td>
                     <td style="font-weight:600;">${escapeHtml(item.tytul)}${meta ? `<div style="font-size:11px;color:var(--text-dim);font-weight:400;">${escapeHtml(meta)}</div>` : ""}</td>
                     <td style="font-size:12px;color:var(--text-dim);max-width:260px;">${escapeHtml(preview)}</td>
                     <td style="white-space:nowrap;">
                         <button class="btn-primary" onclick="editProceduraZgl(${item.startIndex}, ${item.endIndex})">Edytuj</button>
-                        <button class="btn-danger" onclick="removeProceduraZgl(${item.startIndex}, ${item.endIndex})">Usuń</button>
                     </td>
                 </tr>`;
             }
             const r = item.row;
             const key = "s:" + item.index;
+            const cb = delMode
+                ? `<td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>`
+                : "";
             return `<tr>
-                <td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>
+                ${cb}
                 <td>${escapeHtml(item.linia)}</td>
                 <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(34,197,94,.15);color:#86efac;">Zgłoszenie</span></td>
                 <td style="font-weight:600;">${escapeHtml(item.tytul)}</td>
                 <td style="font-size:12px;color:var(--text-dim);max-width:260px;">${escapeHtml(zglPlain(r.Opis).slice(0, 80))}</td>
                 <td style="white-space:nowrap;">
                     <button class="btn-primary" onclick="editZgloszenie(${item.index})">Edytuj</button>
-                    <button class="btn-danger" onclick="removeZgloszenie(${item.index})">Usuń</button>
                 </td>
             </tr>`;
         }).join("");
 
+    const thCb = delMode
+        ? `<th style="width:36px;"><input type="checkbox" title="Zaznacz widoczne" onclick="zglToggleSelectAll(this.checked)"></th>`
+        : "";
+
     container.innerHTML = `
-    <div class="card">
+    <div class="card" onclick="if(zglOpenFilterCol){zglOpenFilterCol=null;renderZgloszenia();}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
             <div>
                 <h2 style="margin:0 0 4px 0;">📋 Zgłoszenia</h2>
-                <div style="font-size:13px;color:var(--text-dim);">Zwykłe zgłoszenie albo <strong>procedura</strong> (rozpoczęcie + zakończenie)</div>
+                <div style="font-size:13px;color:var(--text-dim);">Zwykłe zgłoszenie albo <strong>procedura</strong> (start + koniec)</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn-primary" onclick="openZgloszenieModal()">+ Zgłoszenie</button>
                 <button class="btn-success" onclick="openProceduraZglModal()">+ Procedura</button>
-                <button class="btn-danger" onclick="removeSelectedZgloszenia()">Usuń zaznaczone</button>
+                <button type="button" style="padding:8px 14px;border-radius:8px;border:1px solid transparent;cursor:pointer;font-weight:600;${usunStyle}"
+                        onclick="event.stopPropagation();zglUsunZaznaczoneClick()">${usunLabel}</button>
             </div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;">
-            <label style="font-size:13px;color:var(--text-dim);white-space:nowrap;">Autofiltr linii:</label>
-            <input type="text" id="zgloszeniaAutoFilter" placeholder="np. 275…" value="${escapeHtml(zgloszeniaFilterQuery || "")}"
-                   style="flex:1;min-width:140px;max-width:220px;padding:8px 10px;border-radius:8px;"
-                   oninput="zgloszeniaFilterQuery=this.value;renderZgloszenia();">
-            ${zgloszeniaFilterQuery || zgloszeniaFilterLinia ? `<button type="button" class="btn-primary" style="padding:6px 12px;font-size:13px;" onclick="zgloszeniaFilterQuery='';zgloszeniaFilterLinia='';renderZgloszenia();">Wyczyść filtr</button>` : ""}
-        </div>
-        <div class="card-grid" style="gap:8px;margin-bottom:8px;">${typPills}</div>
-        <div class="card-grid" style="gap:8px;margin-bottom:14px;">${linePills}</div>
         <table>
             <thead>
                 <tr>
-                    <th style="width:36px;"><input type="checkbox" id="zglSelectAll" title="Zaznacz widoczne" onclick="zglToggleSelectAll(this.checked)"></th>
-                    <th>Linia</th><th>Typ</th><th>Nazwa</th><th>Podgląd</th><th>Akcje</th>
+                    ${thCb}
+                    ${thFilter("Linia", "Linia")}
+                    ${thFilter("Typ", "Typ")}
+                    ${thFilter("Nazwa", "Nazwa")}
+                    <th>Podgląd</th>
+                    <th>Akcje</th>
                 </tr>
             </thead>
             <tbody>${body}</tbody>
@@ -212,15 +238,37 @@ function renderZgloszenia() {
     </div>
     <div id="zglModalRoot"></div>
     `;
-    // przywróć fokus i kursor w polu autofiltra
-    const af = document.getElementById("zgloszeniaAutoFilter");
-    if (af && document.activeElement === af) {
-        /* już fokus */
-    } else if (af && zgloszeniaFilterQuery) {
-        const pos = af.value.length;
-        af.focus();
-        try { af.setSelectionRange(pos, pos); } catch (e) {}
+}
+
+function zglToggleColFilter(col) {
+    zglOpenFilterCol = (zglOpenFilterCol === col) ? null : col;
+    renderZgloszenia();
+    // fokus w input filtr
+    setTimeout(() => {
+        const inp = document.querySelector(`th input[placeholder="Filtruj…"]`);
+        if (inp) { inp.focus(); const n = inp.value.length; try { inp.setSelectionRange(n, n); } catch (e) {} }
+    }, 30);
+}
+
+function zglUsunZaznaczoneClick() {
+    if (!zglDeleteMode) {
+        zglDeleteMode = true;
+        renderZgloszenia();
+        if (typeof showToast === "function") showToast("Zaznacz pozycje do usunięcia");
+        return;
     }
+    const keys = [...document.querySelectorAll(".zgl-sel:checked")].map(cb => cb.getAttribute("data-key")).filter(Boolean);
+    if (!keys.length) {
+        zglDeleteMode = false;
+        renderZgloszenia();
+        return;
+    }
+    removeSelectedZgloszenia().then((ok) => {
+        if (ok) {
+            zglDeleteMode = false;
+            renderZgloszenia();
+        }
+    });
 }
 
 function setZgloszeniaFilterLinia(line) {
@@ -535,12 +583,8 @@ function zglToggleSelectAll(checked) {
 
 async function removeSelectedZgloszenia() {
     const keys = [...document.querySelectorAll(".zgl-sel:checked")].map(cb => cb.getAttribute("data-key")).filter(Boolean);
-    if (!keys.length) {
-        if (typeof showToast === "function") showToast("Zaznacz pozycje do usunięcia");
-        else alert("Zaznacz pozycje do usunięcia");
-        return;
-    }
-    if (!confirm("Usunąć zaznaczone pozycje (" + keys.length + ")?")) return;
+    if (!keys.length) return false;
+    if (!confirm("Usunąć zaznaczone pozycje (" + keys.length + ")?")) return false;
 
     // zbierz indeksy wierszy do usunięcia (od największego)
     const toRemove = new Set();
@@ -563,8 +607,8 @@ async function removeSelectedZgloszenia() {
         }
     });
     if (typeof saveState === "function") await saveState();
-    renderZgloszenia();
     if (typeof showToast === "function") showToast("Usunięto " + idxs.length + " pozycji");
+    return true;
 }
 
 window.initZgloszenia = initZgloszenia;
