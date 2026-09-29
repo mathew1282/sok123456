@@ -3281,10 +3281,29 @@ async function confirmKsiazkaInterwencja() {
     const meta = INTERWENCJE_MAP[typ];
     if (meta) entry.interwencje[meta.code] = true;
 
+    // Zapis do STATYSTYK (suma MKK / Pouczony / Legitymowany / Inne)
+    const statTyp = meta ? meta.label : (typ === "MKK" ? "MKK" : typ === "P" ? "Pouczony" : typ === "L" ? "Legitymowany" : "Inne");
+    if (typeof logInterwencja === "function") {
+        await logInterwencja(statTyp, {
+            entryId: entry.id || null,
+            data: entry.data || undefined,
+            godzina: entry.godzinaStart || undefined
+        });
+    } else {
+        if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
+        if (!Array.isArray(appState.statystyki.interwencje)) appState.statystyki.interwencje = [];
+        appState.statystyki.interwencje.push({
+            data: (typeof todayPL === "function" ? todayPL() : new Date().toLocaleDateString("pl-PL")),
+            typ: statTyp,
+            godzina: (typeof nowHHMM === "function" ? nowHHMM() : ""),
+            entryId: entry.id || null
+        });
+    }
+
     await saveState();
     closeKsiazkaUwagiEditModal();
     renderKsiazka();
-    if (typeof showToast === "function") showToast("✅ Zapisano interwencję " + (meta ? meta.label : typ));
+    if (typeof showToast === "function") showToast("✅ Zapisano interwencję " + statTyp + " (+1 w statystykach)");
 }
 
 
