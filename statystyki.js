@@ -18,14 +18,24 @@ function nowHHMM() {
     return new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
 }
 
-async function logInterwencja(typ) {
+async function logInterwencja(typ, extra) {
     ensureStatystykiState();
-    const t = String(typ || "Inne").trim() || "Inne";
-    appState.statystyki.interwencje.push({
+    let t = String(typ || "Inne").trim() || "Inne";
+    if (t === "M") t = "MKK";
+    if (t === "P") t = "Pouczony";
+    if (t === "L") t = "Legitymowany";
+    if (t === "I") t = "Inne";
+    const row = {
         data: todayPL(),
         typ: t,
         godzina: nowHHMM()
-    });
+    };
+    if (extra && typeof extra === "object") {
+        if (extra.entryId) row.entryId = extra.entryId;
+        if (extra.godzina) row.godzina = extra.godzina;
+        if (extra.data) row.data = extra.data;
+    }
+    appState.statystyki.interwencje.push(row);
     await saveState();
 }
 
@@ -83,7 +93,12 @@ function renderStatystyki() {
 
     const counts = { MKK: 0, Pouczony: 0, Legitymowany: 0, Inne: 0 };
     interwencje.forEach(i => {
-        const t = i.typ || "Inne";
+        let t = String(i.typ || "Inne").trim();
+        // normalizacja skrótów z książki
+        if (t === "M" || t.toUpperCase() === "MKK") t = "MKK";
+        else if (t === "P" || /^poucz/i.test(t)) t = "Pouczony";
+        else if (t === "L" || /^legitym/i.test(t)) t = "Legitymowany";
+        else if (t === "I" || /^inne$/i.test(t)) t = "Inne";
         if (counts[t] !== undefined) counts[t]++;
         else counts.Inne++;
     });
@@ -103,12 +118,27 @@ function renderStatystyki() {
             Usuwają się dopiero po kliknięciu „Kasuj wszystkie” albo pojedynczego „Usuń”.
         </p>
 
-        <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center; margin-bottom:20px; font-size:16px;">
-            <span><strong>Interwencje (łącznie):</strong></span>
-            <span><strong>MKK:</strong> ${counts.MKK}</span>
-            <span><strong>Pouczony:</strong> ${counts.Pouczony}</span>
-            <span><strong>Legitymowany:</strong> ${counts.Legitymowany}</span>
-            <span><strong>Inne:</strong> ${counts.Inne}</span>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin-bottom:22px;">
+            <div style="background:rgba(96,165,250,.12); border:1px solid #60a5fa; border-radius:12px; padding:14px; text-align:center;">
+                <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">MKK</div>
+                <div style="font-size:26px; font-weight:800; color:#60a5fa;">${counts.MKK}</div>
+            </div>
+            <div style="background:rgba(52,211,153,.12); border:1px solid #34d399; border-radius:12px; padding:14px; text-align:center;">
+                <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">Pouczony (P)</div>
+                <div style="font-size:26px; font-weight:800; color:#34d399;">${counts.Pouczony}</div>
+            </div>
+            <div style="background:rgba(251,146,60,.12); border:1px solid #fb923c; border-radius:12px; padding:14px; text-align:center;">
+                <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">Legitymowany (L)</div>
+                <div style="font-size:26px; font-weight:800; color:#fb923c;">${counts.Legitymowany}</div>
+            </div>
+            <div style="background:var(--bg-input,#1e293b); border:1px solid var(--border,#334155); border-radius:12px; padding:14px; text-align:center;">
+                <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">Inne</div>
+                <div style="font-size:26px; font-weight:800;">${counts.Inne}</div>
+            </div>
+            <div style="background:var(--bg-input,#1e293b); border:1px solid var(--border,#334155); border-radius:12px; padding:14px; text-align:center;">
+                <div style="font-size:12px; color:var(--text-dim,#94a3b8); margin-bottom:4px;">Razem interwencje</div>
+                <div style="font-size:26px; font-weight:800;">${counts.MKK + counts.Pouczony + counts.Legitymowany + counts.Inne}</div>
+            </div>
         </div>
 
         <h3>Stacje towarowe (${towarowe.length})</h3>
