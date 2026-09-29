@@ -1,5 +1,5 @@
 // =====================================
-// POLECENIA (Rodzaj + Nazwa + Km od/do + 3 poziomy)
+// POLECENIA (Linia + Opis krótki + Opis pom + Opis)
 // =====================================
 
 let currentPolecenieEdit = null;
@@ -131,11 +131,6 @@ function renderPolecenia() {
                     <th>Opis krótki</th>
                     <th>Opis pom</th>
                     <th>Opis</th>
-                    <th>Rodzaj</th>
-                    <th>Nazwa</th>
-                    <th>Km od</th>
-                    <th>Km do</th>
-                    <th>Powiązane zgłoszenie</th>
                     <th>Akcje</th>
                 </tr>
             </thead>
@@ -153,12 +148,7 @@ function renderPolecenia() {
             <td>${escapeHtml(row.Linia || "")}</td>
             <td>${escapeHtml(krotki)}</td>
             <td>${escapeHtml(pom)}</td>
-            <td style="white-space: pre-wrap; max-width: 220px;">${escapeHtml(opis)}${(row.Opis || "").length > 60 ? "…" : ""}</td>
-            <td>${escapeHtml(row.Rodzaj || "Inne")}</td>
-            <td>${escapeHtml(row.Nazwa || "")}</td>
-            <td>${escapeHtml(row.KmOd || "")}</td>
-            <td>${escapeHtml(row.KmDo || "")}</td>
-            <td style="font-size:12px; max-width:180px;">${row.linkedZgloszenieId ? "🔗 " + escapeHtml(labelForZgloszenieId(row.linkedZgloszenieId)) : "<span style=\"color:#94a3b8;\">—</span>"}</td>
+            <td style="white-space: pre-wrap; max-width: 320px;">${escapeHtml(opis)}${(row.Opis || "").length > 60 ? "…" : ""}</td>
             <td style="white-space:nowrap;">
                 <button class="btn-primary" onclick="editPolecenie(${index})">Edytuj</button>
                 <button class="btn-danger" onclick="removePolecenie(${index})">Usuń</button>
@@ -167,7 +157,7 @@ function renderPolecenia() {
     });
 
     if (rows.length === 0) {
-        html += `<tr><td colspan="10" style="text-align:center; color:#94a3b8;">Brak poleceń</td></tr>`;
+        html += `<tr><td colspan="5" style="text-align:center; color:#94a3b8;">Brak poleceń</td></tr>`;
     }
 
     html += `
@@ -223,14 +213,6 @@ function renderPolecenia() {
                 <button type="button" class="btn-primary" onclick="insertPolecenieTag('@wybrani')">@wybrani</button>
             </div>
 
-            <div style="margin:16px 0 10px 0; padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--bg-input);">
-                <label style="font-weight:600;">🔗 Powiązane zgłoszenie (zakończenie procedury)</label>
-                <p style="font-size:12px; color:var(--text-dim); margin:4px 0 8px 0;">
-                    Polecenie = start, zgłoszenie = koniec (np. patrol szlaku → zakończenie patrolu).
-                </p>
-                <select id="polecenieLinkedZgl" style="width:100%; padding:8px; border-radius:8px;"></select>
-            </div>
-
             <div class="modal-actions">
                 <button class="btn-success" onclick="savePolecenie()">Zapisz polecenie</button>
                 <button class="btn-danger" onclick="closePolecenieModal()">Anuluj</button>
@@ -255,16 +237,6 @@ function openPolecenieModal() {
     document.getElementById("polecenieOpisPom").value = "";
     const opisEl = document.getElementById("polecenieOpis");
     if (opisEl) opisEl.innerHTML = "";
-    const pr = document.getElementById("polecenieRodzaj");
-    if (pr) pr.value = "Inne";
-    const pn = document.getElementById("polecenieNazwa");
-    if (pn) pn.value = "";
-    const pk1 = document.getElementById("polecenieKmOd");
-    if (pk1) pk1.value = "";
-    const pk2 = document.getElementById("polecenieKmDo");
-    if (pk2) pk2.value = "";
-    const linkSel = document.getElementById("polecenieLinkedZgl");
-    if (linkSel) linkSel.innerHTML = getZgloszeniaForLinkSelect("");
     document.getElementById("polecenieModal").style.display = "flex";
 }
 
@@ -279,51 +251,29 @@ async function savePolecenie() {
     const opisPom = document.getElementById("polecenieOpisPom").value.trim();
     const opisEl = document.getElementById("polecenieOpis");
     const opis = opisEl ? (opisEl.innerHTML || "").trim() : "";
-    const rodzaj = document.getElementById("polecenieRodzaj")?.value || "Inne";
-    const nazwa = (document.getElementById("polecenieNazwa")?.value || "").trim();
-    const kmOd = (document.getElementById("polecenieKmOd")?.value || "").trim();
-    const kmDo = (document.getElementById("polecenieKmDo")?.value || "").trim();
-
     if (!linia) { alert("Podaj nr linii"); return; }
     if (!opisKrotki) { alert("Podaj opis krótki"); return; }
-
-    const linkedZgl = (document.getElementById("polecenieLinkedZgl")?.value || "").trim();
 
     const item = {
         Linia: linia,
         OpisKrotki: opisKrotki,
         OpisPom: opisPom,
-        Opis: opis,
-        Rodzaj: rodzaj,
-        Nazwa: nazwa,
-        KmOd: kmOd,
-        KmDo: kmDo,
-        linkedZgloszenieId: linkedZgl || null
+        Opis: opis
     };
 
     if (!appState.polecenia) {
-        appState.polecenia = { columns: ["Linia", "OpisKrotki", "OpisPom", "Opis", "Rodzaj", "Nazwa", "KmOd", "KmDo"], rows: [] };
+        appState.polecenia = { columns: ["Linia", "OpisKrotki", "OpisPom", "Opis"], rows: [] };
     }
     if (!Array.isArray(appState.polecenia.rows)) appState.polecenia.rows = [];
 
     if (currentPolecenieEdit === null) {
-        ensureRowId(item);
+        if (typeof ensureRowId === "function") ensureRowId(item);
+        else item.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
         appState.polecenia.rows.push(item);
     } else {
         const prev = appState.polecenia.rows[currentPolecenieEdit] || {};
-        item.id = prev.id || ensureRowId(item);
-        // odłącz stare zgłoszenie
-        if (prev.linkedZgloszenieId && prev.linkedZgloszenieId !== item.linkedZgloszenieId) {
-            const oldZ = findZgloszenieById(prev.linkedZgloszenieId);
-            if (oldZ && oldZ.linkedPolecenieId === prev.id) oldZ.linkedPolecenieId = null;
-        }
+        item.id = prev.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
         appState.polecenia.rows[currentPolecenieEdit] = item;
-    }
-
-    // dwukierunkowo: zgłoszenie wie o poleceniu
-    if (item.linkedZgloszenieId) {
-        const z = findZgloszenieById(item.linkedZgloszenieId);
-        if (z) z.linkedPolecenieId = item.id;
     }
 
     await saveState();
@@ -347,17 +297,6 @@ async function editPolecenie(index) {
         if (/<(?:b|strong|u|i|br|div|p)\b/i.test(raw)) opisEl.innerHTML = raw;
         else opisEl.innerHTML = String(raw).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
     }
-    const pr2 = document.getElementById("polecenieRodzaj");
-    if (pr2) pr2.value = row.Rodzaj || "Inne";
-    const pn2 = document.getElementById("polecenieNazwa");
-    if (pn2) pn2.value = row.Nazwa || row.NazwaSzlaku || "";
-    const pk12 = document.getElementById("polecenieKmOd");
-    if (pk12) pk12.value = row.KmOd || row.Km || "";
-    const pk22 = document.getElementById("polecenieKmDo");
-    if (pk22) pk22.value = row.KmDo || "";
-    ensureRowId(row);
-    const linkSel = document.getElementById("polecenieLinkedZgl");
-    if (linkSel) linkSel.innerHTML = getZgloszeniaForLinkSelect(row.linkedZgloszenieId || "");
     document.getElementById("polecenieModal").style.display = "flex";
 }
 
