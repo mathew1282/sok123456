@@ -2343,6 +2343,13 @@ function getZgloszeniaSprawdzenie() {
 }
 
 function entryMatchesZgloszenieSprawdzenie(entry, zgl) {
+    if (!entry || !zgl) return false;
+    // Preferencyjne: procedureId + rola
+    if (entry.procedureId && zgl.procedureId &&
+        String(entry.procedureId) === String(zgl.procedureId)) {
+        if (!entry.procedureRole || !zgl.procedureRole) return true;
+        return entry.procedureRole === zgl.procedureRole;
+    }
     const t = String(entry.tekst || "").toLowerCase();
     if (!t) return false;
     const keys = [zgl.Nazwa, zgl.OpisKrotki, zgl.OpisPom, zgl.Opis, zgl.NazwaSzlaku]
@@ -2351,19 +2358,264 @@ function entryMatchesZgloszenieSprawdzenie(entry, zgl) {
     return keys.some(k => t.includes(k.toLowerCase()));
 }
 
-function getKsiazkaWpisyDoSprawdzenia() {
+function findMatchingZgloszenieForEntry(entry) {
+    const zgls = getZgloszeniaSprawdzenie();
+    if (!entry) return null;
+    if (entry.procedureId) {
+        const exact = zgls.find(z =>
+            z.procedureId && String(z.procedureId) === String(entry.procedureId) &&
+            (!entry.procedureRole || z.procedureRole === entry.procedureRole)
+        );
+        if (exact) return exact;
+        const any = zgls.find(z =>
+            z.procedureId && String(z.procedureId) === String(entry.procedureId)
+        );
+        if (any) return any;
+    }
+    return zgls.find(z => entryMatchesZgloszenieSprawdzenie(entry, z)) || null;
+}
+
+/** Meta procedury ze zgłoszeń (rodzaj, nazwa, linia, km) – preferuj start */
+function getProcedureMetaFromZgl(procedureId, fallbackEntry) {
+    const rows = appState.zgloszenia?.rows || [];
+    let z = null;
+    if (procedureId) {
+        z = rows.find(r => r.procedureId === procedureId && r.procedureRole === "start")
+            || rows.find(r => r.procedureId === procedureId);
+    }
+    if (!z && fallbackEntry) z = findMatchingZgloszenieForEntry(fallbackEntry);
+    if (!z) return { Rodzaj: "", Nazwa: "", Linia: "", KmOd: "", KmDo: "" };
+    return {
+        Rodzaj: z.Rodzaj || "",
+        Nazwa: z.Nazwa || z.OpisKrotki || "",
+        Linia: z.Linia || "",
+        KmOd: z.KmOd || "",
+        KmDo: z.KmDo || ""
+    };
+}
+
+/**
+ * Znajdź wpis końca procedury w książce.
+ * 1) procedureId + role end
+ * 2) przez zgłoszenie końca tej samej procedury + dopasowanie tekstu
+ */
+function findProcedureEndEntry(startEntry) {
+    if (!startEntry) return null;
+    const all = appState.ksiazkaWydarzen || [];
+
+    if (startEntry.procedureId) {
+        const byId = all.find(e =>
+            e && e.id !== startEntry.id &&
+            String(e.procedureId) === String(startEntry.procedureId) &&
+            e.procedureRole === "end"
+        );
+        if (byId) return byId;
+    }
+
+    // przez szablon zgłoszenia
+    const zStart = findMatchingZgloszenieForEntry(startEntry);
+    const procId = startEntry.procedureId || zStart?.procedureId;
+    if (!procId) return null;
+
+    const zEnd = (appState.zgloszenia?.rows || []).find(z =>
+        z.procedureId === procId && z.procedureRole === "end"
+    );
+    if (!zEnd) return null;
+
+    // kandydaci: wpisy z role end albo dopasowane do zEnd, po starcie w czasie
+    const startMin = (typeof timeToMinutes === "function")
+        ? timeToMinutes(startEntry.godzinaStart || "00:00")
+        : 0;
+    const startData = String(startEntry.data || "");
+
+    const candidates = all.filter(e => {
+        if (!e || e.id === startEntry.id) return false;
+        if (e.procedureId && String(e.procedureId) === String(procId) && e.procedureRole === "end") {
+            return true;
+        }
+        if (e.procedureRole === "start") return false;
+        return entryMatchesZgloszenieSprawdzenie(e, zEnd);
+    });
+
+    // preferuj ten sam dzień lub następny, godzina >= start (albo inna data)
+    candidates.sort((a, b) => {
+        const da = String(a.data || "");
+        const db = String(b.data || "");
+        if (da !== db) return da.localeCompare(db);
+        const ma = (typeof timeToMinutes === "function") ? timeToMinutes(a.godzinaStart || "00:00") : 0;
+        const mb = (typeof timeToMinutes === "function") ? timeToMinutes(b.godzinaStart || "00:00") : 0;
+        return ma - mb;
+    });
+
+    for (const c of candidates) {
+        const sameDay = String(c.data || "") === startData;
+        const cMin = (typeof timeToMinutes === "function")
+            ? timeToMinutes(c.godzinaStart || "00:00")
+            : 0;
+        if (sameDay && cMin >= startMin) return c;
+        if (!sameDay) return c; // inny dzień (noc)
+    }
+    return candidates[0] || null;
+}
+
+function findProcedureStartEntry(endEntry) {
+    if (!endEntry) return null;
+    const all = appState.ksiazkaWydarzen || [];
+    if (endEntry.procedureId) {
+        const byId = all.find(e =>
+            e && e.id !== endEntry.id &&
+            String(e.procedureId) === String(endEntry.procedureId) &&
+            e.procedureRole === "start"
+        );
+        if (byId) return byId;
+    }
+    const zEnd = findMatchingZgloszenieForEntry(endEntry);
+    const procId = endEntry.procedureId || zEnd?.procedureId;
+    if (!procId) return null;
+    const zStart = (appState.zgloszenia?.rows || []).find(z =>
+        z.procedureId === procId && z.procedureRole === "start"
+    );
+    if (!zStart) return null;
+    return all.find(e =>
+        e && e.id !== endEntry.id &&
+        (e.procedureRole !== "end") &&
+        (String(e.procedureId || "") === String(procId) || entryMatchesZgloszenieSprawdzenie(e, zStart))
+    ) || null;
+}
+
+/**
+ * Grupy do sprawdzenia: jedna procedura = jedna grupa.
+ * { type, procedureId, startEntry, endEntry, meta, closed, indexes[] }
+ */
+function getKsiazkaSprawdzenieGroups() {
     ensureKsiazkaState();
     const zgls = getZgloszeniaSprawdzenie();
     if (!zgls.length) return [];
-    const entries = (typeof sortEntriesOldestFirst === "function")
+
+    const all = (typeof sortEntriesOldestFirst === "function")
         ? sortEntriesOldestFirst(appState.ksiazkaWydarzen)
         : [...(appState.ksiazkaWydarzen || [])];
-    return entries.filter(e => zgls.some(z => entryMatchesZgloszenieSprawdzenie(e, z)));
+
+    // wpisy które w ogóle pasują do zgłoszeń sprawdzenia
+    const matched = all.filter(e => zgls.some(z => entryMatchesZgloszenieSprawdzenie(e, z)));
+    const usedIds = new Set();
+    const groups = [];
+
+    for (const e of matched) {
+        if (usedIds.has(e.id)) continue;
+
+        const zMatch = findMatchingZgloszenieForEntry(e);
+        const role = e.procedureRole || zMatch?.procedureRole || "";
+
+        if (role === "start") {
+            const endE = findProcedureEndEntry(e);
+            const procId = e.procedureId || zMatch?.procedureId || null;
+            const meta = getProcedureMetaFromZgl(procId, e);
+            if (endE) usedIds.add(endE.id);
+            usedIds.add(e.id);
+
+            const startIdx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
+            const endIdx = endE ? appState.ksiazkaWydarzen.findIndex(x => x.id === endE.id) : -1;
+
+            groups.push({
+                type: "procedura",
+                procedureId: procId,
+                startEntry: e,
+                endEntry: endE || null,
+                closed: !!(endE && endE.godzinaStart),
+                meta,
+                indexes: [startIdx, endIdx].filter(i => i >= 0),
+                godzOd: e.godzinaStart || "",
+                godzDo: endE?.godzinaStart || "",
+                dataOd: e.data || "",
+                dataDo: endE?.data || e.data || ""
+            });
+            continue;
+        }
+
+        if (role === "end" || e.procedureRole === "end") {
+            // jeśli start już przetworzony – pomiń; inaczej grupa otwarta tylko z końcem
+            const startE = findProcedureStartEntry(e);
+            if (startE && usedIds.has(startE.id)) {
+                usedIds.add(e.id);
+                continue;
+            }
+            if (startE) {
+                // start nie był w matched? i tak zgrupuj
+                usedIds.add(startE.id);
+                usedIds.add(e.id);
+                const procId = e.procedureId || startE.procedureId || zMatch?.procedureId || null;
+                const meta = getProcedureMetaFromZgl(procId, startE);
+                const startIdx = appState.ksiazkaWydarzen.findIndex(x => x.id === startE.id);
+                const endIdx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
+                groups.push({
+                    type: "procedura",
+                    procedureId: procId,
+                    startEntry: startE,
+                    endEntry: e,
+                    closed: true,
+                    meta,
+                    indexes: [startIdx, endIdx].filter(i => i >= 0),
+                    godzOd: startE.godzinaStart || "",
+                    godzDo: e.godzinaStart || "",
+                    dataOd: startE.data || "",
+                    dataDo: e.data || ""
+                });
+                continue;
+            }
+            // sam koniec bez startu
+            usedIds.add(e.id);
+            const meta = getProcedureMetaFromZgl(e.procedureId || zMatch?.procedureId, e);
+            const endIdx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
+            groups.push({
+                type: "procedura",
+                procedureId: e.procedureId || zMatch?.procedureId || null,
+                startEntry: null,
+                endEntry: e,
+                closed: false,
+                meta,
+                indexes: endIdx >= 0 ? [endIdx] : [],
+                godzOd: "",
+                godzDo: e.godzinaStart || "",
+                dataOd: e.data || "",
+                dataDo: e.data || "",
+                missingStart: true
+            });
+            continue;
+        }
+
+        // pojedyncze zgłoszenie (bez procedury)
+        usedIds.add(e.id);
+        const z = zMatch || findMatchingZgloszenieForEntry(e);
+        const idx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
+        groups.push({
+            type: "pojedyncze",
+            procedureId: null,
+            startEntry: e,
+            endEntry: null,
+            closed: false,
+            meta: {
+                Rodzaj: z?.Rodzaj || "",
+                Nazwa: z?.Nazwa || z?.OpisKrotki || "",
+                Linia: z?.Linia || "",
+                KmOd: z?.KmOd || "",
+                KmDo: z?.KmDo || ""
+            },
+            indexes: idx >= 0 ? [idx] : [],
+            godzOd: e.godzinaStart || "",
+            godzDo: "",
+            dataOd: e.data || "",
+            dataDo: e.data || "",
+            missingEnd: true
+        });
+    }
+
+    return groups;
 }
 
-function findMatchingZgloszenieForEntry(entry) {
-    const zgls = getZgloszeniaSprawdzenie();
-    return zgls.find(z => entryMatchesZgloszenieSprawdzenie(entry, z)) || null;
+function getKsiazkaWpisyDoSprawdzenia() {
+    // kompatybilność – płaska lista startów/pojedynczych
+    return getKsiazkaSprawdzenieGroups().map(g => g.startEntry || g.endEntry).filter(Boolean);
 }
 
 /** Kompatybilność ze starymi nazwami */
@@ -2388,13 +2640,11 @@ function combineDateTimePL(dataStr, hhmm) {
     return d;
 }
 
-/** Czas trwania w minutach – uwzględnia daty i przejście przez północ */
 function durationMinutesBetween(dataOd, godzOd, dataDo, godzDo) {
     let start = combineDateTimePL(dataOd, godzOd);
     let end = combineDateTimePL(dataDo || dataOd, godzDo);
     if (!(start instanceof Date) || isNaN(start.getTime())) return 0;
     if (!(end instanceof Date) || isNaN(end.getTime())) return 0;
-    // Jeśli koniec ≤ start (ta sama data albo błąd) → +1 dzień
     if (end.getTime() <= start.getTime()) {
         end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
     }
@@ -2408,56 +2658,39 @@ function formatDurationMin(mins) {
     return h + ":" + String(mm).padStart(2, "0");
 }
 
-function isEntryAlreadyInSprawdzenia(entry) {
-    if (!entry) return false;
+function isGroupAlreadyInSprawdzenia(group) {
+    if (!group) return false;
     if (typeof ensureStatystykiState === "function") ensureStatystykiState();
     else {
         if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
         if (!Array.isArray(appState.statystyki.sprawdzenia)) appState.statystyki.sprawdzenia = [];
     }
     const stats = appState.statystyki.sprawdzenia || [];
+    const startId = group.startEntry?.id;
+    const endId = group.endEntry?.id;
+    if (startId && stats.some(s => s.entryId && String(s.entryId) === String(startId))) return true;
+    if (endId && stats.some(s => s.entryIdEnd && String(s.entryIdEnd) === String(endId))) return true;
+    if (group.procedureId && stats.some(s => s.procedureId && String(s.procedureId) === String(group.procedureId) &&
+        String(s.data || "") === String(group.dataOd || ""))) return true;
+    return false;
+}
 
-    if (entry.id && stats.some(s => s.entryId && String(s.entryId) === String(entry.id))) {
-        return true;
-    }
-    // para procedury – sprawdź też entryId końca
-    if (entry.procedureId && entry.procedureRole === "start") {
-        const endE = (appState.ksiazkaWydarzen || []).find(e =>
-            e.procedureId === entry.procedureId && e.procedureRole === "end"
-        );
-        if (endE?.id && stats.some(s => s.entryIdEnd && String(s.entryIdEnd) === String(endE.id))) {
-            return true;
-        }
-        if (stats.some(s => s.procedureId && String(s.procedureId) === String(entry.procedureId))) {
-            return true;
-        }
-    }
-
-    const zgl = findMatchingZgloszenieForEntry(entry);
-    if (!zgl) return false;
-    const nazwa = String(zgl.Nazwa || zgl.OpisKrotki || "").trim().toLowerCase();
-    const rodzaj = String(zgl.Rodzaj || "").trim().toLowerCase();
-    const data = String(entry.data || "").trim();
-    const godz = String(entry.godzinaStart || "").trim();
-
-    return stats.some(s => {
-        if (s.entryId && entry.id && String(s.entryId) === String(entry.id)) return true;
-        const sn = String(s.nazwa || "").trim().toLowerCase();
-        const sr = String(s.rodzaj || "").trim().toLowerCase();
-        const sd = String(s.data || "").trim();
-        const sg = String(s.godzOd || "").trim();
-        if (nazwa && sn && sn === nazwa && sr === rodzaj) {
-            if (data && sd && data === sd) {
-                if (!godz || !sg || godz === sg) return true;
-            }
-        }
-        return false;
-    });
+function isEntryAlreadyInSprawdzenia(entry) {
+    if (!entry) return false;
+    const groups = getKsiazkaSprawdzenieGroups();
+    const g = groups.find(gr =>
+        (gr.startEntry && gr.startEntry.id === entry.id) ||
+        (gr.endEntry && gr.endEntry.id === entry.id)
+    );
+    if (g) return isGroupAlreadyInSprawdzenia(g);
+    if (typeof ensureStatystykiState === "function") ensureStatystykiState();
+    const stats = appState.statystyki?.sprawdzenia || [];
+    return !!(entry.id && stats.some(s => s.entryId && String(s.entryId) === String(entry.id)));
 }
 
 function openKsiazkaSprawdzenieModal() {
-    const items = getKsiazkaWpisyDoSprawdzenia();
-    if (items.length === 0) {
+    const groups = getKsiazkaSprawdzenieGroups();
+    if (groups.length === 0) {
         if (typeof showToast === "function") {
             showToast("Brak wpisów powiązanych ze zgłoszeniami: Szlak / Stacja towarowa / Stacja osobowa");
         } else {
@@ -2473,37 +2706,55 @@ function openKsiazkaSprawdzenieModal() {
     overlay.id = "ksiazkaSprawdModal";
     overlay.className = "modal-overlay";
     overlay.style.display = "flex";
+    overlay._groups = groups;
 
+    // zaznaczone: indeksy grup, nie wpisów
     const selected = new Set();
-    items.forEach(e => {
-        const idx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
-        if (idx < 0) return;
-        if (!isEntryAlreadyInSprawdzenia(e)) selected.add(idx);
+    groups.forEach((g, gi) => {
+        if (!isGroupAlreadyInSprawdzenia(g) && g.closed) selected.add(gi);
+        // zamknięte procedury domyślnie; otwarte też można zaznaczyć, ale zapis je odrzuci
+        else if (!isGroupAlreadyInSprawdzenia(g) && g.type === "pojedyncze") {
+            // pojedyncze bez końca – nie zaznaczaj auto
+        } else if (!isGroupAlreadyInSprawdzenia(g) && g.closed) {
+            selected.add(gi);
+        }
     });
-    overlay._selectedEntryIndexes = selected;
+    // domyślnie wszystkie zamknięte i niezrobione
+    groups.forEach((g, gi) => {
+        if (!isGroupAlreadyInSprawdzenia(g) && g.closed) selected.add(gi);
+    });
+    overlay._selectedGroupIndexes = selected;
 
-    const list = items.map(e => {
-        const idx = appState.ksiazkaWydarzen.findIndex(x => x.id === e.id);
-        const short = String(e.tekst || "").replace(/<[^>]+>/g, " ").slice(0, 120);
-        const zgl = findMatchingZgloszenieForEntry(e);
-        const role = e.procedureRole === "start" ? "▶ start" : (e.procedureRole === "end" ? "■ koniec" : "");
-        const polLabel = zgl
-            ? `${escapeHtml(zgl.Rodzaj)} – ${escapeHtml(zgl.Nazwa || zgl.OpisKrotki || "")}${role ? " · " + role : ""}`
-            : "—";
-        const already = isEntryAlreadyInSprawdzenia(e);
-        const isSel = selected.has(idx);
+    const list = groups.map((g, gi) => {
+        const already = isGroupAlreadyInSprawdzenia(g);
+        const isSel = selected.has(gi);
         const border = isSel ? "#22c55e" : "#475569";
         const bg = isSel ? "rgba(34, 197, 94, 0.12)" : "rgba(71, 85, 105, 0.25)";
         const opacity = isSel ? "1" : "0.65";
         const badge = already
             ? `<span style="position:absolute; top:8px; right:8px; background:#16a34a; color:#fff; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;">✓ Zrobione</span>`
             : "";
+        const statusOpen = !g.closed
+            ? `<span style="background:#b45309; color:#fff; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;">⚠ Brak zamknięcia</span>`
+            : "";
+        const meta = g.meta || {};
+        const godzLine = g.closed
+            ? `${escapeHtml(g.godzOd || "—")} → ${escapeHtml(g.godzDo || "—")}`
+            : (g.godzOd ? `${escapeHtml(g.godzOd)} → ?` : `? → ${escapeHtml(g.godzDo || "—")}`);
+        const czas = (g.closed && g.godzOd && g.godzDo)
+            ? formatDurationMin(durationMinutesBetween(g.dataOd, g.godzOd, g.dataDo, g.godzDo))
+            : "—";
+        const shortStart = g.startEntry
+            ? String(g.startEntry.tekst || "").replace(/<[^>]+>/g, " ").slice(0, 80)
+            : "";
+
         return `
-        <div id="ksiazkaSprawdEntry_${idx}"
+        <div id="ksiazkaSprawdGroup_${gi}"
              class="ksiazka-sprawd-entry ${isSel ? "selected" : ""}"
-             data-index="${idx}"
+             data-group="${gi}"
              data-already="${already ? "1" : "0"}"
-             onclick="ksiazkaSprawdzenieToggleEntry(${idx})"
+             data-closed="${g.closed ? "1" : "0"}"
+             onclick="ksiazkaSprawdzenieToggleGroup(${gi})"
              style="
                 position: relative;
                 border: 2px solid ${border};
@@ -2513,33 +2764,48 @@ function openKsiazkaSprawdzenieModal() {
                 margin-bottom: 8px;
                 cursor: pointer;
                 opacity: ${opacity};
-                transition: border-color 0.15s, background 0.15s, opacity 0.15s;
              ">
             ${badge}
-            <div style="font-weight:600; color:var(--primary-light); padding-right:${already ? "90px" : "0"};">${escapeHtml(e.godzinaStart || "—")} · ${escapeHtml(e.data || "")}</div>
-            <div style="font-size:12px; color:var(--text-dim); margin-top:2px;">${polLabel}</div>
-            <div style="font-size:13px; color:var(--text-soft); margin-top:4px; white-space:pre-wrap;">${escapeHtml(short)}${(e.tekst || "").length > 120 ? "…" : ""}</div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:4px; padding-right:${already ? "90px" : "0"};">
+                <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(168,85,247,.2);color:#d8b4fe;">
+                    ${g.type === "procedura" ? "Procedura" : "Zgłoszenie"}
+                </span>
+                ${statusOpen}
+            </div>
+            <div style="font-weight:700; color:var(--primary-light);">
+                ${escapeHtml(meta.Rodzaj || "")}${meta.Rodzaj ? " · " : ""}${escapeHtml(meta.Nazwa || "—")}
+            </div>
+            <div style="font-size:13px; color:var(--text-dim); margin-top:2px;">
+                Linia: <strong>${escapeHtml(meta.Linia || "—")}</strong>
+                ${meta.KmOd || meta.KmDo ? ` · Km: ${escapeHtml(meta.KmOd || "")}–${escapeHtml(meta.KmDo || "")}` : ""}
+            </div>
+            <div style="font-size:14px; font-weight:600; margin-top:6px;">
+                ${godzLine}
+                <span style="font-weight:400; color:var(--text-dim); font-size:12px;"> · ${escapeHtml(g.dataOd || "")}${g.dataDo && g.dataDo !== g.dataOd ? " → " + escapeHtml(g.dataDo) : ""}</span>
+                ${g.closed ? ` · czas <strong>${czas}</strong> h` : ""}
+            </div>
+            ${shortStart ? `<div style="font-size:12px; color:var(--text-soft); margin-top:4px;">${escapeHtml(shortStart)}${shortStart.length >= 80 ? "…" : ""}</div>` : ""}
         </div>`;
     }).join("");
 
-    const doneCount = items.filter(e => isEntryAlreadyInSprawdzenia(e)).length;
-    const todoCount = items.length - doneCount;
+    const doneCount = groups.filter(g => isGroupAlreadyInSprawdzenia(g)).length;
+    const closedTodo = groups.filter(g => g.closed && !isGroupAlreadyInSprawdzenia(g)).length;
+    const openCount = groups.filter(g => !g.closed).length;
 
     overlay.innerHTML = `
-        <div class="modal" style="max-width:560px;">
-            <h2 style="margin-top:0;">Sprawdzenie – wybierz wpisy</h2>
+        <div class="modal" style="max-width:580px;">
+            <h2 style="margin-top:0;">Sprawdzenie – procedury</h2>
             <p style="color:var(--text-dim); font-size:14px; margin-bottom:12px;">
-                Dopasowanie do <strong>zgłoszeń</strong> typu Szlak / Stacja towarowa / Stacja osobowa.
-                <strong>Zapisz</strong> bierze godziny <strong>tylko z książki</strong> (start + koniec procedury).
-                Brak zamknięcia procedury = komunikat, bez dopisywania godzin.
-                <br>${todoCount} do zrobienia, ${doneCount} już w statystykach (✓ Zrobione).
+                Jedna procedura = jeden wiersz (linia, szlak, godziny start→koniec).
+                Godziny tylko z książki. <strong>Zapisz</strong> pomija otwarte procedury.
+                <br>${closedTodo} do zapisu, ${doneCount} już w statystykach, ${openCount} bez zamknięcia.
             </p>
             <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
                 <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="ksiazkaSprawdzenieZaznaczWszystkie(true)">Zaznacz wszystkie</button>
                 <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="ksiazkaSprawdzenieZaznaczWszystkie(false)">Odznacz wszystkie</button>
                 <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="ksiazkaSprawdzenieZaznaczTylkoNowe()">Tylko niezrobione</button>
             </div>
-            <div style="max-height:360px; overflow:auto; margin-bottom:14px;">${list}</div>
+            <div style="max-height:400px; overflow:auto; margin-bottom:14px;">${list}</div>
             <div class="modal-actions">
                 <button class="btn-success" onclick="ksiazkaSprawdzenieZapisz()">Zapisz</button>
                 <button class="btn-danger" onclick="closeKsiazkaSprawdzenieModal()">Anuluj</button>
@@ -2549,17 +2815,64 @@ function openKsiazkaSprawdzenieModal() {
     document.body.appendChild(overlay);
 }
 
+function ksiazkaSprawdzenieToggleGroup(gi) {
+    const modal = document.getElementById("ksiazkaSprawdModal");
+    if (!modal || !modal._selectedGroupIndexes) return;
+    const set = modal._selectedGroupIndexes;
+    const el = document.getElementById(`ksiazkaSprawdGroup_${gi}`);
+    if (!el) return;
+    if (set.has(gi)) {
+        set.delete(gi);
+        el.classList.remove("selected");
+        el.style.borderColor = "#475569";
+        el.style.background = "rgba(71, 85, 105, 0.25)";
+        el.style.opacity = "0.65";
+    } else {
+        set.add(gi);
+        el.classList.add("selected");
+        el.style.borderColor = "#22c55e";
+        el.style.background = "rgba(34, 197, 94, 0.12)";
+        el.style.opacity = "1";
+    }
+}
+
+function ksiazkaSprawdzenieToggleEntry(idx) {
+    // kompatybilność – nie używane przy grupach
+}
+
+function ksiazkaSprawdzenieZaznaczWszystkie(zaznacz) {
+    const modal = document.getElementById("ksiazkaSprawdModal");
+    if (!modal) return;
+    if (!modal._selectedGroupIndexes) modal._selectedGroupIndexes = new Set();
+    document.querySelectorAll(".ksiazka-sprawd-entry").forEach(el => {
+        const gi = parseInt(el.getAttribute("data-group"), 10);
+        if (zaznacz) {
+            modal._selectedGroupIndexes.add(gi);
+            el.classList.add("selected");
+            el.style.borderColor = "#22c55e";
+            el.style.background = "rgba(34, 197, 94, 0.12)";
+            el.style.opacity = "1";
+        } else {
+            modal._selectedGroupIndexes.delete(gi);
+            el.classList.remove("selected");
+            el.style.borderColor = "#475569";
+            el.style.background = "rgba(71, 85, 105, 0.25)";
+            el.style.opacity = "0.65";
+        }
+    });
+}
+
 function ksiazkaSprawdzenieZaznaczTylkoNowe() {
     const modal = document.getElementById("ksiazkaSprawdModal");
     if (!modal) return;
-    if (!modal._selectedEntryIndexes) modal._selectedEntryIndexes = new Set();
-    modal._selectedEntryIndexes.clear();
-
+    if (!modal._selectedGroupIndexes) modal._selectedGroupIndexes = new Set();
+    modal._selectedGroupIndexes.clear();
     document.querySelectorAll(".ksiazka-sprawd-entry").forEach(el => {
-        const idx = parseInt(el.getAttribute("data-index"), 10);
+        const gi = parseInt(el.getAttribute("data-group"), 10);
         const already = el.getAttribute("data-already") === "1";
-        if (!already) {
-            modal._selectedEntryIndexes.add(idx);
+        const closed = el.getAttribute("data-closed") === "1";
+        if (!already && closed) {
+            modal._selectedGroupIndexes.add(gi);
             el.classList.add("selected");
             el.style.borderColor = "#22c55e";
             el.style.background = "rgba(34, 197, 94, 0.12)";
@@ -2578,258 +2891,86 @@ function closeKsiazkaSprawdzenieModal() {
     if (m) m.remove();
 }
 
-function ksiazkaSprawdzenieToggleEntry(idx) {
-    const modal = document.getElementById("ksiazkaSprawdModal");
-    if (!modal || !modal._selectedEntryIndexes) return;
-    const set = modal._selectedEntryIndexes;
-    const el = document.getElementById(`ksiazkaSprawdEntry_${idx}`);
-    if (!el) return;
-
-    if (set.has(idx)) {
-        set.delete(idx);
-        el.classList.remove("selected");
-        el.style.borderColor = "#475569";
-        el.style.background = "rgba(71, 85, 105, 0.25)";
-        el.style.opacity = "0.65";
-    } else {
-        set.add(idx);
-        el.classList.add("selected");
-        el.style.borderColor = "#22c55e";
-        el.style.background = "rgba(34, 197, 94, 0.12)";
-        el.style.opacity = "1";
-    }
-}
-
-function ksiazkaSprawdzenieZaznaczWszystkie(zaznacz) {
-    const modal = document.getElementById("ksiazkaSprawdModal");
-    if (!modal) return;
-    if (!modal._selectedEntryIndexes) modal._selectedEntryIndexes = new Set();
-
-    document.querySelectorAll(".ksiazka-sprawd-entry").forEach(el => {
-        const idx = parseInt(el.getAttribute("data-index"), 10);
-        if (zaznacz) {
-            modal._selectedEntryIndexes.add(idx);
-            el.classList.add("selected");
-            el.style.borderColor = "#22c55e";
-            el.style.background = "rgba(34, 197, 94, 0.12)";
-            el.style.opacity = "1";
-        } else {
-            modal._selectedEntryIndexes.delete(idx);
-            el.classList.remove("selected");
-            el.style.borderColor = "#475569";
-            el.style.background = "rgba(71, 85, 105, 0.25)";
-            el.style.opacity = "0.65";
-        }
-    });
-}
-
-/**
- * Buduje listę sprawdzeń z zaznaczonych wpisów.
- * Procedury start+koniec → jeden rekord z obiema godzinami i datami.
- */
 function buildSprawdzenieItemsFromSelected(selectedIndexes) {
-    ensureKsiazkaState();
-    const used = new Set();
-    const items = [];
-
-    for (const idx of selectedIndexes) {
-        if (used.has(idx)) continue;
-        const entry = appState.ksiazkaWydarzen[idx];
-        if (!entry) continue;
-        const zgl = findMatchingZgloszenieForEntry(entry);
-        if (!zgl) continue;
-
-        // Procedura: start + szukaj końca
-        if (entry.procedureId && entry.procedureRole === "start") {
-            const endIdx = appState.ksiazkaWydarzen.findIndex((e, i) =>
-                e && e.procedureId === entry.procedureId && e.procedureRole === "end"
-            );
-            const endEntry = endIdx >= 0 ? appState.ksiazkaWydarzen[endIdx] : null;
-            if (endIdx >= 0) used.add(endIdx);
-            used.add(idx);
-
-            const godzOd = entry.godzinaStart || "";
-            const godzDo = (endEntry && endEntry.godzinaStart) || "";
-            const dataOd = entry.data || todayPL();
-            const dataDo = (endEntry && endEntry.data) || dataOd;
-            const mins = (godzOd && godzDo)
-                ? durationMinutesBetween(dataOd, godzOd, dataDo, godzDo)
-                : 0;
-
-            items.push({
-                Rodzaj: zgl.Rodzaj,
-                Nazwa: zgl.Nazwa || zgl.OpisKrotki || "",
-                Linia: zgl.Linia || entry.linia || "",
-                KmOd: zgl.KmOd || "",
-                KmDo: zgl.KmDo || "",
-                _entryIndex: idx,
-                _entryIndexEnd: endIdx >= 0 ? endIdx : null,
-                _entryGodzina: godzOd,
-                _entryGodzinaKoniec: godzDo,
-                _dataOd: dataOd,
-                _dataDo: dataDo,
-                _durationMin: mins,
-                _procedureId: entry.procedureId,
-                _isProcedure: true
-            });
-            continue;
-        }
-
-        // Koniec bez startu w zaznaczeniu – spróbuj dociągnąć start
-        if (entry.procedureId && entry.procedureRole === "end") {
-            const startIdx = appState.ksiazkaWydarzen.findIndex((e, i) =>
-                e && e.procedureId === entry.procedureId && e.procedureRole === "start"
-            );
-            if (startIdx >= 0 && !used.has(startIdx)) {
-                // przetwórz jako start w kolejnej iteracji jeśli start też zaznaczony
-                if (selectedIndexes.includes(startIdx)) {
-                    continue; // start obsłuży parę
-                }
-            }
-            // sam koniec
-            used.add(idx);
-            items.push({
-                Rodzaj: zgl.Rodzaj,
-                Nazwa: zgl.Nazwa || zgl.OpisKrotki || "",
-                Linia: zgl.Linia || "",
-                KmOd: zgl.KmOd || "",
-                KmDo: zgl.KmDo || "",
-                _entryIndex: idx,
-                _entryGodzina: entry.godzinaStart || "",
-                _entryGodzinaKoniec: "",
-                _dataOd: entry.data || todayPL(),
-                _dataDo: entry.data || todayPL(),
-                _durationMin: 0,
-                _isProcedure: false
-            });
-            continue;
-        }
-
-        used.add(idx);
-        items.push({
-            Rodzaj: zgl.Rodzaj,
-            Nazwa: zgl.Nazwa || zgl.OpisKrotki || "",
-            Linia: zgl.Linia || "",
-            KmOd: zgl.KmOd || "",
-            KmDo: zgl.KmDo || "",
-            _entryIndex: idx,
-            _entryGodzina: entry.godzinaStart || "",
-            _entryGodzinaKoniec: "",
-            _dataOd: entry.data || todayPL(),
-            _dataDo: entry.data || todayPL(),
-            _durationMin: 0,
-            _isProcedure: false
-        });
-    }
-    return items;
+    // kompatybilność – nie używane przy nowym Zapisz
+    return [];
 }
 
 async function ksiazkaSprawdzenieZapisz() {
     const modal = document.getElementById("ksiazkaSprawdModal");
     if (!modal) return;
 
-    const selected = modal._selectedEntryIndexes
-        ? [...modal._selectedEntryIndexes]
+    const groups = modal._groups || getKsiazkaSprawdzenieGroups();
+    const selected = modal._selectedGroupIndexes
+        ? [...modal._selectedGroupIndexes]
         : [];
     if (!selected.length) {
-        if (typeof showToast === "function") showToast("Zaznacz przynajmniej jeden wpis");
-        else alert("Zaznacz przynajmniej jeden wpis");
+        if (typeof showToast === "function") showToast("Zaznacz przynajmniej jedną procedurę");
+        else alert("Zaznacz przynajmniej jedną procedurę");
         return;
     }
 
-    const items = buildSprawdzenieItemsFromSelected(selected);
-    if (!items.length) {
-        if (typeof showToast === "function") showToast("Nie znaleziono pasujących zgłoszeń do zaznaczonych wpisów");
-        else alert("Nie znaleziono pasujących zgłoszeń do zaznaczonych wpisów");
-        return;
-    }
-
-    // Godziny TYLKO z książki – bez dopisywania +2h
     const braki = [];
     const doZapisu = [];
 
-    for (const it of items) {
-        const godzOd = (it._entryGodzina || "").trim();
-        const godzDo = (it._entryGodzinaKoniec || "").trim();
-        const nazwa = it.Nazwa || it.Rodzaj || "wpis";
+    for (const gi of selected) {
+        const g = groups[gi];
+        if (!g) continue;
+        const nazwa = (g.meta && (g.meta.Nazwa || g.meta.Rodzaj)) || "procedura";
 
-        if (!godzOd) {
-            braki.push(`„${nazwa}”: brak godziny rozpoczęcia w książce`);
-            continue;
-        }
-        if (!godzDo) {
-            if (it._isProcedure || it._procedureId) {
-                braki.push(`„${nazwa}”: brak zamknięcia procedury (brak wpisu końca w książce)`);
+        if (!g.closed || !g.godzOd || !g.godzDo) {
+            if (g.missingStart) {
+                braki.push(`„${nazwa}”: brak rozpoczęcia procedury w książce`);
             } else {
-                braki.push(`„${nazwa}”: brak godziny zakończenia w książce`);
+                braki.push(`„${nazwa}”: brak zamknięcia procedury (brak godziny końca w książce)`);
             }
             continue;
         }
 
-        const dataOd = it._dataOd || todayPL();
-        const dataDo = it._dataDo || dataOd;
-        const czasMin = durationMinutesBetween(dataOd, godzOd, dataDo, godzDo);
+        const dataOd = g.dataOd || todayPL();
+        const dataDo = g.dataDo || dataOd;
+        const czasMin = durationMinutesBetween(dataOd, g.godzOd, dataDo, g.godzDo);
         const czas = formatDurationMin(czasMin);
 
-        const entry = (it._entryIndex != null) ? appState.ksiazkaWydarzen[it._entryIndex] : null;
-        const entryEnd = (it._entryIndexEnd != null) ? appState.ksiazkaWydarzen[it._entryIndexEnd] : null;
-
         doZapisu.push({
-            it,
-            godzOd,
-            godzDo,
-            dataOd,
+            rodzaj: g.meta?.Rodzaj || "",
+            nazwa: g.meta?.Nazwa || "",
+            linia: g.meta?.Linia || "",
+            kmOd: g.meta?.KmOd || "",
+            kmDo: g.meta?.KmDo || "",
+            godzOd: g.godzOd,
+            godzDo: g.godzDo,
+            data: dataOd,
             dataDo,
             czas,
             czasMin,
-            entryId: entry?.id || null,
-            entryIdEnd: entryEnd?.id || null
+            entryId: g.startEntry?.id || null,
+            entryIdEnd: g.endEntry?.id || null,
+            procedureId: g.procedureId || null
         });
     }
 
     if (braki.length && !doZapisu.length) {
-        const msg = "Nie zapisano – brak wymaganych godzin z książki:\n\n" + braki.join("\n");
-        if (typeof showToast === "function") showToast(braki[0]);
-        alert(msg);
+        alert("Nie zapisano – brak zamknięcia / godzin z książki:\n\n" + braki.join("\n"));
         return;
     }
-
     if (braki.length && doZapisu.length) {
-        const msg = "Część wpisów pominięta:\n\n" + braki.join("\n") +
-            "\n\nZostanie zapisane: " + doZapisu.length + " sprawdzeń. Kontynuować?";
-        if (!confirm(msg)) return;
+        if (!confirm("Część pominięta:\n\n" + braki.join("\n") +
+            "\n\nZapisuję " + doZapisu.length + " sprawdzeń. Kontynuować?")) return;
     }
 
-    for (const row of doZapisu) {
-        const it = row.it;
-        const payload = {
-            rodzaj: it.Rodzaj,
-            nazwa: it.Nazwa || "",
-            linia: it.Linia || "",
-            kmOd: it.KmOd || "",
-            kmDo: it.KmDo || "",
-            godzOd: row.godzOd,
-            godzDo: row.godzDo,
-            data: row.dataOd,
-            dataDo: row.dataDo,
-            czas: row.czas,
-            czasMin: row.czasMin,
-            entryId: row.entryId,
-            entryIdEnd: row.entryIdEnd,
-            procedureId: it._procedureId || null
-        };
-
+    for (const payload of doZapisu) {
         if (typeof logSprawdzenie === "function") {
             await logSprawdzenie(payload);
             const last = appState.statystyki?.sprawdzenia?.slice(-1)[0];
             if (last) {
-                if (row.entryId && !last.entryId) last.entryId = row.entryId;
-                if (row.entryIdEnd) last.entryIdEnd = row.entryIdEnd;
-                if (!last.data) last.data = row.dataOd;
-                last.dataDo = row.dataDo;
-                last.czas = row.czas;
-                last.czasMin = row.czasMin;
-                if (it._procedureId) last.procedureId = it._procedureId;
+                if (payload.entryId && !last.entryId) last.entryId = payload.entryId;
+                if (payload.entryIdEnd) last.entryIdEnd = payload.entryIdEnd;
+                if (!last.data) last.data = payload.data;
+                last.dataDo = payload.dataDo;
+                last.czas = payload.czas;
+                last.czasMin = payload.czasMin;
+                if (payload.procedureId) last.procedureId = payload.procedureId;
             }
         } else {
             if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
@@ -3536,6 +3677,9 @@ window.closeZapiszKsiazkeJakoSzablon = closeZapiszKsiazkeJakoSzablon;
 window.confirmZapiszKsiazkeJakoSzablon = confirmZapiszKsiazkeJakoSzablon;
 window.toggleKsiazkaFilterInne = toggleKsiazkaFilterInne;
 window.exportKsiazkaFiltered = exportKsiazkaFiltered;
+window.getKsiazkaSprawdzenieGroups = getKsiazkaSprawdzenieGroups;
+window.ksiazkaSprawdzenieToggleGroup = ksiazkaSprawdzenieToggleGroup;
+window.findProcedureEndEntry = findProcedureEndEntry;
 window.openKsiazkaSprawdzenieModal = openKsiazkaSprawdzenieModal;
 window.closeKsiazkaSprawdzenieModal = closeKsiazkaSprawdzenieModal;
 window.ksiazkaSprawdzenieToggleEntry = ksiazkaSprawdzenieToggleEntry;
