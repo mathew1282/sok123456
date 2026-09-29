@@ -2530,8 +2530,9 @@ function openKsiazkaSprawdzenieModal() {
             <h2 style="margin-top:0;">Sprawdzenie – wybierz wpisy</h2>
             <p style="color:var(--text-dim); font-size:14px; margin-bottom:12px;">
                 Dopasowanie do <strong>zgłoszeń</strong> typu Szlak / Stacja towarowa / Stacja osobowa.
-                Procedury (start + koniec) łączone są automatycznie przy „Dalej”.
-                <br>${todoCount} do zrobienia, ${doneCount} już w statystykach.
+                <strong>Zapisz</strong> bierze godziny <strong>tylko z książki</strong> (start + koniec procedury).
+                Brak zamknięcia procedury = komunikat, bez dopisywania godzin.
+                <br>${todoCount} do zrobienia, ${doneCount} już w statystykach (✓ Zrobione).
             </p>
             <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
                 <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="ksiazkaSprawdzenieZaznaczWszystkie(true)">Zaznacz wszystkie</button>
@@ -2540,7 +2541,7 @@ function openKsiazkaSprawdzenieModal() {
             </div>
             <div style="max-height:360px; overflow:auto; margin-bottom:14px;">${list}</div>
             <div class="modal-actions">
-                <button class="btn-success" onclick="ksiazkaSprawdzenieDalej()">Dalej – godziny</button>
+                <button class="btn-success" onclick="ksiazkaSprawdzenieZapisz()">Zapisz</button>
                 <button class="btn-danger" onclick="closeKsiazkaSprawdzenieModal()">Anuluj</button>
             </div>
         </div>
@@ -2723,7 +2724,7 @@ function buildSprawdzenieItemsFromSelected(selectedIndexes) {
     return items;
 }
 
-function ksiazkaSprawdzenieDalej() {
+async function ksiazkaSprawdzenieZapisz() {
     const modal = document.getElementById("ksiazkaSprawdModal");
     if (!modal) return;
 
@@ -2743,106 +2744,118 @@ function ksiazkaSprawdzenieDalej() {
         return;
     }
 
-    closeKsiazkaSprawdzenieModal();
+    // Godziny TYLKO z książki – bez dopisywania +2h
+    const braki = [];
+    const doZapisu = [];
 
-    const startRounded = (typeof formatHHMM === "function" && typeof roundTo10Minutes === "function")
-        ? formatHHMM(roundTo10Minutes(new Date()))
-        : nowHHMM();
+    for (const it of items) {
+        const godzOd = (it._entryGodzina || "").trim();
+        const godzDo = (it._entryGodzinaKoniec || "").trim();
+        const nazwa = it.Nazwa || it.Rodzaj || "wpis";
 
-    const overlay = document.createElement("div");
-    overlay.id = "ksiazkaSprawdModal";
-    overlay.className = "modal-overlay";
-    overlay.style.display = "flex";
-    overlay._items = items;
-
-    let body = items.map((it, i) => {
-        const startVal = it._entryGodzina || startRounded;
-        let endVal = it._entryGodzinaKoniec || "";
-        if (!endVal) {
-            endVal = (typeof addHoursHHMM === "function")
-                ? addHoursHHMM(startVal, 2)
-                : startVal;
+        if (!godzOd) {
+            braki.push(`„${nazwa}”: brak godziny rozpoczęcia w książce`);
+            continue;
         }
-        // przelicz czas z datami
-        const mins = durationMinutesBetween(
-            it._dataOd || todayPL(), startVal,
-            it._dataDo || it._dataOd || todayPL(), endVal
-        );
-        const durLabel = formatDurationMin(mins);
-        const dateHint = it._isProcedure
-            ? `<div style="font-size:12px; color:var(--text-dim); margin-bottom:6px;">
-                    Data start: <strong>${escapeHtml(it._dataOd || "")}</strong>
-                    · Data koniec: <strong>${escapeHtml(it._dataDo || "")}</strong>
-                    · Czas: <strong id="ksSprawdCzas_${i}" style="color:var(--primary-light);">${durLabel}</strong> h
-               </div>`
-            : `<div style="font-size:12px; color:var(--text-dim); margin-bottom:6px;">
-                    Czas: <strong id="ksSprawdCzas_${i}" style="color:var(--primary-light);">${durLabel}</strong> h
-                    <span style="opacity:0.8;">(przez północ liczony z dat)</span>
-               </div>`;
+        if (!godzDo) {
+            if (it._isProcedure || it._procedureId) {
+                braki.push(`„${nazwa}”: brak zamknięcia procedury (brak wpisu końca w książce)`);
+            } else {
+                braki.push(`„${nazwa}”: brak godziny zakończenia w książce`);
+            }
+            continue;
+        }
 
-        return `
-        <div style="border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:12px;">
-            <div style="font-weight:600; margin-bottom:4px;">
-                ${escapeHtml(it.Rodzaj)} – ${escapeHtml(it.Nazwa)}
-                ${it._isProcedure ? '<span style="font-size:11px; color:#d8b4fe;"> · procedura</span>' : ""}
-            </div>
-            <div style="font-size:13px; color:var(--text-dim); margin-bottom:8px;">
-                Linia: ${escapeHtml(it.Linia)} | Km: ${escapeHtml(it.KmOd)} – ${escapeHtml(it.KmDo)}
-            </div>
-            ${dateHint}
-            <label>Godzina rozpoczęcia</label>
-            <input type="text" id="ksSprawdGodzOd_${i}" value="${escapeHtml(startVal)}" placeholder="gg:mm"
-                   style="width:100%; margin-bottom:8px;"
-                   oninput="ksiazkaSprawdGodzChange(${i})">
-            <label>Godzina zakończenia</label>
-            <input type="text" id="ksSprawdGodzDo_${i}" value="${escapeHtml(endVal)}" placeholder="gg:mm" style="width:100%;"
-                   oninput="ksiazkaSprawdGodzChange(${i})">
-        </div>`;
-    }).join("");
+        const dataOd = it._dataOd || todayPL();
+        const dataDo = it._dataDo || dataOd;
+        const czasMin = durationMinutesBetween(dataOd, godzOd, dataDo, godzDo);
+        const czas = formatDurationMin(czasMin);
 
-    overlay.innerHTML = `
-        <div class="modal" style="max-width:560px;">
-            <h2 style="margin-top:0;">Zaloguj sprawdzenie</h2>
-            <p style="color:var(--text-dim); font-size:14px;">
-                Linia, nazwa i km ze <strong>zgłoszeń</strong>. Godziny z książki (procedura = start + stop).
-                Czas liczony z dat – np. 23:00 → 01:30 = 2:30 h.
-            </p>
-            ${body}
-            <div class="modal-actions">
-                <button class="btn-success" onclick="confirmKsiazkaSprawdzenie()">Zapisz do statystyk</button>
-                <button class="btn-danger" onclick="closeKsiazkaSprawdzenieModal()">Anuluj</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-}
+        const entry = (it._entryIndex != null) ? appState.ksiazkaWydarzen[it._entryIndex] : null;
+        const entryEnd = (it._entryIndexEnd != null) ? appState.ksiazkaWydarzen[it._entryIndexEnd] : null;
 
-function ksiazkaSprawdGodzChange(idx) {
-    const modal = document.getElementById("ksiazkaSprawdModal");
-    const it = modal && modal._items ? modal._items[idx] : null;
-    const odEl = document.getElementById(`ksSprawdGodzOd_${idx}`);
-    const doEl = document.getElementById(`ksSprawdGodzDo_${idx}`);
-    const czasEl = document.getElementById(`ksSprawdCzas_${idx}`);
-    if (!odEl || !doEl) return;
-
-    const dataOd = it?._dataOd || todayPL();
-    const dataDo = it?._dataDo || dataOd;
-    const mins = durationMinutesBetween(dataOd, odEl.value, dataDo, doEl.value);
-    if (czasEl) czasEl.textContent = formatDurationMin(mins);
-}
-
-function ksiazkaSprawdGodzOdChange(idx) {
-    // kompatybilność – przelicz czas; nie nadpisuj końca przy procedurze
-    const modal = document.getElementById("ksiazkaSprawdModal");
-    const it = modal && modal._items ? modal._items[idx] : null;
-    const odEl = document.getElementById(`ksSprawdGodzOd_${idx}`);
-    const doEl = document.getElementById(`ksSprawdGodzDo_${idx}`);
-    if (!odEl || !doEl) return;
-    if (!it?._isProcedure && typeof parseHHMM === "function" && typeof addHoursHHMM === "function") {
-        const parsed = parseHHMM(odEl.value);
-        if (parsed) doEl.value = addHoursHHMM(formatHHMM(parsed), 2);
+        doZapisu.push({
+            it,
+            godzOd,
+            godzDo,
+            dataOd,
+            dataDo,
+            czas,
+            czasMin,
+            entryId: entry?.id || null,
+            entryIdEnd: entryEnd?.id || null
+        });
     }
-    ksiazkaSprawdGodzChange(idx);
+
+    if (braki.length && !doZapisu.length) {
+        const msg = "Nie zapisano – brak wymaganych godzin z książki:\n\n" + braki.join("\n");
+        if (typeof showToast === "function") showToast(braki[0]);
+        alert(msg);
+        return;
+    }
+
+    if (braki.length && doZapisu.length) {
+        const msg = "Część wpisów pominięta:\n\n" + braki.join("\n") +
+            "\n\nZostanie zapisane: " + doZapisu.length + " sprawdzeń. Kontynuować?";
+        if (!confirm(msg)) return;
+    }
+
+    for (const row of doZapisu) {
+        const it = row.it;
+        const payload = {
+            rodzaj: it.Rodzaj,
+            nazwa: it.Nazwa || "",
+            linia: it.Linia || "",
+            kmOd: it.KmOd || "",
+            kmDo: it.KmDo || "",
+            godzOd: row.godzOd,
+            godzDo: row.godzDo,
+            data: row.dataOd,
+            dataDo: row.dataDo,
+            czas: row.czas,
+            czasMin: row.czasMin,
+            entryId: row.entryId,
+            entryIdEnd: row.entryIdEnd,
+            procedureId: it._procedureId || null
+        };
+
+        if (typeof logSprawdzenie === "function") {
+            await logSprawdzenie(payload);
+            const last = appState.statystyki?.sprawdzenia?.slice(-1)[0];
+            if (last) {
+                if (row.entryId && !last.entryId) last.entryId = row.entryId;
+                if (row.entryIdEnd) last.entryIdEnd = row.entryIdEnd;
+                if (!last.data) last.data = row.dataOd;
+                last.dataDo = row.dataDo;
+                last.czas = row.czas;
+                last.czasMin = row.czasMin;
+                if (it._procedureId) last.procedureId = it._procedureId;
+            }
+        } else {
+            if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
+            if (!Array.isArray(appState.statystyki.sprawdzenia)) appState.statystyki.sprawdzenia = [];
+            appState.statystyki.sprawdzenia.push({
+                ...payload,
+                createdAt: new Date().toISOString()
+            });
+        }
+    }
+
+    await saveState();
+    closeKsiazkaSprawdzenieModal();
+    const info = braki.length
+        ? `✅ Zapisano ${doZapisu.length} (pominięto ${braki.length})`
+        : `✅ Zapisano ${doZapisu.length} sprawdzeń`;
+    if (typeof showToast === "function") showToast(info);
+    else alert(info);
+    if (document.getElementById("ksiazkaContainer") && typeof renderKsiazka === "function") {
+        renderKsiazka();
+    }
+}
+
+/** @deprecated – zostawione na kompatybilność; używaj ksiazkaSprawdzenieZapisz */
+function ksiazkaSprawdzenieDalej() {
+    return ksiazkaSprawdzenieZapisz();
 }
 
 async function confirmKsiazkaSprawdzenie() {
@@ -3528,6 +3541,7 @@ window.closeKsiazkaSprawdzenieModal = closeKsiazkaSprawdzenieModal;
 window.ksiazkaSprawdzenieToggleEntry = ksiazkaSprawdzenieToggleEntry;
 window.ksiazkaSprawdzenieZaznaczWszystkie = ksiazkaSprawdzenieZaznaczWszystkie;
 window.ksiazkaSprawdzenieZaznaczTylkoNowe = ksiazkaSprawdzenieZaznaczTylkoNowe;
+window.ksiazkaSprawdzenieZapisz = ksiazkaSprawdzenieZapisz;
 window.ksiazkaSprawdzenieDalej = ksiazkaSprawdzenieDalej;
 window.planRenderAddTilesZgl = planRenderAddTilesZgl;
 window.planRenderAddTilesPol = planRenderAddTilesPol;
