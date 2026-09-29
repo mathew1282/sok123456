@@ -5,6 +5,9 @@
 let currentPolecenieEdit = null;
 let poleceniaFilterLinia = "";
 let poleceniaFilterQuery = "";
+let polDeleteMode = false;
+let polColFilters = { Linia: "", OpisKrotki: "", OpisPom: "" };
+let polOpenFilterCol = null;
 
 function initPolecenia() {
     if (appState.polecenia?.rows) {
@@ -86,109 +89,103 @@ function renderPolecenia() {
     if (!container) return;
 
     const allRows = appState.polecenia?.rows || [];
-    let lines = [...new Set(allRows.map(r => r.Linia).filter(Boolean))];
-    lines = sortLinesNatural(lines);
-
     let rows = allRows.map((row, index) => ({ ...row, _index: index }));
-    if (poleceniaFilterLinia) {
-        rows = rows.filter(r => r.Linia === poleceniaFilterLinia);
+
+    const fLinia = (polColFilters.Linia || "").trim().toLowerCase();
+    const fKrotki = (polColFilters.OpisKrotki || "").trim().toLowerCase();
+    const fPom = (polColFilters.OpisPom || "").trim().toLowerCase();
+    if (fLinia) rows = rows.filter(r => String(r.Linia || "").toLowerCase().includes(fLinia));
+    if (fKrotki) rows = rows.filter(r => String(r.OpisKrotki || "").toLowerCase().includes(fKrotki));
+    if (fPom) rows = rows.filter(r => String(r.OpisPom || "").toLowerCase().includes(fPom));
+
+    const delMode = !!polDeleteMode;
+    const usunStyle = delMode
+        ? "background:#dc2626;border-color:#dc2626;color:#fff;"
+        : "background:#16a34a;border-color:#16a34a;color:#fff;";
+
+    function thFilter(col, label) {
+        const active = (polColFilters[col] || "").trim();
+        const open = polOpenFilterCol === col;
+        const arrow = active ? "▼" : "▽";
+        return `<th style="position:relative; user-select:none;">
+            <span style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
+                  onclick="event.stopPropagation();polToggleColFilter('${col}')">
+                ${label} <span style="font-size:10px;opacity:0.8;">${arrow}</span>
+                ${active ? `<span style="font-size:10px;color:#60a5fa;">●</span>` : ""}
+            </span>
+            ${open ? `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:180px;padding:8px;background:var(--bg,#0f172a);border:1px solid var(--border,#334155);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);"
+                onclick="event.stopPropagation()">
+                <input type="text" placeholder="Filtruj…" value="${escapeHtml(polColFilters[col] || "")}"
+                       style="width:100%;padding:6px 8px;border-radius:6px;margin-bottom:6px;"
+                       oninput="polColFilters['${col}']=this.value;renderPolecenia();"
+                       onclick="event.stopPropagation()">
+                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;"
+                        onclick="polColFilters['${col}']='';polOpenFilterCol=null;renderPolecenia();">Wyczyść</button>
+            </div>` : ""}
+        </th>`;
     }
-    const q = (poleceniaFilterQuery || "").trim().toLowerCase();
-    if (q) {
-        rows = rows.filter(r => {
-            const blob = [r.Linia, r.OpisKrotki, r.OpisPom, r.Opis].map(x => String(x || "").toLowerCase()).join(" ");
-            return blob.includes(q) || String(r.Linia || "").toLowerCase().includes(q);
+
+    let body = "";
+    if (rows.length === 0) {
+        body = `<tr><td colspan="${delMode ? 6 : 5}" style="text-align:center; color:#94a3b8;">Brak poleceń</td></tr>`;
+    } else {
+        rows.forEach(row => {
+            const index = row._index;
+            const krotki = (row.OpisKrotki || "").substring(0, 50);
+            const pom = (row.OpisPom || "").substring(0, 50);
+            const opis = (row.Opis || "").substring(0, 60);
+            const cb = delMode
+                ? `<td><input type="checkbox" class="pol-sel" data-index="${index}" onclick="event.stopPropagation()"></td>`
+                : "";
+            body += `
+            <tr>
+                ${cb}
+                <td>${escapeHtml(row.Linia || "")}</td>
+                <td>${escapeHtml(krotki)}</td>
+                <td>${escapeHtml(pom)}</td>
+                <td style="white-space: pre-wrap; max-width: 320px;">${escapeHtml(opis)}${(row.Opis || "").length > 60 ? "…" : ""}</td>
+                <td style="white-space:nowrap;">
+                    <button class="btn-primary" onclick="editPolecenie(${index})">Edytuj</button>
+                </td>
+            </tr>`;
         });
     }
 
-    let html = `
-    <div class="card">
-        <h2>Polecenia</h2>
-        <br>
-        <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-            <button class="btn-success" onclick="openPolecenieModal()">Dodaj polecenie</button>
-            <button class="btn-export" onclick="exportPoleceniaExcel()">📥 Eksport Excel</button>
-            <button class="btn-import" onclick="document.getElementById('poleceniaExcelLoader').click()">📤 Import Excel</button>
-            <input type="file" id="poleceniaExcelLoader" accept=".xlsx,.xls,.csv" hidden onchange="importPoleceniaExcel(event)">
-            <button class="btn-danger" onclick="removeSelectedPolecenia()">Usuń zaznaczone</button>
-        </div>
-        <br>
+    const thCb = delMode
+        ? `<th style="width:36px;"><input type="checkbox" title="Zaznacz widoczne" onclick="polToggleSelectAll(this.checked)"></th>`
+        : "";
 
-        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">
-            <label style="font-size:13px;color:#94a3b8;white-space:nowrap;">Autofiltr linii:</label>
-            <input type="text" id="poleceniaAutoFilter" placeholder="np. 275…" value="${escapeHtml(poleceniaFilterQuery || "")}"
-                   style="flex:1;min-width:140px;max-width:220px;padding:8px 10px;border-radius:8px;"
-                   oninput="poleceniaFilterQuery=this.value;renderPolecenia();">
-            ${(poleceniaFilterQuery || poleceniaFilterLinia) ? `<button type="button" class="btn-primary" style="padding:6px 12px;font-size:13px;" onclick="poleceniaFilterQuery='';poleceniaFilterLinia='';renderPolecenia();">Wyczyść filtr</button>` : ""}
-        </div>
-
-        <div style="margin-bottom:15px;">
-            <div style="font-size:14px; color:#94a3b8; margin-bottom:8px;">Filtr linii (kliknij):</div>
-            <div class="card-grid">
-                <div class="line-pill ${poleceniaFilterLinia === "" ? "active" : ""}"
-                     onclick="setPoleceniaFilterLinia('')">Wszystkie</div>
-    `;
-
-    lines.forEach(line => {
-        const active = poleceniaFilterLinia === line ? "active" : "";
-        html += `
-            <div class="line-pill ${active}" onclick="setPoleceniaFilterLinia('${String(line).replace(/'/g, "\\'")}')">
-                ${escapeHtml(line)}
-            </div>`;
-    });
-
-    html += `
+    container.innerHTML = `
+    <div class="card" onclick="if(polOpenFilterCol){polOpenFilterCol=null;renderPolecenia();}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+            <div><h2 style="margin:0;">📌 Polecenia</h2></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <button class="btn-success" onclick="openPolecenieModal()">Dodaj polecenie</button>
+                <button class="btn-export" onclick="exportPoleceniaExcel()">📥 Eksport Excel</button>
+                <button class="btn-import" onclick="document.getElementById('poleceniaExcelLoader').click()">📤 Import Excel</button>
+                <input type="file" id="poleceniaExcelLoader" accept=".xlsx,.xls,.csv" hidden onchange="importPoleceniaExcel(event)">
+                <button type="button" style="padding:8px 14px;border-radius:8px;border:1px solid transparent;cursor:pointer;font-weight:600;${usunStyle}"
+                        onclick="event.stopPropagation();polUsunZaznaczoneClick()">Usuń zaznaczone</button>
             </div>
         </div>
-
         <table>
             <thead>
                 <tr>
-                    <th style="width:36px;"><input type="checkbox" title="Zaznacz widoczne" onclick="polToggleSelectAll(this.checked)"></th>
-                    <th>Nr linii</th>
-                    <th>Opis krótki</th>
-                    <th>Opis pom</th>
+                    ${thCb}
+                    ${thFilter("Linia", "Nr linii")}
+                    ${thFilter("OpisKrotki", "Opis krótki")}
+                    ${thFilter("OpisPom", "Opis pom")}
                     <th>Opis</th>
                     <th>Akcje</th>
                 </tr>
             </thead>
-            <tbody>
-    `;
-
-    rows.forEach(row => {
-        const index = row._index;
-        const krotki = (row.OpisKrotki || "").substring(0, 50);
-        const pom = (row.OpisPom || "").substring(0, 50);
-        const opis = (row.Opis || "").substring(0, 60);
-
-        html += `
-        <tr>
-            <td><input type="checkbox" class="pol-sel" data-index="${index}" onclick="event.stopPropagation()"></td>
-            <td>${escapeHtml(row.Linia || "")}</td>
-            <td>${escapeHtml(krotki)}</td>
-            <td>${escapeHtml(pom)}</td>
-            <td style="white-space: pre-wrap; max-width: 320px;">${escapeHtml(opis)}${(row.Opis || "").length > 60 ? "…" : ""}</td>
-            <td style="white-space:nowrap;">
-                <button class="btn-primary" onclick="editPolecenie(${index})">Edytuj</button>
-                <button class="btn-danger" onclick="removePolecenie(${index})">Usuń</button>
-            </td>
-        </tr>`;
-    });
-
-    if (rows.length === 0) {
-        html += `<tr><td colspan="6" style="text-align:center; color:#94a3b8;">Brak poleceń</td></tr>`;
-    }
-
-    html += `
-            </tbody>
+            <tbody>${body}</tbody>
         </table>
     </div>
 
     <div id="polecenieModal" class="modal-overlay" style="display:none;">
         <div class="modal" style="max-width:920px;">
             <h2 id="polecenieModalTitle">Polecenie</h2>
-
-            <!-- Rząd 1: Nr linii | Opis krótki | Opis pom -->
             <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:14px;">
                 <div style="flex:1; min-width:140px;">
                     <label>Nr linii</label>
@@ -203,19 +200,13 @@ function renderPolecenia() {
                     <input type="text" id="polecenieOpisPom" placeholder="Opis pomocniczy" style="width:100%;">
                 </div>
             </div>
-
-            <!-- Opis – pełna szerokość + formatowanie -->
             <label>Opis (tekst generowany do wpisu)</label>
             <div style="display:flex; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
                 <button type="button" class="btn-primary" style="padding:4px 12px;" onclick="formatPolecenieOpis('bold')"><b>B</b> Pogrub</button>
                 <button type="button" class="btn-primary" style="padding:4px 12px;" onclick="formatPolecenieOpis('underline')"><u>U</u> Podkreśl</button>
             </div>
             <div id="polecenieOpis" class="rich-opis-editor" contenteditable="true"
-                 style="width:100%; min-height:140px; padding:10px; font-family: monospace; margin-bottom:14px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; white-space:pre-wrap; outline:none;"
-                 data-placeholder="Pełny opis z znacznikami..."></div>
-
-            <!-- Rodzaj/km przeniesione do procedur w zgłoszeniach -->
-
+                 style="width:100%; min-height:140px; padding:10px; font-family: monospace; margin-bottom:14px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; white-space:pre-wrap; outline:none;"></div>
             <h3>Dostępne znaczniki</h3>
             <div class="tag-buttons">
                 <button type="button" class="btn-primary" onclick="insertPolecenieTag('@patrol')">@patrol</button>
@@ -231,7 +222,6 @@ function renderPolecenia() {
                 <button type="button" class="btn-primary" onclick="insertPolecenieTag('@policjant')">@policjant</button>
                 <button type="button" class="btn-primary" onclick="insertPolecenieTag('@wybrani')">@wybrani</button>
             </div>
-
             <div class="modal-actions">
                 <button class="btn-success" onclick="savePolecenie()">Zapisz polecenie</button>
                 <button class="btn-danger" onclick="closePolecenieModal()">Anuluj</button>
@@ -239,16 +229,39 @@ function renderPolecenia() {
         </div>
     </div>
     `;
-
-    container.innerHTML = html;
-    const af = document.getElementById("poleceniaAutoFilter");
-    if (af && poleceniaFilterQuery) {
-        const pos = af.value.length;
-        af.focus();
-        try { af.setSelectionRange(pos, pos); } catch (e) {}
-    }
 }
 
+function polToggleColFilter(col) {
+    polOpenFilterCol = (polOpenFilterCol === col) ? null : col;
+    renderPolecenia();
+    setTimeout(() => {
+        const inp = document.querySelector('#poleceniaContainer th input[placeholder="Filtruj…"]');
+        if (inp) { inp.focus(); const n = inp.value.length; try { inp.setSelectionRange(n, n); } catch (e) {} }
+    }, 30);
+}
+
+function polUsunZaznaczoneClick() {
+    if (!polDeleteMode) {
+        polDeleteMode = true;
+        renderPolecenia();
+        if (typeof showToast === "function") showToast("Zaznacz pozycje do usunięcia");
+        return;
+    }
+    const idxs = [...document.querySelectorAll(".pol-sel:checked")]
+        .map(cb => parseInt(cb.getAttribute("data-index"), 10))
+        .filter(i => !isNaN(i));
+    if (!idxs.length) {
+        polDeleteMode = false;
+        renderPolecenia();
+        return;
+    }
+    removeSelectedPolecenia().then((ok) => {
+        if (ok) {
+            polDeleteMode = false;
+            renderPolecenia();
+        }
+    });
+}
 
 function setPoleceniaFilterLinia(line) {
     poleceniaFilterLinia = line || "";
@@ -484,19 +497,15 @@ async function removeSelectedPolecenia() {
         .map(cb => parseInt(cb.getAttribute("data-index"), 10))
         .filter(i => !isNaN(i) && i >= 0)
         .sort((a, b) => b - a);
-    if (!idxs.length) {
-        if (typeof showToast === "function") showToast("Zaznacz pozycje do usunięcia");
-        else alert("Zaznacz pozycje do usunięcia");
-        return;
-    }
-    if (!confirm("Usunąć zaznaczone polecenia (" + idxs.length + ")?")) return;
+    if (!idxs.length) return false;
+    if (!confirm("Usunąć zaznaczone polecenia (" + idxs.length + ")?")) return false;
     idxs.forEach(i => {
         if (i >= 0 && i < (appState.polecenia.rows || []).length) {
             appState.polecenia.rows.splice(i, 1);
         }
     });
     if (typeof saveState === "function") await saveState();
-    renderPolecenia();
     if (typeof showToast === "function") showToast("Usunięto " + idxs.length + " pozycji");
+    return true;
 }
 
