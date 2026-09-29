@@ -4,6 +4,7 @@
 
 let currentPolecenieEdit = null;
 let poleceniaFilterLinia = "";
+let poleceniaFilterQuery = "";
 
 function initPolecenia() {
     if (appState.polecenia?.rows) {
@@ -92,6 +93,13 @@ function renderPolecenia() {
     if (poleceniaFilterLinia) {
         rows = rows.filter(r => r.Linia === poleceniaFilterLinia);
     }
+    const q = (poleceniaFilterQuery || "").trim().toLowerCase();
+    if (q) {
+        rows = rows.filter(r => {
+            const blob = [r.Linia, r.OpisKrotki, r.OpisPom, r.Opis].map(x => String(x || "").toLowerCase()).join(" ");
+            return blob.includes(q) || String(r.Linia || "").toLowerCase().includes(q);
+        });
+    }
 
     let html = `
     <div class="card">
@@ -102,8 +110,17 @@ function renderPolecenia() {
             <button class="btn-export" onclick="exportPoleceniaExcel()">📥 Eksport Excel</button>
             <button class="btn-import" onclick="document.getElementById('poleceniaExcelLoader').click()">📤 Import Excel</button>
             <input type="file" id="poleceniaExcelLoader" accept=".xlsx,.xls,.csv" hidden onchange="importPoleceniaExcel(event)">
+            <button class="btn-danger" onclick="removeSelectedPolecenia()">Usuń zaznaczone</button>
         </div>
         <br>
+
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">
+            <label style="font-size:13px;color:#94a3b8;white-space:nowrap;">Autofiltr linii:</label>
+            <input type="text" id="poleceniaAutoFilter" placeholder="np. 275…" value="${escapeHtml(poleceniaFilterQuery || "")}"
+                   style="flex:1;min-width:140px;max-width:220px;padding:8px 10px;border-radius:8px;"
+                   oninput="poleceniaFilterQuery=this.value;renderPolecenia();">
+            ${(poleceniaFilterQuery || poleceniaFilterLinia) ? `<button type="button" class="btn-primary" style="padding:6px 12px;font-size:13px;" onclick="poleceniaFilterQuery='';poleceniaFilterLinia='';renderPolecenia();">Wyczyść filtr</button>` : ""}
+        </div>
 
         <div style="margin-bottom:15px;">
             <div style="font-size:14px; color:#94a3b8; margin-bottom:8px;">Filtr linii (kliknij):</div>
@@ -127,6 +144,7 @@ function renderPolecenia() {
         <table>
             <thead>
                 <tr>
+                    <th style="width:36px;"><input type="checkbox" title="Zaznacz widoczne" onclick="polToggleSelectAll(this.checked)"></th>
                     <th>Nr linii</th>
                     <th>Opis krótki</th>
                     <th>Opis pom</th>
@@ -145,6 +163,7 @@ function renderPolecenia() {
 
         html += `
         <tr>
+            <td><input type="checkbox" class="pol-sel" data-index="${index}" onclick="event.stopPropagation()"></td>
             <td>${escapeHtml(row.Linia || "")}</td>
             <td>${escapeHtml(krotki)}</td>
             <td>${escapeHtml(pom)}</td>
@@ -157,7 +176,7 @@ function renderPolecenia() {
     });
 
     if (rows.length === 0) {
-        html += `<tr><td colspan="5" style="text-align:center; color:#94a3b8;">Brak poleceń</td></tr>`;
+        html += `<tr><td colspan="6" style="text-align:center; color:#94a3b8;">Brak poleceń</td></tr>`;
     }
 
     html += `
@@ -222,7 +241,14 @@ function renderPolecenia() {
     `;
 
     container.innerHTML = html;
+    const af = document.getElementById("poleceniaAutoFilter");
+    if (af && poleceniaFilterQuery) {
+        const pos = af.value.length;
+        af.focus();
+        try { af.setSelectionRange(pos, pos); } catch (e) {}
+    }
 }
+
 
 function setPoleceniaFilterLinia(line) {
     poleceniaFilterLinia = line || "";
@@ -441,8 +467,36 @@ window.closePolecenieModal = closePolecenieModal;
 window.savePolecenie = savePolecenie;
 window.editPolecenie = editPolecenie;
 window.removePolecenie = removePolecenie;
+window.removeSelectedPolecenia = removeSelectedPolecenia;
+window.polToggleSelectAll = polToggleSelectAll;
 window.insertPolecenieTag = insertPolecenieTag;
 window.formatPolecenieOpis = formatPolecenieOpis;
 window.setPoleceniaFilterLinia = setPoleceniaFilterLinia;
 window.exportPoleceniaExcel = exportPoleceniaExcel;
 window.importPoleceniaExcel = importPoleceniaExcel;
+
+function polToggleSelectAll(checked) {
+    document.querySelectorAll(".pol-sel").forEach(cb => { cb.checked = !!checked; });
+}
+
+async function removeSelectedPolecenia() {
+    const idxs = [...document.querySelectorAll(".pol-sel:checked")]
+        .map(cb => parseInt(cb.getAttribute("data-index"), 10))
+        .filter(i => !isNaN(i) && i >= 0)
+        .sort((a, b) => b - a);
+    if (!idxs.length) {
+        if (typeof showToast === "function") showToast("Zaznacz pozycje do usunięcia");
+        else alert("Zaznacz pozycje do usunięcia");
+        return;
+    }
+    if (!confirm("Usunąć zaznaczone polecenia (" + idxs.length + ")?")) return;
+    idxs.forEach(i => {
+        if (i >= 0 && i < (appState.polecenia.rows || []).length) {
+            appState.polecenia.rows.splice(i, 1);
+        }
+    });
+    if (typeof saveState === "function") await saveState();
+    renderPolecenia();
+    if (typeof showToast === "function") showToast("Usunięto " + idxs.length + " pozycji");
+}
+
