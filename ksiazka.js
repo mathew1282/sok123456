@@ -541,6 +541,9 @@ function setupKsiazkaShortcuts() {
         } else if (key === "e") {
             e.preventDefault();
             if (typeof exportKsiazkaFiltered === "function") exportKsiazkaFiltered();
+        } else if (key === "i") {
+            e.preventDefault();
+            if (typeof toggleKsiazkaInterwencjeMode === "function") toggleKsiazkaInterwencjeMode();
         }
     };
     document.addEventListener("keydown", window._ksiazkaKeyHandler);
@@ -628,7 +631,11 @@ function renderKsiazka() {
                 <button class="btn-success" onclick="openKsiazkaAddModal()">➕ Dodaj wpis <span style="opacity:.7;font-size:11px;">(D)</span></button>
                 <button class="btn-primary" onclick="openPlanSluzbyModal()">📋 Planowanie</button>
                 <button class="btn-primary" onclick="openZapiszKsiazkeJakoSzablon()">💾 Zapisz książkę jako szablon</button>
-                <button class="btn-primary" onclick="openKsiazkaUwagiPicker()">Uwagi</button>
+                <button class="btn-primary" id="ksiazkaInterwencjeBtn"
+                    style="${ksiazkaInterwencjeMode ? "background:#dc2626;border-color:#dc2626;" : ""}"
+                    onclick="toggleKsiazkaInterwencjeMode()">
+                    ${ksiazkaInterwencjeMode ? "Interwencje ON" : "Interwencje"} <span style="opacity:.7;font-size:11px;">(I)</span>
+                </button>
                 <button class="btn-success" onclick="openKsiazkaSprawdzenieModal()">Sprawdzenie <span style="opacity:.7;font-size:11px;">(S)</span></button>
                 <button class="btn-primary" onclick="exportKsiazkaFiltered()">📋 Eksport (kopiuj) <span style="opacity:.7;font-size:11px;">(E)</span></button>
                 <button class="btn-danger" onclick="clearAllKsiazka()">Kasuj wszystkie</button>
@@ -674,7 +681,8 @@ function renderKsiazkaListView(entries) {
         const patrolLabel = (entry.patrole || []).map(i => getPatrolName(i)).join(", ");
 
         html += `
-        <div class="${rowClass}">
+        <div class="${rowClass}" style="position:relative;">
+            ${ksiazkaInterwencjeBadgesHtml(entry, true)}
             <div class="ksiazka-col-time">
                 <div class="ksiazka-time">${escapeHtml(entry.godzinaStart || "—")}</div>
                 <div class="ksiazka-date">${escapeHtml(entry.data || "")}</div>
@@ -684,14 +692,21 @@ function renderKsiazkaListView(entries) {
                 <div class="ksiazka-text">${formatKsiazkaTekstHtml(entry.tekst)}</div>
             </div>
             <div class="ksiazka-col-actions">
-                ${!done ? `
-                    <button class="btn-success" style="padding:5px 10px; font-size:12px;" onclick="oznaczZrobione(${globalIdx})">Zrobione</button>
+                ${ksiazkaInterwencjeMode ? `
+                    <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'MKK')">MKK</button>
+                    <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'P')">P</button>
+                    <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'L')">L</button>
+                    <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'I')">Inne</button>
                 ` : `
-                    <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="odznaczZrobione(${globalIdx})">Cofnij</button>
+                    ${!done ? `
+                        <button class="btn-success" style="padding:5px 10px; font-size:12px;" onclick="oznaczZrobione(${globalIdx})">Zrobione</button>
+                    ` : `
+                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="odznaczZrobione(${globalIdx})">Cofnij</button>
+                    `}
+                    <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="kopiujWpisKsiazki(${globalIdx})">Kopiuj</button>
+                    <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazki(${globalIdx})">Edytuj</button>
+                    <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazki(${globalIdx})">Kasuj</button>
                 `}
-                <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="kopiujWpisKsiazki(${globalIdx})">Kopiuj</button>
-                <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazki(${globalIdx})">Edytuj</button>
-                <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazki(${globalIdx})">Kasuj</button>
             </div>
         </div>
         `;
@@ -738,22 +753,32 @@ function renderKsiazkaColumnsView(filtered) {
 
                 html += `
                 <div class="${extraClass}" style="${boxStyle} border-radius:10px; padding:12px; margin-bottom:10px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:13px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:13px; position:relative; padding-right:48px;">
                         <span style="color:#94a3b8;">${escapeHtml(entry.data)} · <strong style="color:#e2e8f0;">${escapeHtml(entry.godzinaStart || "—")}</strong></span>
-                        ${done ? "<span style='color:#4ade80;'>✅</span>" : (overdue ? "<span style='color:#f87171;'>⚠</span>" : "")}
+                        <span style="display:flex; gap:4px; align-items:center;">
+                            ${ksiazkaInterwencjeBadgesHtml(entry, true)}
+                            ${done ? "<span style='color:#4ade80;'>✅</span>" : (overdue ? "<span style='color:#f87171;'>⚠</span>" : "")}
+                        </span>
                     </div>
                     <div style="font-size:13.5px; line-height:1.45; white-space:pre-wrap; color:#e2e8f0; margin-bottom:10px;">
                         ${formatKsiazkaTekstHtml(entry.tekst)}
                     </div>
                     <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                        ${!done ? `
-                            <button class="btn-success" style="padding:5px 10px; font-size:12px;" onclick="oznaczZrobione(${globalIdx})">Zrobione</button>
+                        ${ksiazkaInterwencjeMode ? `
+                            <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'MKK')">MKK</button>
+                            <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'P')">P</button>
+                            <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'L')">L</button>
+                            <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'I')">Inne</button>
                         ` : `
-                            <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="odznaczZrobione(${globalIdx})">Cofnij</button>
+                            ${!done ? `
+                                <button class="btn-success" style="padding:5px 10px; font-size:12px;" onclick="oznaczZrobione(${globalIdx})">Zrobione</button>
+                            ` : `
+                                <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="odznaczZrobione(${globalIdx})">Cofnij</button>
+                            `}
+                            <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="kopiujWpisKsiazki(${globalIdx})">Kopiuj</button>
+                            <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazki(${globalIdx})">Edytuj</button>
+                            <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazki(${globalIdx})">Kasuj</button>
                         `}
-                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="kopiujWpisKsiazki(${globalIdx})">Kopiuj</button>
-                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazki(${globalIdx})">Edytuj</button>
-                        <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazki(${globalIdx})">Kasuj</button>
                     </div>
                 </div>
                 `;
@@ -3143,6 +3168,125 @@ async function confirmKsiazkaSprawdzenie() {
 // UWAGI – wybór wpisu → dodaje na końcu (nie nadpisuje) + edycja
 // =====================================
 
+
+// =====================================
+// INTERWENCJE (MKK / P / L / Inne)
+// =====================================
+
+const INTERWENCJE_MAP = {
+    MKK: { code: "M", label: "MKK", szablonKey: "MKK" },
+    P:   { code: "P", label: "Pouczony", szablonKey: "Pouczony" },
+    L:   { code: "L", label: "Legitymowany", szablonKey: "Legitymowany" },
+    I:   { code: "I", label: "Inne", szablonKey: "Inne" }
+};
+
+function toggleKsiazkaInterwencjeMode() {
+    ksiazkaInterwencjeMode = !ksiazkaInterwencjeMode;
+    renderKsiazka();
+    if (typeof showToast === "function") {
+        showToast(ksiazkaInterwencjeMode
+            ? "Tryb interwencji ON – wybierz MKK / P / L / Inne przy wpisie"
+            : "Tryb interwencji OFF");
+    }
+}
+
+function ksiazkaInterwencjeBadgesHtml(entry, absolute) {
+    const inv = entry && entry.interwencje ? entry.interwencje : {};
+    const codes = [];
+    if (inv.MKK || inv.M) codes.push("M");
+    if (inv.P) codes.push("P");
+    if (inv.L) codes.push("L");
+    if (inv.I || inv.Inne) codes.push("I");
+    if (!codes.length) return "";
+    const style = absolute
+        ? "position:absolute; top:6px; right:8px; z-index:2; display:flex; gap:4px;"
+        : "display:inline-flex; gap:4px; margin-bottom:4px;";
+    return `<span style="${style}">` + codes.map(c =>
+        `<span style="font-weight:800; font-size:13px; color:var(--primary-light,#60a5fa); letter-spacing:0.5px;">${c}</span>`
+    ).join("") + `</span>`;
+}
+
+function openKsiazkaInterwencjaModal(index, typ) {
+    ensureKsiazkaState();
+    const entry = appState.ksiazkaWydarzen[index];
+    if (!entry) return;
+
+    const meta = INTERWENCJE_MAP[typ] || INTERWENCJE_MAP.I;
+    window._ksiazkaInterwencjaIndex = index;
+    window._ksiazkaInterwencjaTyp = typ;
+
+    if (typeof ensureUwagiState === "function") ensureUwagiState();
+    const sz = appState.uwagiSzablony || {};
+    const szablon = sz[meta.szablonKey] || sz[meta.label] || "";
+
+    const old = document.getElementById("ksiazkaUwagiEditModal");
+    if (old) old.remove();
+
+    const base = String(entry.tekst || "");
+    const previewAdd = szablon ? ("\n\n" + szablon) : "";
+
+    const overlay = document.createElement("div");
+    overlay.id = "ksiazkaUwagiEditModal";
+    overlay.className = "modal-overlay";
+    overlay.style.display = "flex";
+    overlay.innerHTML = `
+        <div class="modal" style="max-width:640px;">
+            <h2 style="margin-top:0;">Interwencja: ${escapeHtml(meta.label)}</h2>
+            <p style="color:var(--text-dim); font-size:13px; margin-bottom:10px;">
+                Szablon możesz wstawić przyciskiem poniżej albo dopisać ręcznie. Po zapisie przy wpisie pojawi się litera <strong>${meta.code}</strong>.
+            </p>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                <button type="button" class="btn-primary" onclick="ksiazkaInterwencjaWstawSzablon()">Wstaw szablon „${escapeHtml(meta.label)}”</button>
+                <button type="button" class="btn-primary" style="padding:6px 10px;font-size:12px;" onclick="openUwagiSzablonyModal && openUwagiSzablonyModal()">Edytuj szablony</button>
+            </div>
+            <label>Treść wpisu</label>
+            <textarea id="ksUwagiTekst" rows="10" style="width:100%; margin-bottom:14px; font-size:14px; line-height:1.45;">${escapeHtml(base)}</textarea>
+            <div class="modal-actions">
+                <button class="btn-success" onclick="confirmKsiazkaInterwencja()">Zapisz</button>
+                <button class="btn-danger" onclick="closeKsiazkaUwagiEditModal()">Anuluj</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    // zapamiętaj szablon do wstawienia
+    overlay._szablon = szablon;
+}
+
+function ksiazkaInterwencjaWstawSzablon() {
+    const modal = document.getElementById("ksiazkaUwagiEditModal");
+    const add = (modal && modal._szablon) ? String(modal._szablon).trim() : "";
+    const ta = document.getElementById("ksUwagiTekst");
+    if (!ta || !add) {
+        if (typeof showToast === "function") showToast("Brak szablonu – ustaw w Szablony");
+        return;
+    }
+    const cur = ta.value || "";
+    ta.value = cur.trim() ? (cur.replace(/\s*$/, "") + "\n\n" + add) : add;
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+async function confirmKsiazkaInterwencja() {
+    const index = window._ksiazkaInterwencjaIndex;
+    const typ = window._ksiazkaInterwencjaTyp || "I";
+    if (index == null || !appState.ksiazkaWydarzen[index]) return;
+
+    const tekst = (document.getElementById("ksUwagiTekst")?.value || "");
+    const entry = appState.ksiazkaWydarzen[index];
+    entry.tekst = tekst;
+    if (!entry.interwencje || typeof entry.interwencje !== "object") entry.interwencje = {};
+    entry.interwencje[typ] = true;
+    // kompatybilność liter
+    const meta = INTERWENCJE_MAP[typ];
+    if (meta) entry.interwencje[meta.code] = true;
+
+    await saveState();
+    closeKsiazkaUwagiEditModal();
+    renderKsiazka();
+    if (typeof showToast === "function") showToast("✅ Zapisano interwencję " + (meta ? meta.label : typ));
+}
+
+
 function openKsiazkaUwagiPicker() {
     ensureKsiazkaState();
     const entries = sortEntriesOldestFirst(appState.ksiazkaWydarzen);
@@ -3772,6 +3916,13 @@ window.closePlanPodgladModal = closePlanPodgladModal;
 window.planPodgladZatwierdz = planPodgladZatwierdz;
 window.ksiazkaSprawdGodzOdChange = ksiazkaSprawdGodzOdChange;
 window.confirmKsiazkaSprawdzenie = confirmKsiazkaSprawdzenie;
+
+window.toggleKsiazkaInterwencjeMode = toggleKsiazkaInterwencjeMode;
+window.openKsiazkaInterwencjaModal = openKsiazkaInterwencjaModal;
+window.ksiazkaInterwencjaWstawSzablon = ksiazkaInterwencjaWstawSzablon;
+window.confirmKsiazkaInterwencja = confirmKsiazkaInterwencja;
+window.ksiazkaInterwencjeBadgesHtml = ksiazkaInterwencjeBadgesHtml;
+
 window.openKsiazkaUwagiPicker = openKsiazkaUwagiPicker;
 window.closeKsiazkaUwagiPicker = closeKsiazkaUwagiPicker;
 window.ksiazkaUwagiWybrano = ksiazkaUwagiWybrano;
