@@ -138,6 +138,13 @@ function renderLinie() {
 
     html += `
         </div>
+
+        <h3 style="margin:28px 0 12px 0;">Godziny ze zgłoszeń / sprawdzeń</h3>
+        <p style="color:var(--text-dim); font-size:13px; margin-bottom:14px;">
+            Liczone z zapisanych <strong>sprawdzeń</strong> (Szlak / Stacja osobowa / Stacja towarowa)
+            oraz patroli przypisanych do wpisów w książce. Każda osoba ze składu patrolu dostaje te same godziny danego sprawdzenia.
+        </p>
+        ${buildGodzinyZeZgloszenHtml()}
     </div>`;
 
     container.innerHTML = html;
@@ -296,6 +303,250 @@ function createPersonTableStacjonarny(person, today, role) {
     </div>`;
 }
 
+
+// =====================================
+// GODZINY ZE SPRAWDZEŃ / ZGŁOSZEŃ
+// =====================================
+
+function linieParseTimeParts(str) {
+    const m = String(str || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    return { h: parseInt(m[1], 10), m: parseInt(m[2], 10) };
+}
+
+function linieParseDatePL(str) {
+    const m = String(str || "").trim().match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+    if (!m) return null;
+    const d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+    d.setHours(0, 0, 0, 0);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function linieDurationMinutes(dataOd, godzOd, dataDo, godzDo) {
+    if (typeof durationMinutesBetween === "function") {
+        return durationMinutesBetween(dataOd, godzOd, dataDo || dataOd, godzDo);
+    }
+    const baseOd = linieParseDatePL(dataOd) || new Date();
+    const baseDo = linieParseDatePL(dataDo || dataOd) || new Date(baseOd.getTime());
+    const tOd = linieParseTimeParts(godzOd);
+    const tDo = linieParseTimeParts(godzDo);
+    if (!tOd || !tDo) return 0;
+    const start = new Date(baseOd.getTime());
+    start.setHours(tOd.h, tOd.m, 0, 0);
+    let end = new Date(baseDo.getTime());
+    end.setHours(tDo.h, tDo.m, 0, 0);
+    if (end.getTime() <= start.getTime()) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+    return Math.max(0, Math.round((end - start) / 60000));
+}
+
+function linieFormatHours(mins) {
+    const m = Math.max(0, Math.round(mins || 0));
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return h + ":" + String(mm).padStart(2, "0");
+}
+
+function linieNormalizeRodzaj(rodzaj) {
+    const r = String(rodzaj || "").trim().toLowerCase();
+    if (r === "szlak") return "Szlak";
+    if (r.includes("towar")) return "Stacja towarowa";
+    if (r.includes("osob")) return "Stacja osobowa";
+    return "";
+}
+
+/** Minuty sprawdzenia */
+function linieSprawdzenieMinuty(s) {
+    if (s.czasMin != null && !isNaN(Number(s.czasMin))) return Number(s.czasMin);
+    if (s.czas && String(s.czas).includes(":")) {
+        const p = String(s.czas).split(":");
+        const h = parseInt(p[0], 10) || 0;
+        const m = parseInt(p[1], 10) || 0;
+        return h * 60 + m;
+    }
+    return linieDurationMinutes(s.data, s.godzOd, s.dataDo || s.data, s.godzDo);
+}
+
+/** Osoby z patroli powiązanych ze sprawdzeniem (przez entryId → książka.patrole) */
+function liniePeopleForSprawdzenie(s) {
+    const names = new Set();
+    const entries = appState.ksiazkaWydarzen || [];
+    const entryIds = [s.entryId, s.entryIdEnd].filter(Boolean);
+    let patrolIndexes = [];
+
+    entryIds.forEach(id => {
+        const e = entries.find(x => String(x.id) === String(id));
+        if (e && Array.isArray(e.patrole)) {
+            e.patrole.forEach(i => {
+                if (typeof i === "number" && !patrolIndexes.includes(i)) patrolIndexes.push(i);
+            });
+        }
+    });
+
+    // fallback: jeśli brak entry – nie przypisuj do nikogo (tylko suma globalna)
+    const patrole = appState.patrole || [];
+    patrolIndexes.forEach(pi => {
+        const p = patrole[pi];
+        if (!p) return;
+        getPatrolPeopleList(p).forEach(n => names.add(n));
+    });
+
+    return { names: Array.from(names), patrolIndexes };
+}
+
+/**
+ * Zbiera: { byPerson: { name: { Szlak, osobowa, towarowa, total } }, totals, details[] }
+ */
+function computeGodzinyZeZgloszen() {
+    const empty = () => ({ Szlak: 0, "Stacja osobowa": 0, "Stacja towarowa": 0, total: 0 });
+    const byPerson = {};
+    const totals = empty();
+    const details = [];
+
+    if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
+    const sprawdzenia = appState.statystyki.sprawdzenia || [];
+
+    sprawdzenia.forEach(s => {
+        const rodzaj = linieNormalizeRodzaj(s.rodzaj);
+        if (!rodzaj) return;
+        const mins = linieSprawdzenieMinuty(s);
+        if (mins <= 0) return;
+
+        totals[rodzaj] = (totals[rodzaj] || 0) + mins;
+        totals.total += mins;
+
+        const { names, patrolIndexes } = liniePeopleForSprawdzenie(s);
+        details.push({
+            rodzaj,
+            mins,
+            nazwa: s.nazwa || "",
+            linia: s.linia || "",
+            godzOd: s.godzOd || "",
+            godzDo: s.godzDo || "",
+            data: s.data || "",
+            people: names,
+            patrolIndexes
+        });
+
+        names.forEach(name => {
+            if (!byPerson[name]) byPerson[name] = empty();
+            byPerson[name][rodzaj] = (byPerson[name][rodzaj] || 0) + mins;
+            byPerson[name].total += mins;
+        });
+    });
+
+    return { byPerson, totals, details, count: sprawdzenia.length };
+}
+
+function buildGodzinyZeZgloszenHtml() {
+    const { byPerson, totals, details, count } = computeGodzinyZeZgloszen();
+    const personNames = Object.keys(byPerson).sort((a, b) => a.localeCompare(b, "pl"));
+
+    if (!count) {
+        return `<div style="padding:16px;border:1px dashed var(--border);border-radius:12px;color:var(--text-dim);">
+            Brak zapisanych sprawdzeń. Najpierw zapisz sprawdzenia w <strong>Książce wydarzeń</strong>
+            (procedury Szlak / stacje z godzinami start–koniec).
+        </div>`;
+    }
+
+    const cell = (mins, color) =>
+        `<td style="padding:10px 12px;text-align:center;font-weight:600;color:${color};">${escapeHtml(linieFormatHours(mins))}</td>`;
+
+    let personRows = personNames.map(name => {
+        const p = byPerson[name];
+        return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:10px 12px;font-weight:600;">${escapeHtml(name)}</td>
+            ${cell(p.Szlak, "#60a5fa")}
+            ${cell(p["Stacja osobowa"], "#34d399")}
+            ${cell(p["Stacja towarowa"], "#fb923c")}
+            ${cell(p.total, "var(--text)")}
+        </tr>`;
+    }).join("");
+
+    if (!personRows) {
+        personRows = `<tr><td colspan="5" style="padding:12px;color:var(--text-dim);text-align:center;">
+            Sprawdzenia są, ale nie powiązano ich z patrolem w książce (brak osób).
+            Suma globalna poniżej.
+        </td></tr>`;
+    }
+
+    const detailRows = details.slice().reverse().slice(0, 40).map(d => {
+        const people = d.people.length ? d.people.join(", ") : "—";
+        return `<tr style="border-bottom:1px solid var(--border);font-size:13px;">
+            <td style="padding:8px 10px;">${escapeHtml(d.data)}</td>
+            <td style="padding:8px 10px;">${escapeHtml(d.rodzaj)}</td>
+            <td style="padding:8px 10px;">${escapeHtml(d.nazwa || d.linia)}</td>
+            <td style="padding:8px 10px;">${escapeHtml(d.godzOd)}–${escapeHtml(d.godzDo)}</td>
+            <td style="padding:8px 10px;font-weight:600;">${escapeHtml(linieFormatHours(d.mins))}</td>
+            <td style="padding:8px 10px;color:var(--text-dim);">${escapeHtml(people)}</td>
+        </tr>`;
+    }).join("");
+
+    return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px;">
+        <div style="background:rgba(96,165,250,.15);border:1px solid #60a5fa;border-radius:12px;padding:14px;text-align:center;">
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:4px;">Szlak</div>
+            <div style="font-size:22px;font-weight:800;color:#60a5fa;">${escapeHtml(linieFormatHours(totals.Szlak))}</div>
+        </div>
+        <div style="background:rgba(52,211,153,.12);border:1px solid #34d399;border-radius:12px;padding:14px;text-align:center;">
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:4px;">Stacja osobowa</div>
+            <div style="font-size:22px;font-weight:800;color:#34d399;">${escapeHtml(linieFormatHours(totals["Stacja osobowa"]))}</div>
+        </div>
+        <div style="background:rgba(251,146,60,.12);border:1px solid #fb923c;border-radius:12px;padding:14px;text-align:center;">
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:4px;">Stacja towarowa</div>
+            <div style="font-size:22px;font-weight:800;color:#fb923c;">${escapeHtml(linieFormatHours(totals["Stacja towarowa"]))}</div>
+        </div>
+        <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center;">
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:4px;">Razem</div>
+            <div style="font-size:22px;font-weight:800;">${escapeHtml(linieFormatHours(totals.total))}</div>
+        </div>
+    </div>
+
+    <div style="overflow:auto;margin-bottom:20px;border:1px solid var(--border);border-radius:12px;">
+        <table style="width:100%;border-collapse:collapse;">
+            <thead>
+                <tr style="background:var(--bg-input);">
+                    <th style="padding:10px 12px;text-align:left;">Osoba (patrol)</th>
+                    <th style="padding:10px 12px;text-align:center;color:#60a5fa;">Szlak</th>
+                    <th style="padding:10px 12px;text-align:center;color:#34d399;">Osobowa</th>
+                    <th style="padding:10px 12px;text-align:center;color:#fb923c;">Towarowa</th>
+                    <th style="padding:10px 12px;text-align:center;">Suma</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${personRows}
+                <tr style="background:var(--bg-input);font-weight:700;">
+                    <td style="padding:10px 12px;">SUMA (wszystkie sprawdzenia)</td>
+                    ${cell(totals.Szlak, "#60a5fa")}
+                    ${cell(totals["Stacja osobowa"], "#34d399")}
+                    ${cell(totals["Stacja towarowa"], "#fb923c")}
+                    ${cell(totals.total, "var(--text)")}
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <details style="margin-bottom:8px;">
+        <summary style="cursor:pointer;font-weight:600;margin-bottom:8px;">Szczegóły sprawdzeń (${details.length})</summary>
+        <div style="overflow:auto;border:1px solid var(--border);border-radius:12px;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                    <tr style="background:var(--bg-input);">
+                        <th style="padding:8px 10px;text-align:left;">Data</th>
+                        <th style="padding:8px 10px;text-align:left;">Rodzaj</th>
+                        <th style="padding:8px 10px;text-align:left;">Nazwa / linia</th>
+                        <th style="padding:8px 10px;text-align:left;">Godziny</th>
+                        <th style="padding:8px 10px;text-align:left;">Czas</th>
+                        <th style="padding:8px 10px;text-align:left;">Osoby</th>
+                    </tr>
+                </thead>
+                <tbody>${detailRows || `<tr><td colspan="6" style="padding:12px;color:var(--text-dim);">Brak</td></tr>`}</tbody>
+            </table>
+        </div>
+    </details>
+    `;
+}
+
+
 function saveLine(type, value) {
     if (!appState.linie) appState.linie = {};
     appState.linie[type] = value.trim();
@@ -333,3 +584,5 @@ window.copyAllTables = copyAllTables;
 window.setLiniePatrolMode = setLiniePatrolMode;
 window.setLiniePersonRole = setLiniePersonRole;
 window.initLinie = initLinie;
+window.computeGodzinyZeZgloszen = computeGodzinyZeZgloszen;
+window.buildGodzinyZeZgloszenHtml = buildGodzinyZeZgloszenHtml;
