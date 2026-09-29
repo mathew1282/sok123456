@@ -10,8 +10,8 @@ let zgloszeniaFilterTyp = "wszystkie"; // wszystkie | pojedyncze | procedury
 let zgloszeniaFilterQuery = "";
 let zglDeleteMode = false;
 /** Excel-like: { Linia?: string, Typ?: string, Nazwa?: string } partial match */
-let zglColFilters = { Linia: "", Typ: "", Nazwa: "" };
-let zglOpenFilterCol = null; // "Linia" | "Typ" | "Nazwa" | null
+let zglColFilters = { Linia: "", Typ: "", OpisKrotki: "", OpisPom: "" };
+let zglOpenFilterCol = null; // "Linia" | "Typ" | "OpisKrotki" | "OpisPom" | null
 
 function initZgloszenia() {
     if (!appState.zgloszenia) {
@@ -38,20 +38,22 @@ function zglNewId() {
 }
 
 function sortLinesNatural(lines) {
-    return [...lines].sort((a, b) => {
-        const aStr = String(a || "").trim();
-        const bStr = String(b || "").trim();
-        const aIsNum = /^\d/.test(aStr);
-        const bIsNum = /^\d/.test(bStr);
-        if (aIsNum && !bIsNum) return -1;
-        if (!aIsNum && bIsNum) return 1;
-        if (aIsNum && bIsNum) {
-            const aNum = parseInt(aStr, 10);
-            const bNum = parseInt(bStr, 10);
-            if (!isNaN(aNum) && !isNaN(bNum) && aNum !== bNum) return aNum - bNum;
-        }
-        return aStr.localeCompare(bStr, "pl", { numeric: true, sensitivity: "base" });
-    });
+    return [...lines].sort(compareLiniaNatural);
+}
+
+function compareLiniaNatural(a, b) {
+    const aStr = String(a || "").trim();
+    const bStr = String(b || "").trim();
+    const aIsNum = /^\d/.test(aStr);
+    const bIsNum = /^\d/.test(bStr);
+    if (aIsNum && !bIsNum) return -1;
+    if (!aIsNum && bIsNum) return 1;
+    if (aIsNum && bIsNum) {
+        const aNum = parseInt(aStr, 10);
+        const bNum = parseInt(bStr, 10);
+        if (!isNaN(aNum) && !isNaN(bNum) && aNum !== bNum) return aNum - bNum;
+    }
+    return aStr.localeCompare(bStr, "pl", { numeric: true, sensitivity: "base" });
 }
 
 function escapeHtml(str) {
@@ -118,7 +120,8 @@ function getZgloszeniaDisplayList() {
     // Excel-like filtry kolumn
     const fLinia = (zglColFilters.Linia || "").trim().toLowerCase();
     const fTyp = (zglColFilters.Typ || "").trim().toLowerCase();
-    const fNazwa = (zglColFilters.Nazwa || "").trim().toLowerCase();
+    const fKrotki = (zglColFilters.OpisKrotki || "").trim().toLowerCase();
+    const fPom = (zglColFilters.OpisPom || "").trim().toLowerCase();
     if (fLinia) list = list.filter(i => String(i.linia || "").toLowerCase().includes(fLinia));
     if (fTyp) {
         list = list.filter(i => {
@@ -126,10 +129,31 @@ function getZgloszeniaDisplayList() {
             return typ.includes(fTyp) || (i.typ || "").toLowerCase().includes(fTyp);
         });
     }
-    if (fNazwa) list = list.filter(i => String(i.tytul || "").toLowerCase().includes(fNazwa));
+    if (fKrotki) {
+        list = list.filter(i => {
+            const k = i.typ === "procedura"
+                ? (i.start?.OpisKrotki || i.end?.OpisKrotki || i.tytul || "")
+                : (i.row?.OpisKrotki || i.tytul || "");
+            return String(k).toLowerCase().includes(fKrotki);
+        });
+    }
+    if (fPom) {
+        list = list.filter(i => {
+            if (i.typ === "procedura") {
+                const p1 = i.start?.OpisPom || "";
+                const p2 = i.end?.OpisPom || "";
+                return (p1 + " " + p2).toLowerCase().includes(fPom);
+            }
+            return String(i.row?.OpisPom || "").toLowerCase().includes(fPom);
+        });
+    }
 
-    list.sort((a, b) => String(a.linia).localeCompare(String(b.linia), "pl", { numeric: true })
-        || String(a.tytul).localeCompare(String(b.tytul), "pl"));
+    // Autofiltr wyświetlania: najpierw numery linii, potem alfabet
+    list.sort((a, b) => {
+        const c = compareLiniaNatural(a.linia, b.linia);
+        if (c !== 0) return c;
+        return String(a.tytul || "").localeCompare(String(b.tytul || ""), "pl", { sensitivity: "base" });
+    });
     return list;
 }
 
@@ -167,11 +191,12 @@ function renderZgloszenia() {
     }
 
     const body = list.length === 0
-        ? `<tr><td colspan="${delMode ? 6 : 5}" style="text-align:center;color:var(--text-dim);padding:20px;">Brak zgłoszeń.</td></tr>`
+        ? `<tr><td colspan="${delMode ? 7 : 6}" style="text-align:center;color:var(--text-dim);padding:20px;">Brak zgłoszeń.</td></tr>`
         : list.map(item => {
             if (item.typ === "procedura") {
-                const meta = [item.start?.Rodzaj, item.start?.Nazwa || item.end?.Nazwa].filter(Boolean).join(" · ");
-                const preview = "▶ " + zglPlain(item.start?.Opis).slice(0, 40) + " → ■ " + zglPlain(item.end?.Opis).slice(0, 40);
+                const krotki = item.start?.OpisKrotki || item.end?.OpisKrotki || item.tytul || "";
+                const pom = [item.start?.OpisPom, item.end?.OpisPom].filter(Boolean).join(" / ");
+                const preview = "▶ " + zglPlain(item.start?.Opis).slice(0, 50) + " → ■ " + zglPlain(item.end?.Opis).slice(0, 50);
                 const key = "p:" + (item.startIndex ?? "") + ":" + (item.endIndex ?? "");
                 const cb = delMode
                     ? `<td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>`
@@ -180,24 +205,27 @@ function renderZgloszenia() {
                     ${cb}
                     <td>${escapeHtml(item.linia)}</td>
                     <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(168,85,247,.2);color:#d8b4fe;">Procedura</span></td>
-                    <td style="font-weight:600;">${escapeHtml(item.tytul)}${meta ? `<div style="font-size:11px;color:var(--text-dim);font-weight:400;">${escapeHtml(meta)}</div>` : ""}</td>
-                    <td style="font-size:12px;color:var(--text-dim);max-width:260px;">${escapeHtml(preview)}</td>
+                    <td style="font-weight:600;">${escapeHtml(krotki)}</td>
+                    <td style="font-size:13px;color:var(--text-dim);">${escapeHtml((pom || "").substring(0, 60))}${(pom || "").length > 60 ? "…" : ""}</td>
+                    <td style="font-size:12px;color:var(--text-dim);max-width:280px;">${escapeHtml(preview)}${preview.length >= 100 ? "…" : ""}</td>
                     <td style="white-space:nowrap;">
                         <button class="btn-primary" onclick="editProceduraZgl(${item.startIndex}, ${item.endIndex})">Edytuj</button>
                     </td>
                 </tr>`;
             }
-            const r = item.row;
+            const r = item.row || {};
             const key = "s:" + item.index;
             const cb = delMode
                 ? `<td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>`
                 : "";
+            const opisPrev = zglPlain(r.Opis).slice(0, 100);
             return `<tr>
                 ${cb}
                 <td>${escapeHtml(item.linia)}</td>
                 <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(34,197,94,.15);color:#86efac;">Zgłoszenie</span></td>
-                <td style="font-weight:600;">${escapeHtml(item.tytul)}</td>
-                <td style="font-size:12px;color:var(--text-dim);max-width:260px;">${escapeHtml(zglPlain(r.Opis).slice(0, 80))}</td>
+                <td style="font-weight:600;">${escapeHtml(r.OpisKrotki || item.tytul || "")}</td>
+                <td style="font-size:13px;color:var(--text-dim);">${escapeHtml((r.OpisPom || "").substring(0, 60))}${(r.OpisPom || "").length > 60 ? "…" : ""}</td>
+                <td style="font-size:12px;color:var(--text-dim);max-width:280px;">${escapeHtml(opisPrev)}${(r.Opis || "").length > 100 ? "…" : ""}</td>
                 <td style="white-space:nowrap;">
                     <button class="btn-primary" onclick="editZgloszenie(${item.index})">Edytuj</button>
                 </td>
@@ -218,6 +246,9 @@ function renderZgloszenia() {
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn-primary" onclick="openZgloszenieModal()">+ Zgłoszenie</button>
                 <button class="btn-success" onclick="openProceduraZglModal()">+ Procedura</button>
+                <button class="btn-export" onclick="exportZgloszeniaExcel()">📥 Eksport Excel</button>
+                <button class="btn-import" onclick="document.getElementById('zgloszeniaExcelLoader').click()">📤 Import Excel</button>
+                <input type="file" id="zgloszeniaExcelLoader" accept=".xlsx,.xls,.csv" hidden onchange="importZgloszeniaExcel(event)">
                 <button type="button" style="padding:8px 14px;border-radius:8px;border:1px solid transparent;cursor:pointer;font-weight:600;${usunStyle}"
                         onclick="event.stopPropagation();zglUsunZaznaczoneClick()">${usunLabel}</button>
             </div>
@@ -226,10 +257,11 @@ function renderZgloszenia() {
             <thead>
                 <tr>
                     ${thCb}
-                    ${thFilter("Linia", "Linia")}
+                    ${thFilter("Linia", "Nr linii")}
                     ${thFilter("Typ", "Typ")}
-                    ${thFilter("Nazwa", "Nazwa")}
-                    <th>Podgląd</th>
+                    ${thFilter("OpisKrotki", "Opis krótki")}
+                    ${thFilter("OpisPom", "Opis pom")}
+                    <th>Opis</th>
                     <th>Akcje</th>
                 </tr>
             </thead>
@@ -573,8 +605,117 @@ async function removeProceduraZgl(startIndex, endIndex) {
     renderZgloszenia();
 }
 
-// Excel import – keep simple compatibility
-const ZGLOSZENIA_EXCEL_COLUMNS = ["Linia", "OpisKrotki", "OpisPom", "Opis"];
+// =====================================
+// EXCEL – eksport / import zgłoszeń
+// =====================================
+const ZGLOSZENIA_EXCEL_COLUMNS = [
+    "Linia", "OpisKrotki", "OpisPom", "Opis",
+    "Rodzaj", "Nazwa", "KmOd", "KmDo",
+    "procedureId", "procedureRole"
+];
+
+function ensureZglXlsxLib() {
+    if (typeof XLSX !== "undefined") return true;
+    alert("Brak biblioteki Excel (SheetJS). Sprawdź index.html – skrypt xlsx.");
+    return false;
+}
+
+function exportZgloszeniaExcel() {
+    if (!ensureZglXlsxLib()) return;
+    const rows = appState.zgloszenia?.rows || [];
+    if (!rows.length) {
+        alert("Brak zgłoszeń do eksportu");
+        return;
+    }
+    const data = rows.map(r => {
+        const o = {};
+        ZGLOSZENIA_EXCEL_COLUMNS.forEach(col => {
+            let v = r[col];
+            if (col === "Opis" && v) v = String(v).replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "");
+            o[col] = v != null ? String(v) : "";
+        });
+        return o;
+    });
+    const ws = XLSX.utils.json_to_sheet(data, { header: ZGLOSZENIA_EXCEL_COLUMNS });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Zgloszenia");
+    XLSX.writeFile(wb, "zgloszenia.xlsx");
+    if (typeof showToast === "function") showToast("📥 Wyeksportowano " + rows.length + " wierszy");
+}
+
+async function importZgloszeniaExcel(event) {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!ensureZglXlsxLib()) return;
+
+    try {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        if (!json.length) {
+            alert("Plik Excel jest pusty");
+            return;
+        }
+
+        const mapped = json.map(row => {
+            const get = (...keys) => {
+                for (const k of keys) {
+                    if (row[k] != null && String(row[k]).trim() !== "") return String(row[k]).trim();
+                }
+                const lower = {};
+                Object.keys(row).forEach(k => { lower[k.toLowerCase()] = row[k]; });
+                for (const k of keys) {
+                    const v = lower[k.toLowerCase()];
+                    if (v != null && String(v).trim() !== "") return String(v).trim();
+                }
+                return "";
+            };
+            const item = {
+                Linia: get("Linia", "Nr linii", "linia"),
+                OpisKrotki: get("OpisKrotki", "Opis krótki", "Opis krotki"),
+                OpisPom: get("OpisPom", "Opis pom", "Opis pomocniczy"),
+                Opis: get("Opis", "Opis pełny"),
+                Rodzaj: get("Rodzaj") || "Inne",
+                Nazwa: get("Nazwa", "NazwaSzlaku"),
+                KmOd: get("KmOd", "Km od", "Km"),
+                KmDo: get("KmDo", "Km do")
+            };
+            const pid = get("procedureId", "ProcedureId");
+            const role = get("procedureRole", "ProcedureRole");
+            if (pid) item.procedureId = pid;
+            if (role === "start" || role === "end") item.procedureRole = role;
+            if (!item.id) item.id = (typeof zglNewId === "function") ? zglNewId() : (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+            return item;
+        }).filter(r => r.Linia || r.OpisKrotki || r.Opis);
+
+        if (!mapped.length) {
+            alert("Nie znaleziono poprawnych wierszy");
+            return;
+        }
+
+        const mode = confirm(
+            `Znaleziono ${mapped.length} wierszy.\n\nOK = ZASTĄP wszystkie zgłoszenia\nAnuluj = DODAJ do istniejących`
+        );
+
+        if (!appState.zgloszenia) {
+            appState.zgloszenia = { columns: ["Linia", "OpisKrotki", "OpisPom", "Opis"], rows: [] };
+        }
+        if (mode) {
+            appState.zgloszenia.rows = mapped;
+        } else {
+            appState.zgloszenia.rows = (appState.zgloszenia.rows || []).concat(mapped);
+        }
+        if (typeof saveState === "function") await saveState();
+        renderZgloszenia();
+        if (typeof showToast === "function") showToast("✅ Zaimportowano " + mapped.length + " wierszy");
+    } catch (err) {
+        console.error(err);
+        alert("Błąd importu Excel: " + (err.message || err));
+    }
+}
+
 
 
 function zglToggleSelectAll(checked) {
@@ -628,3 +769,8 @@ window.zglToggleSelectAll = zglToggleSelectAll;
 window.zglSyncShared = zglSyncShared;
 window.zglFormat = zglFormat;
 window.zglInsertTag = zglInsertTag;
+window.exportZgloszeniaExcel = exportZgloszeniaExcel;
+window.importZgloszeniaExcel = importZgloszeniaExcel;
+window.zglToggleColFilter = zglToggleColFilter;
+window.zglUsunZaznaczoneClick = zglUsunZaznaczoneClick;
+
