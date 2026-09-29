@@ -29,19 +29,32 @@ function initPolecenia() {
 }
 
 function sortLinesNatural(lines) {
-    return [...lines].sort((a, b) => {
-        const aStr = String(a || "").trim();
-        const bStr = String(b || "").trim();
-        const aIsNum = /^\d/.test(aStr);
-        const bIsNum = /^\d/.test(bStr);
-        if (aIsNum && !bIsNum) return -1;
-        if (!aIsNum && bIsNum) return 1;
-        if (aIsNum && bIsNum) {
-            const aNum = parseInt(aStr, 10);
-            const bNum = parseInt(bStr, 10);
-            if (!isNaN(aNum) && !isNaN(bNum) && aNum !== bNum) return aNum - bNum;
-        }
-        return aStr.localeCompare(bStr, "pl", { numeric: true, sensitivity: "base" });
+    return [...lines].sort(compareLiniaNatural);
+}
+
+/** Najpierw linie zaczynające się od cyfry (numerycznie), potem alfabetycznie */
+function compareLiniaNatural(a, b) {
+    const aStr = String(a || "").trim();
+    const bStr = String(b || "").trim();
+    const aIsNum = /^\d/.test(aStr);
+    const bIsNum = /^\d/.test(bStr);
+    if (aIsNum && !bIsNum) return -1;
+    if (!aIsNum && bIsNum) return 1;
+    if (aIsNum && bIsNum) {
+        const aNum = parseInt(aStr, 10);
+        const bNum = parseInt(bStr, 10);
+        if (!isNaN(aNum) && !isNaN(bNum) && aNum !== bNum) return aNum - bNum;
+    }
+    return aStr.localeCompare(bStr, "pl", { numeric: true, sensitivity: "base" });
+}
+
+function sortPoleceniaRows(rows) {
+    return [...rows].sort((ra, rb) => {
+        const c = compareLiniaNatural(ra.Linia, rb.Linia);
+        if (c !== 0) return c;
+        const ak = String(ra.OpisKrotki || "").toLowerCase();
+        const bk = String(rb.OpisKrotki || "").toLowerCase();
+        return ak.localeCompare(bk, "pl", { sensitivity: "base" });
     });
 }
 
@@ -97,6 +110,9 @@ function renderPolecenia() {
     if (fLinia) rows = rows.filter(r => String(r.Linia || "").toLowerCase().includes(fLinia));
     if (fKrotki) rows = rows.filter(r => String(r.OpisKrotki || "").toLowerCase().includes(fKrotki));
     if (fPom) rows = rows.filter(r => String(r.OpisPom || "").toLowerCase().includes(fPom));
+
+    // Autofiltr wyświetlania: najpierw numery linii, potem alfabet
+    rows = sortPoleceniaRows(rows);
 
     const delMode = !!polDeleteMode;
     const usunStyle = delMode
