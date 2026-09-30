@@ -683,7 +683,7 @@ function renderKsiazkaListView(entries) {
 
         html += `
         <div class="${rowClass}" style="position:relative;">
-            ${ksiazkaInterwencjeBadgesHtml(entry, true)}
+            ${ksiazkaInterwencjeBadgesHtml(entry, true, globalIdx)}
             <div class="ksiazka-col-time">
                 <div class="ksiazka-time">${escapeHtml(entry.godzinaStart || "—")}</div>
                 <div class="ksiazka-date">${escapeHtml(entry.data || "")}</div>
@@ -757,7 +757,7 @@ function renderKsiazkaColumnsView(filtered) {
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:13px; position:relative; padding-right:48px;">
                         <span style="color:#94a3b8;">${escapeHtml(entry.data)} · <strong style="color:#e2e8f0;">${escapeHtml(entry.godzinaStart || "—")}</strong></span>
                         <span style="display:flex; gap:4px; align-items:center;">
-                            ${ksiazkaInterwencjeBadgesHtml(entry, true)}
+                            ${ksiazkaInterwencjeBadgesHtml(entry, true, globalIdx)}
                             ${done ? "<span style='color:#4ade80;'>✅</span>" : (overdue ? "<span style='color:#f87171;'>⚠</span>" : "")}
                         </span>
                     </div>
@@ -3191,7 +3191,7 @@ function toggleKsiazkaInterwencjeMode() {
     }
 }
 
-function ksiazkaInterwencjeBadgesHtml(entry, absolute) {
+function ksiazkaInterwencjeBadgesHtml(entry, absolute, entryIndex) {
     const inv = entry && entry.interwencje ? entry.interwencje : {};
     const codes = [];
     if (inv.MKK || inv.M) codes.push("M");
@@ -3200,11 +3200,102 @@ function ksiazkaInterwencjeBadgesHtml(entry, absolute) {
     if (inv.I || inv.Inne) codes.push("I");
     if (!codes.length) return "";
     const style = absolute
-        ? "position:absolute; top:6px; right:8px; z-index:2; display:flex; gap:4px;"
-        : "display:inline-flex; gap:4px; margin-bottom:4px;";
-    return `<span style="${style}">` + codes.map(c =>
-        `<span style="font-weight:800; font-size:13px; color:var(--primary-light,#60a5fa); letter-spacing:0.5px;">${c}</span>`
-    ).join("") + `</span>`;
+        ? "position:absolute; top:6px; right:8px; z-index:2; display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end;"
+        : "display:inline-flex; gap:5px; margin-bottom:4px; flex-wrap:wrap;";
+    const idxAttr = (entryIndex != null && entryIndex >= 0) ? String(entryIndex) : "";
+    return `<span style="${style}">` + codes.map(c => {
+        const canRemove = idxAttr !== "";
+        return `<span style="display:inline-flex; align-items:center; gap:2px; background:rgba(59,130,246,.15); border:1px solid rgba(96,165,250,.5); border-radius:6px; padding:1px 4px 1px 6px;">
+            <span style="font-weight:800; font-size:13px; color:var(--primary-light,#60a5fa); letter-spacing:0.5px;" title="Interwencja">${c}</span>
+            ${canRemove ? `<button type="button" title="Cofnij interwencję ${c}"
+                onclick="event.stopPropagation(); removeKsiazkaInterwencja(${idxAttr}, '${c}')"
+                style="border:none; background:transparent; color:#f87171; font-weight:800; font-size:12px; line-height:1; cursor:pointer; padding:0 2px;">×</button>` : ""}
+        </span>`;
+    }).join("") + `</span>`;
+}
+
+/** Cofnij interwencję: usuwa oznaczenie z wpisu i −1 ze statystyk */
+async function removeKsiazkaInterwencja(entryIndex, code) {
+    ensureKsiazkaState();
+    const entry = appState.ksiazkaWydarzen[entryIndex];
+    if (!entry) return;
+
+    const codeU = String(code || "").toUpperCase();
+    const labelMap = { M: "MKK", P: "Pouczony", L: "Legitymowany", I: "Inne" };
+    const label = labelMap[codeU] || codeU;
+
+    if (!confirm("Cofnąć interwencję \"" + label + "\" z tego wpisu? (−1 w statystykach)")) return;
+
+    if (!entry.interwencje || typeof entry.interwencje !== "object") entry.interwencje = {};
+
+    if (codeU === "M") {
+        delete entry.interwencje.MKK;
+        delete entry.interwencje.M;
+    } else if (codeU === "P") {
+        delete entry.interwencje.P;
+        delete entry.interwencje.Pouczony;
+    } else if (codeU === "L") {
+        delete entry.interwencje.L;
+        delete entry.interwencje.Legitymowany;
+    } else if (codeU === "I") {
+        delete entry.interwencje.I;
+        delete entry.interwencje.Inne;
+    }
+
+    // −1 w statystykach: usuń jeden pasujący rekord (preferuj entryId + typ)
+    if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
+    if (!Array.isArray(appState.statystyki.interwencje)) appState.statystyki.interwencje = [];
+
+    const typAliases = {
+        M: ["MKK", "M"],
+        P: ["Pouczony", "P"],
+        L: ["Legitymowany", "L"],
+        I: ["Inne", "I"]
+    };
+    const aliases = typAliases[codeU] || [label];
+    const entryId = entry.id != null ? String(entry.id) : null;
+
+    const norm = (t) => {
+        t = String(t || "").trim();
+        if (t === "M" || t.toUpperCase() === "MKK") return "MKK";
+        if (t === "P" || /^poucz/i.test(t)) return "Pouczony";
+        if (t === "L" || /^legitym/i.test(t)) return "Legitymowany";
+        if (t === "I" || /^inne$/i.test(t)) return "Inne";
+        return t;
+    };
+    const want = norm(label);
+
+    let removed = false;
+    // 1) z tym samym entryId
+    if (entryId) {
+        for (let i = appState.statystyki.interwencje.length - 1; i >= 0; i--) {
+            const row = appState.statystyki.interwencje[i];
+            if (String(row.entryId || "") === entryId && norm(row.typ) === want) {
+                appState.statystyki.interwencje.splice(i, 1);
+                removed = true;
+                break;
+            }
+        }
+    }
+    // 2) fallback: ostatni rekord tego typu
+    if (!removed) {
+        for (let i = appState.statystyki.interwencje.length - 1; i >= 0; i--) {
+            const row = appState.statystyki.interwencje[i];
+            if (norm(row.typ) === want) {
+                appState.statystyki.interwencje.splice(i, 1);
+                removed = true;
+                break;
+            }
+        }
+    }
+
+    await saveState();
+    renderKsiazka();
+    if (typeof showToast === "function") {
+        showToast(removed
+            ? "↩ Cofnięto " + label + " (−1 w statystykach)"
+            : "↩ Usunięto oznaczenie " + label + " (brak wpisu w statystykach)");
+    }
 }
 
 function openKsiazkaInterwencjaModal(index, typ) {
@@ -3942,6 +4033,8 @@ window.openKsiazkaInterwencjaModal = openKsiazkaInterwencjaModal;
 window.ksiazkaInterwencjaWstawSzablon = ksiazkaInterwencjaWstawSzablon;
 window.confirmKsiazkaInterwencja = confirmKsiazkaInterwencja;
 window.ksiazkaInterwencjeBadgesHtml = ksiazkaInterwencjeBadgesHtml;
+window.removeKsiazkaInterwencja = removeKsiazkaInterwencja;
+
 
 window.openKsiazkaUwagiPicker = openKsiazkaUwagiPicker;
 window.closeKsiazkaUwagiPicker = closeKsiazkaUwagiPicker;
