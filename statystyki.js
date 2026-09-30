@@ -41,8 +41,8 @@ async function logInterwencja(typ, extra) {
 
 async function logSprawdzenie(payload) {
     ensureStatystykiState();
-    appState.statystyki.sprawdzenia.push({
-        data: todayPL(),
+    const row = {
+        data: payload.data || todayPL(),
         rodzaj: payload.rodzaj || "",
         nazwa: payload.nazwa || "",
         linia: payload.linia || "",
@@ -50,8 +50,190 @@ async function logSprawdzenie(payload) {
         kmDo: payload.kmDo || "",
         godzOd: payload.godzOd || "",
         godzDo: payload.godzDo || ""
-    });
+    };
+    if (payload.dataDo) row.dataDo = payload.dataDo;
+    if (payload.czas != null) row.czas = payload.czas;
+    if (payload.czasMin != null) row.czasMin = payload.czasMin;
+    if (payload.entryId) row.entryId = payload.entryId;
+    if (payload.entryIdEnd) row.entryIdEnd = payload.entryIdEnd;
+    if (payload.procedureId) row.procedureId = payload.procedureId;
+    appState.statystyki.sprawdzenia.push(row);
     await saveState();
+}
+
+/** Klucz unikalności sprawdzenia: linia + nazwa + data + godziny (+ rodzaj).
+ *  Ten sam szlak w inne godziny / inny dzień = osobny wpis. */
+function sprawdzenieUniqueKey(s) {
+    return [
+        String(s.rodzaj || "").trim().toLowerCase(),
+        String(s.nazwa || "").trim().toLowerCase(),
+        String(s.linia || "").trim().toLowerCase(),
+        String(s.data || "").trim(),
+        String(s.godzOd || "").trim(),
+        String(s.godzDo || "").trim(),
+        String(s.kmOd || "").trim(),
+        String(s.kmDo || "").trim()
+    ].join("|");
+}
+
+function isSprawdzenieAlreadyInStats(payload) {
+    ensureStatystykiState();
+    const key = sprawdzenieUniqueKey(payload);
+    if (appState.statystyki.sprawdzenia.some(s => sprawdzenieUniqueKey(s) === key)) return true;
+    // dodatkowo: ten sam entryId startu (jeśli jest) + te same godziny
+    if (payload.entryId) {
+        const eid = String(payload.entryId);
+        const go = String(payload.godzOd || "").trim();
+        const gd = String(payload.godzDo || "").trim();
+        if (appState.statystyki.sprawdzenia.some(s =>
+            s.entryId && String(s.entryId) === eid &&
+            String(s.godzOd || "").trim() === go &&
+            String(s.godzDo || "").trim() === gd
+        )) return true;
+    }
+    return false;
+}
+
+function isInterwencjaAlreadyInStats(entryId, typ, data, godzina) {
+    ensureStatystykiState();
+    const t = normalizeInterwencjaTyp(typ);
+    return appState.statystyki.interwencje.some(i => {
+        if (normalizeInterwencjaTyp(i.typ) !== t) return false;
+        if (entryId && i.entryId && String(i.entryId) === String(entryId)) return true;
+        if (entryId && i.entryId) return false;
+        return String(i.data || "") === String(data || "") &&
+            String(i.godzina || "") === String(godzina || "");
+    });
+}
+
+/**
+ * Odśwież statystyki z całej książki wydarzeń.
+ * – skanuje procedury sprawdzeń (szlak / stacja) i interwencje
+ * – dosypuje wyłącznie nowe (po linii, dniu, godzinach)
+ * – ten sam szlak, inne godziny → zapisuje osobno
+ */
+async function refreshStatystykiFromKsiazka() {
+    ensureStatystykiState();
+    if (typeof ensureKsiazkaState === "function") ensureKsiazkaState();
+
+    let addedSpr = 0;
+    let addedInt = 0;
+    let skippedSpr = 0;
+    let skippedInt = 0;
+    let openGroups = 0;
+
+    // --- SPRAWDZENIA (szlaki / stacje) ---
+    if (typeof getKsiazkaSprawdzenieGroups === "function") {
+        const groups = getKsiazkaSprawdzenieGroups() || [];
+        for (const g of groups) {
+            if (!g || !g.closed || !g.godzOd || !g.godzDo) {
+                if (g && (!g.closed || !g.godzOd || !g.godzDo)) openGroups++;
+                continue;
+            }
+            const dataOd = g.dataOd || (g.startEntry && g.startEntry.data) || todayPL();
+            const dataDo = g.dataDo || (g.endEntry && g.endEntry.data) || dataOd;
+            let czas = "";
+            let czasMin = 0;
+            if (typeof durationMinutesBetween === "function" && typeof formatDurationMin === "function") {
+                czasMin = durationMinutesBetween(dataOd, g.godzOd, dataDo, g.godzDo);
+                czas = formatDurationMin(czasMin);
+            }
+            const payload = {
+                rodzaj: (g.meta && g.meta.Rodzaj) || "",
+                nazwa: (g.meta && g.meta.Nazwa) || "",
+                linia: (g.meta && g.meta.Linia) || "",
+                kmOd: (g.meta && g.meta.KmOd) || "",
+                kmDo: (g.meta && g.meta.KmDo) || "",
+                godzOd: g.godzOd,
+                godzDo: g.godzDo,
+                data: dataOd,
+                dataDo,
+                czas,
+                czasMin,
+                entryId: (g.startEntry && g.startEntry.id) || null,
+                entryIdEnd: (g.endEntry && g.endEntry.id) || null,
+                procedureId: g.procedureId || null
+            };
+            if (isSprawdzenieAlreadyInStats(payload)) {
+                skippedSpr++;
+                continue;
+            }
+            // zapis bez podwójnego saveState w pętli – push ręcznie
+            const row = {
+                data: payload.data,
+                rodzaj: payload.rodzaj,
+                nazwa: payload.nazwa,
+                linia: payload.linia,
+                kmOd: payload.kmOd,
+                kmDo: payload.kmDo,
+                godzOd: payload.godzOd,
+                godzDo: payload.godzDo,
+                dataDo: payload.dataDo,
+                czas: payload.czas,
+                czasMin: payload.czasMin
+            };
+            if (payload.entryId) row.entryId = payload.entryId;
+            if (payload.entryIdEnd) row.entryIdEnd = payload.entryIdEnd;
+            if (payload.procedureId) row.procedureId = payload.procedureId;
+            appState.statystyki.sprawdzenia.push(row);
+            addedSpr++;
+        }
+    }
+
+    // --- INTERWENCJE z oznaczeń na wpisach książki ---
+    const entries = appState.ksiazkaWydarzen || [];
+    const typMap = {
+        M: "MKK", MKK: "MKK",
+        P: "Pouczony", Pouczony: "Pouczony",
+        L: "Legitymowany", Legitymowany: "Legitymowany",
+        I: "Inne", Inne: "Inne"
+    };
+    for (const entry of entries) {
+        if (!entry || !entry.interwencje || typeof entry.interwencje !== "object") continue;
+        const seen = new Set();
+        for (const key of Object.keys(entry.interwencje)) {
+            if (!entry.interwencje[key]) continue;
+            const typ = typMap[key] || normalizeInterwencjaTyp(key);
+            if (seen.has(typ)) continue;
+            seen.add(typ);
+            const data = entry.data || todayPL();
+            const godzina = entry.godzinaStart || "";
+            if (isInterwencjaAlreadyInStats(entry.id, typ, data, godzina)) {
+                skippedInt++;
+                continue;
+            }
+            appState.statystyki.interwencje.push({
+                data,
+                typ,
+                godzina,
+                entryId: entry.id || null
+            });
+            addedInt++;
+        }
+    }
+
+    await saveState();
+    renderStatystyki();
+
+    const parts = [];
+    if (addedSpr) parts.push(`+${addedSpr} sprawdzeń`);
+    if (addedInt) parts.push(`+${addedInt} interwencji`);
+    if (!addedSpr && !addedInt) {
+        const msg = openGroups
+            ? `Brak nowych do dopisania (${openGroups} procedur bez zamknięcia w książce)`
+            : "Wszystko aktualne – brak nowych statystyk do dopisania";
+        if (typeof showToast === "function") showToast("ℹ️ " + msg);
+        else alert(msg);
+        return;
+    }
+    let extra = "";
+    if (skippedSpr || skippedInt) {
+        extra = ` (pominięto istniejące: ${skippedSpr} spr., ${skippedInt} int.)`;
+    }
+    if (openGroups) extra += `; ${openGroups} bez zamknięcia`;
+    const msg = "✅ Odświeżono: " + parts.join(", ") + extra;
+    if (typeof showToast === "function") showToast(msg);
+    else alert(msg);
 }
 
 /** Sortowanie: najstarsze na górze (pierwszy wpis zostaje pierwszy) */
@@ -215,11 +397,15 @@ function renderStatystyki() {
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
             <h2 style="margin:0;">Statystyki</h2>
-            <button class="btn-danger" onclick="clearAllStatystyki()">Kasuj wszystkie statystyki</button>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button class="btn-success" onclick="refreshStatystykiFromKsiazka()">Odśwież</button>
+                <button class="btn-danger" onclick="clearAllStatystyki()">Kasuj wszystkie statystyki</button>
+            </div>
         </div>
         <p style="color:#94a3b8; font-size:14px; margin-bottom:16px;">
             Pokazywane są <strong>wszystkie</strong> zapisane wpisy (ze wszystkich dni).
-            Usuwają się dopiero po kliknięciu „Kasuj wszystkie” albo pojedynczego „Usuń”.
+            „Odśwież” skanuje książkę i dopisuje tylko nowe (po linii, dniu i godzinach).
+            Usuwają się po kliknięciu „Kasuj wszystkie” albo pojedynczego „Usuń”.
         </p>
 
         <p style="color:var(--text-dim,#94a3b8); font-size:13px; margin:0 0 10px 0;">Kliknij kafelkę MKK / P / L / Inne, aby zobaczyć powiązane wpisy z książki.</p>
@@ -523,6 +709,7 @@ window.closeEditSprawdzenieModal = closeEditSprawdzenieModal;
 window.removeSprawdzenie = removeSprawdzenie;
 window.copySzlaki = copySzlaki;
 window.clearAllStatystyki = clearAllStatystyki;
+window.refreshStatystykiFromKsiazka = refreshStatystykiFromKsiazka;
 window.openInterwencjeSzczegoly = openInterwencjeSzczegoly;
 window.closeInterwencjeSzczegoly = closeInterwencjeSzczegoly;
 
