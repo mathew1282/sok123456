@@ -30,7 +30,10 @@ document.addEventListener("DOMContentLoaded", () => {
 function startApp() {
     if (window.__sokStarted) return;
     window.__sokStarted = true;
-    loadPage("generator");
+    loadPage("ksiazka");
+    document.querySelectorAll(".menu-btn").forEach(b => b.classList.remove("active"));
+    const btn = document.querySelector('.menu-btn[data-page="ksiazka"]');
+    if (btn) btn.classList.add("active");
 }
 
 // ======================================
@@ -172,7 +175,7 @@ function importFromJSON(event) {
                 alert("Dane wczytane!");
                 const activeBtn = document.querySelector(".menu-btn.active");
                 if (activeBtn) loadPage(activeBtn.dataset.page);
-                else loadPage("generator");
+                else loadPage("ksiazka");
             }
         } catch (error) {
             alert("Błąd pliku JSON: " + error.message);
