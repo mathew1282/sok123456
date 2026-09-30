@@ -683,7 +683,7 @@ function renderKsiazkaListView(entries) {
 
         html += `
         <div class="${rowClass}" style="position:relative;">
-            ${ksiazkaInterwencjeBadgesHtml(entry, true, globalIdx)}
+            ${ksiazkaEntryTopBadgesHtml(entry, globalIdx)}
             <div class="ksiazka-col-time">
                 <div class="ksiazka-time">${escapeHtml(entry.godzinaStart || "—")}</div>
                 <div class="ksiazka-date">${escapeHtml(entry.data || "")}</div>
@@ -756,8 +756,9 @@ function renderKsiazkaColumnsView(filtered) {
                 <div class="${extraClass}" style="${boxStyle} border-radius:10px; padding:12px; margin-bottom:10px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:13px; position:relative; padding-right:48px;">
                         <span style="color:#94a3b8;">${escapeHtml(entry.data)} · <strong style="color:#e2e8f0;">${escapeHtml(entry.godzinaStart || "—")}</strong></span>
-                        <span style="display:flex; gap:4px; align-items:center;">
-                            ${ksiazkaInterwencjeBadgesHtml(entry, true, globalIdx)}
+                        <span style="display:flex; gap:6px; align-items:flex-start; flex-wrap:wrap; justify-content:flex-end; max-width:55%;">
+                            ${ksiazkaProceduraBadgeHtml(entry)}
+                            ${ksiazkaInterwencjeBadgesHtml(entry, false, globalIdx)}
                             ${done ? "<span style='color:#4ade80;'>✅</span>" : (overdue ? "<span style='color:#f87171;'>⚠</span>" : "")}
                         </span>
                     </div>
@@ -3171,6 +3172,78 @@ async function confirmKsiazkaSprawdzenie() {
 
 
 // =====================================
+
+/** Badge procedury (Szlak / Osobowa / Towarowa) – start = szary podkreślony, koniec = pogrubiony */
+function ksiazkaProceduraBadgeHtml(entry) {
+    if (!entry) return "";
+    let role = entry.procedureRole || "";
+    let meta = { Rodzaj: "", Nazwa: "" };
+
+    if (entry.procedureId || role === "start" || role === "end") {
+        meta = getProcedureMetaFromZgl(entry.procedureId, entry);
+        if (!role) {
+            const z = findMatchingZgloszenieForEntry(entry);
+            role = z?.procedureRole || "";
+        }
+    } else {
+        // spróbuj dopasować zgłoszenie sprawdzenia (procedura)
+        const z = (typeof findMatchingZgloszenieForEntry === "function")
+            ? findMatchingZgloszenieForEntry(entry)
+            : null;
+        if (!z || !z.procedureRole) return "";
+        role = z.procedureRole;
+        meta = {
+            Rodzaj: z.Rodzaj || "",
+            Nazwa: z.Nazwa || z.OpisKrotki || ""
+        };
+    }
+
+    if (role !== "start" && role !== "end") return "";
+
+    const rodzajRaw = String(meta.Rodzaj || "").toLowerCase();
+    let rodzajLabel = "Procedura";
+    if (rodzajRaw.includes("szlak")) rodzajLabel = "Szlak";
+    else if (rodzajRaw.includes("osob")) rodzajLabel = "Osobowa";
+    else if (rodzajRaw.includes("towar")) rodzajLabel = "Towarowa";
+    else if (meta.Rodzaj) rodzajLabel = meta.Rodzaj;
+
+    const nazwa = meta.Nazwa || meta.Linia || "";
+    const isStart = role === "start";
+
+    // start: jasnoszary + podkreślenie | koniec: mocny kolor + pogrubienie
+    const color = isStart ? "var(--text-dim, #94a3b8)" : "var(--text, #0f172a)";
+    // w trybie ciemnym koniec też ma być czytelny – użyj currentColor tekstu
+    const weight = isStart ? "600" : "800";
+    const decoration = isStart ? "underline" : "none";
+    const borderCol = isStart ? "rgba(148,163,184,.55)" : "rgba(15,23,42,.35)";
+    const bg = isStart ? "rgba(148,163,184,.12)" : "rgba(15,23,42,.08)";
+
+    return `<span title="${isStart ? "Początek procedury" : "Koniec procedury"}"
+        style="display:inline-flex; flex-direction:column; align-items:flex-end; max-width:140px;
+               background:${bg}; border:1px solid ${borderCol}; border-radius:8px;
+               padding:3px 7px; line-height:1.2; text-align:right;">
+        <span style="font-size:11px; font-weight:${weight}; color:${color}; text-decoration:${decoration};
+                     letter-spacing:0.3px; white-space:nowrap;">
+            ${escapeHtml(rodzajLabel)}${isStart ? " · start" : " · koniec"}
+        </span>
+        ${nazwa ? `<span style="font-size:10px; font-weight:${isStart ? "500" : "700"}; color:${color};
+                     text-decoration:${decoration}; margin-top:2px; max-width:130px;
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+            ${escapeHtml(nazwa)}
+        </span>` : ""}
+    </span>`;
+}
+
+function ksiazkaEntryTopBadgesHtml(entry, globalIdx) {
+    const proc = ksiazkaProceduraBadgeHtml(entry);
+    const inv = ksiazkaInterwencjeBadgesHtml(entry, false, globalIdx);
+    if (!proc && !inv) return "";
+    return `<div style="position:absolute; top:6px; right:8px; z-index:2; display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+        ${proc}${inv}
+    </div>`;
+}
+
+
 // INTERWENCJE (MKK / P / L / Inne)
 // =====================================
 
@@ -4092,7 +4165,10 @@ window.openKsiazkaInterwencjaModal = openKsiazkaInterwencjaModal;
 window.ksiazkaInterwencjaResolveTags = ksiazkaInterwencjaResolveTags;
 window.ksiazkaInterwencjaWstawSzablon = ksiazkaInterwencjaWstawSzablon;
 window.confirmKsiazkaInterwencja = confirmKsiazkaInterwencja;
+window.ksiazkaProceduraBadgeHtml = ksiazkaProceduraBadgeHtml;
+window.ksiazkaEntryTopBadgesHtml = ksiazkaEntryTopBadgesHtml;
 window.ksiazkaInterwencjeBadgesHtml = ksiazkaInterwencjeBadgesHtml;
+
 window.removeKsiazkaInterwencja = removeKsiazkaInterwencja;
 
 
