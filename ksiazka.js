@@ -813,13 +813,62 @@ async function odznaczZrobione(index) {
     renderKsiazka();
 }
 
+/** Usuń ze statystyk sprawdzenia (Szlak / Osobowa / Towarowa) powiązane z wpisem książki */
+function removeSprawdzeniaLinkedToEntry(entry) {
+    if (!entry) return 0;
+    if (!appState.statystyki) return 0;
+    if (!Array.isArray(appState.statystyki.sprawdzenia)) return 0;
+
+    const id = entry.id != null ? String(entry.id) : null;
+    const procId = entry.procedureId != null ? String(entry.procedureId) : null;
+    if (!id && !procId) return 0;
+
+    const before = appState.statystyki.sprawdzenia.length;
+    appState.statystyki.sprawdzenia = appState.statystyki.sprawdzenia.filter(s => {
+        if (!s) return false;
+        if (id) {
+            if (s.entryId && String(s.entryId) === id) return false;
+            if (s.entryIdEnd && String(s.entryIdEnd) === id) return false;
+        }
+        // ta sama procedura (start lub koniec skasowany)
+        if (procId && s.procedureId && String(s.procedureId) === procId) return false;
+        return true;
+    });
+    return before - appState.statystyki.sprawdzenia.length;
+}
+
+/** Usuń sprawdzenia powiązane z listą id wpisów (np. przy kasuj wszystkie) */
+function removeSprawdzeniaLinkedToEntryIds(entryIds, procedureIds) {
+    if (!appState.statystyki || !Array.isArray(appState.statystyki.sprawdzenia)) return 0;
+    const ids = new Set((entryIds || []).map(String).filter(Boolean));
+    const procs = new Set((procedureIds || []).map(String).filter(Boolean));
+    if (!ids.size && !procs.size) return 0;
+    const before = appState.statystyki.sprawdzenia.length;
+    appState.statystyki.sprawdzenia = appState.statystyki.sprawdzenia.filter(s => {
+        if (!s) return false;
+        if (s.entryId && ids.has(String(s.entryId))) return false;
+        if (s.entryIdEnd && ids.has(String(s.entryIdEnd))) return false;
+        if (s.procedureId && procs.has(String(s.procedureId))) return false;
+        return true;
+    });
+    return before - appState.statystyki.sprawdzenia.length;
+}
+
 async function usunWpisKsiazki(index) {
     ensureKsiazkaState();
-    if (!appState.ksiazkaWydarzen[index]) return;
+    const entry = appState.ksiazkaWydarzen[index];
+    if (!entry) return;
     if (!confirm("Na pewno usunąć ten wpis?")) return;
+
+    const removedStats = removeSprawdzeniaLinkedToEntry(entry);
     appState.ksiazkaWydarzen.splice(index, 1);
     await saveState();
     renderKsiazka();
+    if (typeof showToast === "function") {
+        showToast(removedStats
+            ? "🗑️ Usunięto wpis (−" + removedStats + " w statystykach sprawdzeń)"
+            : "🗑️ Usunięto wpis");
+    }
 }
 
 async function clearAllKsiazka() {
@@ -828,10 +877,17 @@ async function clearAllKsiazka() {
         alert("Brak wpisów do usunięcia");
         return;
     }
-    if (!confirm("Na pewno usunąć WSZYSTKIE wpisy z Książki wydarzeń?")) return;
+    if (!confirm("Na pewno usunąć WSZYSTKIE wpisy z Książki wydarzeń?\n\nZostaną też wyczyszczone WSZYSTKIE statystyki (sprawdzenia + interwencje).")) return;
+
     appState.ksiazkaWydarzen = [];
+    if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
+    appState.statystyki.interwencje = [];
+    appState.statystyki.sprawdzenia = [];
     await saveState();
     renderKsiazka();
+    if (typeof showToast === "function") {
+        showToast("🗑️ Wyczyszczono książkę i wszystkie statystyki");
+    }
 }
 
 async function kopiujWpisKsiazki(index) {
@@ -4087,6 +4143,7 @@ window.toggleKsiazkaFilter = toggleKsiazkaFilter;
 window.clearKsiazkaFilter = clearKsiazkaFilter;
 window.oznaczZrobione = oznaczZrobione;
 window.odznaczZrobione = odznaczZrobione;
+window.removeSprawdzeniaLinkedToEntry = removeSprawdzeniaLinkedToEntry;
 window.usunWpisKsiazki = usunWpisKsiazki;
 window.clearAllKsiazka = clearAllKsiazka;
 window.kopiujWpisKsiazki = kopiujWpisKsiazki;
