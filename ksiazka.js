@@ -3344,27 +3344,86 @@ function openKsiazkaInterwencjaModal(index, typ) {
     overlay._szablon = szablon;
 }
 
+function ksiazkaInterwencjaResolveTags(tekst, entry) {
+    let out = String(tekst || "");
+    // częsty błąd w szablonach
+    out = out.replace(/@dowdca\b/gi, "@dowodca");
+
+    const patrolIndexes = (entry && Array.isArray(entry.patrole)) ? entry.patrole : [];
+    if (typeof planApplyTagsToText === "function") {
+        out = planApplyTagsToText(out, patrolIndexes);
+    } else if (typeof buildReplacementsForPatrols === "function" && typeof applyTags === "function") {
+        out = applyTags(out, buildReplacementsForPatrols(patrolIndexes));
+    } else {
+        const kz = appState.kz || "";
+        const mkk = appState.mkk || "";
+        out = out.replace(/@KZ\b/gi, kz).replace(/@MKK\b/gi, mkk);
+        out = out.replace(/@data\b/gi, (entry && entry.data) || (typeof todayPL === "function" ? todayPL() : ""));
+        out = out.replace(/@godzina\b/gi, (entry && entry.godzinaStart) || (typeof nowHHMM === "function" ? nowHHMM() : ""));
+        // minimalny fallback patroli
+        const patrole = appState.patrole || [];
+        if (patrolIndexes.length) {
+            const names = [], dow = [], sklad = [], kier = [];
+            patrolIndexes.forEach(i => {
+                const p = patrole[i];
+                if (!p) return;
+                if (p.nazwa) names.push(p.nazwa);
+                if (p.dowodca) dow.push(p.dowodca);
+                if (p.kierowca) kier.push(p.kierowca);
+                if (Array.isArray(p.sklad)) sklad.push(...p.sklad.filter(Boolean));
+            });
+            const join = a => [...new Set(a.map(s => String(s).trim()).filter(Boolean))].join(", ");
+            out = out.replace(/@patrol\b/gi, join(names));
+            out = out.replace(/@dowodca\b/gi, join(dow));
+            out = out.replace(/@kierowca\b/gi, join(kier));
+            out = out.replace(/@sklad\b/gi, join(sklad));
+            out = out.replace(/@wszyscy\b/gi, join([...dow, ...sklad, ...kier]));
+        }
+    }
+
+    // data/godzina z wpisu książki (nadpisanie)
+    if (entry) {
+        if (entry.data) out = out.replace(/@data\b/gi, entry.data);
+        if (entry.godzinaStart) out = out.replace(/@godzina\b/gi, entry.godzinaStart);
+    }
+    return out;
+}
+
 function ksiazkaInterwencjaWstawSzablon() {
     const modal = document.getElementById("ksiazkaUwagiEditModal");
-    const add = (modal && modal._szablon) ? String(modal._szablon).trim() : "";
+    let add = (modal && modal._szablon) ? String(modal._szablon).trim() : "";
     const ta = document.getElementById("ksUwagiTekst");
     if (!ta || !add) {
         if (typeof showToast === "function") showToast("Brak szablonu – ustaw w Szablony");
         return;
     }
+
+    const index = window._ksiazkaInterwencjaIndex;
+    const entry = (index != null && appState.ksiazkaWydarzen) ? appState.ksiazkaWydarzen[index] : null;
+    add = ksiazkaInterwencjaResolveTags(add, entry);
+
     const cur = ta.value || "";
     ta.value = cur.trim() ? (cur.replace(/\s*$/, "") + "\n\n" + add) : add;
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
+
+    if (entry && (!entry.patrole || !entry.patrole.length)) {
+        if (typeof showToast === "function") {
+            showToast("⚠ Wpis bez patrolu – @dowodca/@sklad mogą być puste. Przypisz patrol do wpisu.");
+        }
+    }
 }
+
 
 async function confirmKsiazkaInterwencja() {
     const index = window._ksiazkaInterwencjaIndex;
     const typ = window._ksiazkaInterwencjaTyp || "I";
     if (index == null || !appState.ksiazkaWydarzen[index]) return;
 
-    const tekst = (document.getElementById("ksUwagiTekst")?.value || "");
+    let tekst = (document.getElementById("ksUwagiTekst")?.value || "");
     const entry = appState.ksiazkaWydarzen[index];
+    // domknij ewentualne pozostałe znaczniki wg patrolu wpisu
+    tekst = ksiazkaInterwencjaResolveTags(tekst, entry);
     entry.tekst = tekst;
     if (!entry.interwencje || typeof entry.interwencje !== "object") entry.interwencje = {};
     entry.interwencje[typ] = true;
@@ -4030,6 +4089,7 @@ window.confirmKsiazkaSprawdzenie = confirmKsiazkaSprawdzenie;
 
 window.toggleKsiazkaInterwencjeMode = toggleKsiazkaInterwencjeMode;
 window.openKsiazkaInterwencjaModal = openKsiazkaInterwencjaModal;
+window.ksiazkaInterwencjaResolveTags = ksiazkaInterwencjaResolveTags;
 window.ksiazkaInterwencjaWstawSzablon = ksiazkaInterwencjaWstawSzablon;
 window.confirmKsiazkaInterwencja = confirmKsiazkaInterwencja;
 window.ksiazkaInterwencjeBadgesHtml = ksiazkaInterwencjeBadgesHtml;
