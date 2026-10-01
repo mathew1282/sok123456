@@ -17,6 +17,8 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    setupGlobalModalKeys();
+
     if (window.__sokStateReady) {
         startApp();
     } else {
@@ -209,3 +211,140 @@ function importFromJSON(event) {
         });
     }
 })();
+
+
+// ======================================
+// Enter / ESC w modalach – cała aplikacja
+// Enter = zatwierdź (btn-success), ESC = zamknij
+// W textarea / contenteditable: Shift+Enter = nowa linia
+// ======================================
+
+function getTopModalOverlay() {
+    const list = document.querySelectorAll(".modal-overlay");
+    if (!list || !list.length) return null;
+    return list[list.length - 1];
+}
+
+function findModalConfirmButton(overlay) {
+    if (!overlay) return null;
+    const actions = overlay.querySelector(".modal-actions");
+    const scope = actions || overlay;
+    const success = scope.querySelector("button.btn-success:not([disabled])");
+    if (success) return success;
+    // fallback: pierwszy przycisk niebędący Anuluj/Zamknij/Usuń
+    const buttons = [...scope.querySelectorAll("button:not([disabled])")];
+    return buttons.find(b => {
+        const t = (b.textContent || "").trim().toLowerCase();
+        if (b.classList.contains("btn-danger")) return false;
+        if (/anuluj|zamknij|close|usuń|usun/.test(t)) return false;
+        return true;
+    }) || null;
+}
+
+function findModalCancelButton(overlay) {
+    if (!overlay) return null;
+    const actions = overlay.querySelector(".modal-actions");
+    const scope = actions || overlay;
+    const buttons = [...scope.querySelectorAll("button")];
+    const byText = buttons.find(b => {
+        const t = (b.textContent || "").trim().toLowerCase();
+        return /anuluj|zamknij|close/.test(t);
+    });
+    if (byText) return byText;
+    return scope.querySelector("button.btn-danger") || null;
+}
+
+function closeTopModalGeneric() {
+    // 1) dedykowany stack książki (poprawne close*)
+    if (document.getElementById("ksiazkaContainer") && typeof ksiazkaCloseTopModal === "function") {
+        if (ksiazkaCloseTopModal()) return true;
+    }
+    const overlay = getTopModalOverlay();
+    if (!overlay) return false;
+    // 2) kliknij Anuluj / Zamknij
+    const cancel = findModalCancelButton(overlay);
+    if (cancel) {
+        cancel.click();
+        return true;
+    }
+    // 3) usuń overlay
+    try { overlay.remove(); } catch (e) {}
+    return true;
+}
+
+function tryConfirmTopModal(e) {
+    const overlay = getTopModalOverlay();
+    if (!overlay) return false;
+
+    const target = e.target;
+    const tag = target && target.tagName ? target.tagName.toUpperCase() : "";
+
+    // Shift+Enter w wieloliniowych polach = nowa linia
+    if (e.shiftKey && (tag === "TEXTAREA" || (target && target.isContentEditable))) {
+        return false;
+    }
+    // Enter w <select> zostaw domyślne
+    if (tag === "SELECT") return false;
+
+    const btn = findModalConfirmButton(overlay);
+    if (!btn) return false;
+
+    e.preventDefault();
+    e.stopPropagation();
+    btn.click();
+    return true;
+}
+
+/** Enter na stronie Generator (bez modala) – Generuj wpis */
+function tryConfirmGeneratorPage(e) {
+    if (getTopModalOverlay()) return false;
+    if (!document.getElementById("generatorContainer")) return false;
+    const target = e.target;
+    if (!target) return false;
+    const tag = (target.tagName || "").toUpperCase();
+    const inField = tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
+    if (!inField) return false;
+    if (e.shiftKey && (tag === "TEXTAREA" || target.isContentEditable)) return false;
+
+    // główny przycisk generowania na stronie
+    const genBtn =
+        document.querySelector("#generatorContainer button.btn-success[onclick*='generateEntry']") ||
+        document.querySelector("#generatorContainer button[onclick*='generateEntry']");
+    if (!genBtn || genBtn.disabled) return false;
+
+    e.preventDefault();
+    e.stopPropagation();
+    genBtn.click();
+    return true;
+}
+
+/** Enter na stronie Książka w polu (bez modala) – rzadkie; nie wymuszamy zapisu listy */
+function setupGlobalModalKeys() {
+    if (window._globalModalKeyHandler) {
+        document.removeEventListener("keydown", window._globalModalKeyHandler, true);
+    }
+    window._globalModalKeyHandler = function (e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.isComposing) return;
+
+        // ESC – zamknij najwyższe okno (cała aplikacja)
+        if (e.key === "Escape" || e.key === "Esc") {
+            if (closeTopModalGeneric()) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            return;
+        }
+
+        // Enter – zatwierdź
+        if (e.key === "Enter") {
+            if (tryConfirmTopModal(e)) return;
+            if (tryConfirmGeneratorPage(e)) return;
+        }
+    };
+    // capture: działa też gdy fokus w input/textarea
+    document.addEventListener("keydown", window._globalModalKeyHandler, true);
+}
+
+window.setupGlobalModalKeys = setupGlobalModalKeys;
+window.closeTopModalGeneric = closeTopModalGeneric;
