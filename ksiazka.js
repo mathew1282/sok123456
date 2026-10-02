@@ -3757,16 +3757,24 @@ function openKsiazkaAddModal() {
                         <div style="font-weight:600; margin-bottom:6px; font-size:14px;">Zgłoszenia</div>
                         <input type="text" id="ksAddZglSearch" placeholder="Szukaj…" style="width:100%; margin-bottom:8px;"
                                oninput="ksiazkaAdd.zglSearch=this.value; ksiazkaAddRenderZgl();">
-                        <div id="ksAddZglLinie" class="card-grid" style="gap:6px; margin-bottom:8px;"></div>
-                        <div id="ksAddZglItems" class="card-grid" style="gap:6px; margin-bottom:8px;"></div>
+                        <div id="ksAddZglLinieFrame" class="ks-add-level-frame">
+                            <div id="ksAddZglLinie" class="card-grid" style="gap:6px;"></div>
+                        </div>
+                        <div id="ksAddZglItemsFrame" class="ks-add-level-frame" style="display:none;">
+                            <div id="ksAddZglItems" class="card-grid" style="gap:6px;"></div>
+                        </div>
                         <div id="ksAddZglLevel3" class="card-grid" style="gap:6px;"></div>
                     </div>
                     <div>
                         <div style="font-weight:600; margin-bottom:6px; font-size:14px;">Polecenia</div>
                         <input type="text" id="ksAddPolSearch" placeholder="Szukaj…" style="width:100%; margin-bottom:8px;"
                                oninput="ksiazkaAdd.polSearch=this.value; ksiazkaAddRenderPol();">
-                        <div id="ksAddPolLinie" class="card-grid" style="gap:6px; margin-bottom:8px;"></div>
-                        <div id="ksAddPolItems" class="card-grid" style="gap:6px; margin-bottom:8px;"></div>
+                        <div id="ksAddPolLinieFrame" class="ks-add-level-frame">
+                            <div id="ksAddPolLinie" class="card-grid" style="gap:6px;"></div>
+                        </div>
+                        <div id="ksAddPolItemsFrame" class="ks-add-level-frame" style="display:none;">
+                            <div id="ksAddPolItems" class="card-grid" style="gap:6px;"></div>
+                        </div>
                         <div id="ksAddPolLevel3" class="card-grid" style="gap:6px;"></div>
                     </div>
                 </div>
@@ -3789,7 +3797,19 @@ function openKsiazkaAddModal() {
 
     // responsywność: na wąskim ekranie 1 kolumna
     const style = document.createElement("style");
-    style.textContent = `@media (max-width:800px){ #ksiazkaAddModal .modal > div[style*="grid-template-columns"]{ grid-template-columns:1fr !important; } }`;
+    style.textContent = `
+        #ksiazkaAddModal .ks-add-level-frame {
+            border: 1px solid var(--border, #334155);
+            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: var(--bg-light, rgba(15, 23, 42, 0.45));
+            box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.06);
+        }
+        @media (max-width:800px){
+            #ksiazkaAddModal .modal > div[style*="grid-template-columns"]{ grid-template-columns:1fr !important; }
+        }
+    `;
     overlay.appendChild(style);
 
     ksiazkaAddRenderAll();
@@ -3855,11 +3875,14 @@ function ksiazkaAddRenderZgl() {
         return `<div class="${cls}" style="cursor:pointer;" onclick="ksiazkaAddSelectZglLine('${String(line).replace(/'/g, "\\'")}')">${escapeHtml(line)}</div>`;
     }).join("") || "<span style='color:#64748b;font-size:13px;'>Brak</span>";
 
+    const zglItemsFrame = document.getElementById("ksAddZglItemsFrame");
     if (!ksiazkaAdd.zglLine && !search) {
         itemsEl.innerHTML = "";
         lvl3El.innerHTML = "";
+        if (zglItemsFrame) zglItemsFrame.style.display = "none";
         return;
     }
+    if (zglItemsFrame) zglItemsFrame.style.display = "";
 
     let filtered = rows;
     if (ksiazkaAdd.zglLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === ksiazkaAdd.zglLine);
@@ -3930,11 +3953,14 @@ function ksiazkaAddRenderPol() {
         return `<div class="${cls}" style="cursor:pointer;" onclick="ksiazkaAddSelectPolLine('${String(line).replace(/'/g, "\\'")}')">${escapeHtml(line)}</div>`;
     }).join("") || "<span style='color:#64748b;font-size:13px;'>Brak</span>";
 
+    const polItemsFrame = document.getElementById("ksAddPolItemsFrame");
     if (!ksiazkaAdd.polLine && !search) {
         itemsEl.innerHTML = "";
         lvl3El.innerHTML = "";
+        if (polItemsFrame) polItemsFrame.style.display = "none";
         return;
     }
+    if (polItemsFrame) polItemsFrame.style.display = "";
 
     let filtered = rows;
     if (ksiazkaAdd.polLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === ksiazkaAdd.polLine);
