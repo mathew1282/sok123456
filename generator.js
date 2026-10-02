@@ -2119,7 +2119,7 @@ function confirmRozbijPatrol() {
                 el.innerText = text;
             }
         }
-        // zsynchronizuj wybór zgl/pol w stanie dodawania
+        // zsynchronizuj wybór zgl/pol + osoby (linie liczą osobno)
         if (typeof ksiazkaAdd !== "undefined") {
             if (_rozbij.zglIndexes && _rozbij.zglIndexes.length) {
                 ksiazkaAdd.zglIndexes = [...new Set([...(ksiazkaAdd.zglIndexes || []), ..._rozbij.zglIndexes])];
@@ -2127,6 +2127,8 @@ function confirmRozbijPatrol() {
             if (_rozbij.polIndexes && _rozbij.polIndexes.length) {
                 ksiazkaAdd.polIndexes = [...new Set([...(ksiazkaAdd.polIndexes || []), ..._rozbij.polIndexes])];
             }
+            // Wybrane osoby → zapisane przy Zapisz, potem linie per osoba
+            ksiazkaAdd.osoby = [...(_rozbij.persons || [])];
             if (typeof ksiazkaAddRenderZgl === "function") ksiazkaAddRenderZgl();
             if (typeof ksiazkaAddRenderPol === "function") ksiazkaAddRenderPol();
         }
