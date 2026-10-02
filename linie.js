@@ -141,8 +141,8 @@ function renderLinie() {
 
         <h3 style="margin:28px 0 12px 0;">Godziny ze zgłoszeń / sprawdzeń</h3>
         <p style="color:var(--text-dim); font-size:13px; margin-bottom:14px;">
-            Liczone z zapisanych <strong>sprawdzeń</strong> (Szlak / Stacja osobowa / Stacja towarowa)
-            oraz patroli przypisanych do wpisów w książce. Każda osoba ze składu patrolu dostaje te same godziny danego sprawdzenia.
+            Liczone z zapisanych <strong>sprawdzeń</strong> (Szlak / Stacja osobowa / Stacja towarowa).
+            Po <strong>Rozdziel patrol</strong> godziny trafiają tylko do wybranych osób; bez rozdzielenia – do całego składu patrolu.
         </p>
         ${buildGodzinyZeZgloszenHtml()}
     </div>`;
@@ -366,7 +366,11 @@ function linieSprawdzenieMinuty(s) {
     return linieDurationMinutes(s.data, s.godzOd, s.dataDo || s.data, s.godzDo);
 }
 
-/** Osoby z patroli powiązanych ze sprawdzeniem (przez entryId → książka.patrole) */
+/** Osoby powiązane ze sprawdzeniem.
+ *  1) s.osoby (z Rozdziel patrol)
+ *  2) entry.osoby z książki
+ *  3) cały skład patrolu (gdy brak rozdzielenia)
+ */
 function liniePeopleForSprawdzenie(s) {
     const names = new Set();
     const entries = appState.ksiazkaWydarzen || [];
@@ -382,7 +386,32 @@ function liniePeopleForSprawdzenie(s) {
         }
     });
 
-    // fallback: jeśli brak entry – nie przypisuj do nikogo (tylko suma globalna)
+    // 1) osoby zapisane na sprawdzeniu
+    if (Array.isArray(s.osoby) && s.osoby.length) {
+        s.osoby.forEach(n => {
+            const t = String(n || "").trim();
+            if (t) names.add(t);
+        });
+        return { names: Array.from(names), patrolIndexes };
+    }
+
+    // 2) osoby z wpisów książki (Rozdziel patrol)
+    let fromEntry = false;
+    entryIds.forEach(id => {
+        const e = entries.find(x => String(x.id) === String(id));
+        if (e && Array.isArray(e.osoby) && e.osoby.length) {
+            fromEntry = true;
+            e.osoby.forEach(n => {
+                const t = String(n || "").trim();
+                if (t) names.add(t);
+            });
+        }
+    });
+    if (fromEntry && names.size) {
+        return { names: Array.from(names), patrolIndexes };
+    }
+
+    // 3) fallback: cały skład patrolu
     const patrole = appState.patrole || [];
     patrolIndexes.forEach(pi => {
         const p = patrole[pi];
