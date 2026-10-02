@@ -476,8 +476,13 @@ function renderZgloszeniaLevel2() {
     if (selectedZgloszeniaLine) rows = rows.filter(r => r.Linia === selectedZgloszeniaLine);
     if (search) rows = rows.filter(r => rowMatchesSearch(r, search));
 
-    let krotkie = [...new Set(rows.map(r => r.OpisKrotki || "(bez opisu)"))];
-    krotkie.sort((a, b) => a.localeCompare(b, "pl", { sensitivity: "base", numeric: true }));
+    let krotkie;
+    if (typeof zglSortedOpisKrotkiForLine === "function" && selectedZgloszeniaLine) {
+        krotkie = zglSortedOpisKrotkiForLine(selectedZgloszeniaLine, rows);
+    } else {
+        krotkie = [...new Set(rows.map(r => r.OpisKrotki || "(bez opisu)"))];
+        krotkie.sort((a, b) => a.localeCompare(b, "pl", { sensitivity: "base", numeric: true }));
+    }
 
     let html = "";
     krotkie.forEach(k => {
@@ -513,6 +518,12 @@ function renderZgloszeniaLevel3() {
     if (selectedZgloszeniaLine) rows = rows.filter(r => r.Linia === selectedZgloszeniaLine);
     rows = rows.filter(r => (r.OpisKrotki || "(bez opisu)") === selectedZgloszeniaOpisKrotki);
     if (search) rows = rows.filter(r => rowMatchesSearch(r, search));
+
+    if (typeof zglSortedRowsForGroup === "function" && selectedZgloszeniaLine) {
+        const ordered = zglSortedRowsForGroup(selectedZgloszeniaLine, selectedZgloszeniaOpisKrotki, appState.zgloszenia?.rows || []);
+        const orderMap = new Map(ordered.map((x, i) => [x.i, i]));
+        rows.sort((a, b) => (orderMap.get(a._index) ?? 9999) - (orderMap.get(b._index) ?? 9999));
+    }
 
     let html = "";
     rows.forEach(row => {
