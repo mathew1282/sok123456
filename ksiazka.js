@@ -3901,7 +3901,12 @@ function ksiazkaAddRenderZgl() {
     let filtered = rows;
     if (ksiazkaAdd.zglLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === ksiazkaAdd.zglLine);
 
-    const krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    let krotkie;
+    if (typeof zglSortedOpisKrotkiForLine === "function" && ksiazkaAdd.zglLine) {
+        krotkie = zglSortedOpisKrotkiForLine(ksiazkaAdd.zglLine, filtered);
+    } else {
+        krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl", { numeric: true, sensitivity: "base" }));
+    }
     itemsEl.innerHTML = krotkie.map(k => {
         const hasSel = filtered.some(r => (r.OpisKrotki || "(bez opisu)") === k && ksiazkaAdd.zglIndexes.includes(r._index));
         let cls = "item-card";
@@ -3915,7 +3920,13 @@ function ksiazkaAddRenderZgl() {
         return;
     }
 
-    const level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === ksiazkaAdd.zglOpis);
+    let level3;
+    if (typeof zglSortedRowsForGroup === "function" && ksiazkaAdd.zglLine) {
+        level3 = zglSortedRowsForGroup(ksiazkaAdd.zglLine, ksiazkaAdd.zglOpis, appState.zgloszenia?.rows || [])
+            .map(x => ({ ...x.r, _index: x.i }));
+    } else {
+        level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === ksiazkaAdd.zglOpis);
+    }
     lvl3El.innerHTML = level3.map(r => {
         const sel = ksiazkaAdd.zglIndexes.includes(r._index) ? "selected" : "";
         const role = r.procedureRole === "start" ? "▶ start · " : (r.procedureRole === "end" ? "■ koniec · " : "");
