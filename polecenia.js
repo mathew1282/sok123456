@@ -182,6 +182,7 @@ function renderPolecenia() {
             <div><h2 style="margin:0;">📌 Polecenia</h2></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                 <button class="btn-success" onclick="openPolecenieModal()">Dodaj polecenie</button>
+                <button class="btn-primary" onclick="openPolSortowanieModal()">⇅ Sortowanie</button>
                 <button class="btn-export" onclick="exportPoleceniaExcel()">📥 Eksport Excel</button>
                 <button class="btn-import" onclick="document.getElementById('poleceniaExcelLoader').click()">📤 Import Excel</button>
                 <input type="file" id="poleceniaExcelLoader" accept=".xlsx,.xls,.csv" hidden onchange="importPoleceniaExcel(event)">
@@ -492,6 +493,307 @@ async function importPoleceniaExcel(event) {
     }
 }
 
+
+
+// =====================================
+// SORTOWANIE KAFELKÓW – Polecenia (2. i 3. poziom, drag & drop)
+// 1. poziom (linie): stały – liczby, potem alfabet
+// =====================================
+
+let _polSort = {
+    line: null,
+    opisKrotki: null,
+    level2Order: [],
+    level3Order: []
+};
+
+function polLiniaNaturalCmp(a, b) {
+    if (typeof zglLiniaNaturalCmp === "function") return zglLiniaNaturalCmp(a, b);
+    const aStr = String(a || "").trim();
+    const bStr = String(b || "").trim();
+    const aIsNum = /^\d/.test(aStr);
+    const bIsNum = /^\d/.test(bStr);
+    if (aIsNum && !bIsNum) return -1;
+    if (!aIsNum && bIsNum) return 1;
+    if (aIsNum && bIsNum) {
+        const aNum = parseInt(aStr, 10);
+        const bNum = parseInt(bStr, 10);
+        if (!isNaN(aNum) && !isNaN(bNum) && aNum !== bNum) return aNum - bNum;
+    }
+    return aStr.localeCompare(bStr, "pl", { numeric: true, sensitivity: "base" });
+}
+
+function polSortedLines(rows) {
+    const lines = [...new Set((rows || []).map(r => r.Linia || "(brak)"))];
+    return lines.sort(polLiniaNaturalCmp);
+}
+
+function polSortedOpisKrotkiForLine(line, rows) {
+    const all = rows || appState.polecenia?.rows || [];
+    const filtered = all
+        .map((r, i) => ({ r, i }))
+        .filter(x => (x.r.Linia || "(brak)") === line);
+    const map = new Map();
+    filtered.forEach(({ r }) => {
+        const k = r.OpisKrotki || "(bez opisu)";
+        const ord = (r.tileOrder != null && !isNaN(Number(r.tileOrder))) ? Number(r.tileOrder) : Infinity;
+        if (!map.has(k) || ord < map.get(k)) map.set(k, ord);
+    });
+    const keys = [...map.keys()];
+    keys.sort((a, b) => {
+        const oa = map.get(a);
+        const ob = map.get(b);
+        if (oa !== ob) {
+            if (oa === Infinity && ob === Infinity) return a.localeCompare(b, "pl", { sensitivity: "base", numeric: true });
+            if (oa === Infinity) return 1;
+            if (ob === Infinity) return -1;
+            return oa - ob;
+        }
+        return a.localeCompare(b, "pl", { sensitivity: "base", numeric: true });
+    });
+    return keys;
+}
+
+function polSortedRowsForGroup(line, opisKrotki, rows) {
+    const all = rows || appState.polecenia?.rows || [];
+    const filtered = all
+        .map((r, i) => ({ r, i }))
+        .filter(x =>
+            (x.r.Linia || "(brak)") === line &&
+            (x.r.OpisKrotki || "(bez opisu)") === opisKrotki
+        );
+    filtered.sort((a, b) => {
+        const oa = (a.r.tileOrder != null && !isNaN(Number(a.r.tileOrder))) ? Number(a.r.tileOrder) : Infinity;
+        const ob = (b.r.tileOrder != null && !isNaN(Number(b.r.tileOrder))) ? Number(b.r.tileOrder) : Infinity;
+        if (oa !== ob) {
+            if (oa === Infinity && ob === Infinity) return a.i - b.i;
+            if (oa === Infinity) return 1;
+            if (ob === Infinity) return -1;
+            return oa - ob;
+        }
+        return a.i - b.i;
+    });
+    return filtered;
+}
+
+function openPolSortowanieModal() {
+    if (!appState.polecenia) appState.polecenia = { columns: [], rows: [] };
+    if (!Array.isArray(appState.polecenia.rows)) appState.polecenia.rows = [];
+
+    _polSort.line = null;
+    _polSort.opisKrotki = null;
+    _polSort.level2Order = [];
+    _polSort.level3Order = [];
+
+    const old = document.getElementById("polSortModal");
+    if (old) old.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "polSortModal";
+    overlay.className = "modal-overlay";
+    overlay.style.cssText = "display:flex;align-items:stretch;justify-content:center;padding:12px;z-index:10050;";
+    overlay.innerHTML = `
+        <div class="modal" style="width:min(960px,96vw);height:min(90vh,880px);max-width:none;max-height:none;display:flex;flex-direction:column;padding:16px 18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                <h2 style="margin:0;">⇅ Sortowanie kafelków – Polecenia</h2>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn-success" onclick="polSortZapisz()">💾 Zapisz kolejność</button>
+                    <button class="btn-danger" onclick="closePolSortowanieModal()">Zamknij</button>
+                </div>
+            </div>
+            <p style="margin:0 0 12px 0;font-size:13px;color:var(--text-dim);">
+                <strong>1. rząd (linie)</strong> – stały układ: liczby, potem alfabet (bez przeciągania).<br>
+                <strong>2. i 3. rząd</strong> – złap kafelek i upuść. Najpierw wybierz linię, potem opis krótki.
+            </p>
+            <div style="flex:1;overflow:auto;display:flex;flex-direction:column;gap:14px;min-height:0;">
+                <div>
+                    <div style="font-weight:600;margin-bottom:6px;font-size:14px;">1. Nr linii <span style="font-weight:400;color:var(--text-dim);">(tylko wybór)</span></div>
+                    <div id="polSortLines" class="card-grid" style="gap:6px;border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--bg-light);"></div>
+                </div>
+                <div>
+                    <div style="font-weight:600;margin-bottom:6px;font-size:14px;">2. Opis krótki <span style="font-weight:400;color:var(--text-dim);">(przeciągnij)</span></div>
+                    <div id="polSortLevel2" class="card-grid" style="gap:6px;border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--bg-light);min-height:48px;"></div>
+                </div>
+                <div>
+                    <div style="font-weight:600;margin-bottom:6px;font-size:14px;">3. Opis / kafelki <span style="font-weight:400;color:var(--text-dim);">(przeciągnij)</span></div>
+                    <div id="polSortLevel3" class="card-grid" style="gap:6px;min-height:48px;"></div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    polSortRenderLines();
+    polSortRenderLevel2();
+    polSortRenderLevel3();
+}
+
+function closePolSortowanieModal() {
+    const m = document.getElementById("polSortModal");
+    if (m) m.remove();
+}
+
+function polSortRenderLines() {
+    const el = document.getElementById("polSortLines");
+    if (!el) return;
+    const lines = polSortedLines(appState.polecenia?.rows || []);
+    if (!lines.length) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Brak poleceń</span>";
+        return;
+    }
+    el.innerHTML = lines.map(line => {
+        const active = _polSort.line === line ? " active" : "";
+        const safe = String(line).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        return `<div class="line-pill${active}" style="cursor:pointer;" onclick="polSortSelectLine('${safe}')">${escapeHtml(line)}</div>`;
+    }).join("");
+}
+
+function polSortSelectLine(line) {
+    _polSort.line = line;
+    _polSort.opisKrotki = null;
+    _polSort.level2Order = polSortedOpisKrotkiForLine(line, appState.polecenia?.rows || []);
+    _polSort.level3Order = [];
+    polSortRenderLines();
+    polSortRenderLevel2();
+    polSortRenderLevel3();
+}
+
+function polSortRenderLevel2() {
+    const el = document.getElementById("polSortLevel2");
+    if (!el) return;
+    if (!_polSort.line) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Wybierz linię powyżej…</span>";
+        return;
+    }
+    if (!_polSort.level2Order.length) {
+        _polSort.level2Order = polSortedOpisKrotkiForLine(_polSort.line, appState.polecenia?.rows || []);
+    }
+    if (!_polSort.level2Order.length) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Brak opisów krótkich</span>";
+        return;
+    }
+    el.innerHTML = _polSort.level2Order.map((k, idx) => {
+        const sel = _polSort.opisKrotki === k ? " selected" : "";
+        return `<div class="item-card${sel}" draggable="true" data-sort-level="2" data-sort-idx="${idx}"
+            style="cursor:grab;"
+            ondragstart="polSortDragStart(event,2,${idx})"
+            ondragover="polSortDragOver(event)"
+            ondrop="polSortDrop(event,2,${idx})"
+            onclick="polSortSelectOpisKrotki(${idx})">${escapeHtml(k)}</div>`;
+    }).join("");
+}
+
+function polSortSelectOpisKrotki(idx) {
+    const k = _polSort.level2Order[idx];
+    if (!k) return;
+    _polSort.opisKrotki = k;
+    const rows = polSortedRowsForGroup(_polSort.line, k, appState.polecenia?.rows || []);
+    _polSort.level3Order = rows.map(x => x.i);
+    polSortRenderLevel2();
+    polSortRenderLevel3();
+}
+
+function polSortRenderLevel3() {
+    const el = document.getElementById("polSortLevel3");
+    if (!el) return;
+    if (!_polSort.line || !_polSort.opisKrotki) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Wybierz opis krótki (2. rząd)…</span>";
+        return;
+    }
+    if (!_polSort.level3Order.length) {
+        const rows = polSortedRowsForGroup(_polSort.line, _polSort.opisKrotki, appState.polecenia?.rows || []);
+        _polSort.level3Order = rows.map(x => x.i);
+    }
+    const all = appState.polecenia?.rows || [];
+    if (!_polSort.level3Order.length) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Brak kafelków</span>";
+        return;
+    }
+    el.innerHTML = _polSort.level3Order.map((rowIdx, idx) => {
+        const r = all[rowIdx];
+        if (!r) return "";
+        const label = (r.OpisPom || r.Opis || "(brak)").substring(0, 120);
+        return `<div class="item-card" draggable="true" data-sort-level="3" data-sort-idx="${idx}"
+            style="cursor:grab;"
+            ondragstart="polSortDragStart(event,3,${idx})"
+            ondragover="polSortDragOver(event)"
+            ondrop="polSortDrop(event,3,${idx})">${escapeHtml(label)}</div>`;
+    }).join("");
+}
+
+function polSortDragStart(e, level, idx) {
+    e.dataTransfer.setData("text/plain", JSON.stringify({ level, idx }));
+    e.dataTransfer.effectAllowed = "move";
+}
+
+function polSortDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+}
+
+function polSortDrop(e, level, toIdx) {
+    e.preventDefault();
+    e.stopPropagation();
+    let data;
+    try { data = JSON.parse(e.dataTransfer.getData("text/plain")); } catch (err) { return; }
+    if (!data || data.level !== level) return;
+    const fromIdx = data.idx;
+    if (fromIdx === toIdx || fromIdx == null || toIdx == null) return;
+
+    if (level === 2) {
+        const arr = _polSort.level2Order;
+        if (fromIdx < 0 || fromIdx >= arr.length || toIdx < 0 || toIdx >= arr.length) return;
+        const [item] = arr.splice(fromIdx, 1);
+        arr.splice(toIdx, 0, item);
+        polSortRenderLevel2();
+    } else if (level === 3) {
+        const arr = _polSort.level3Order;
+        if (fromIdx < 0 || fromIdx >= arr.length || toIdx < 0 || toIdx >= arr.length) return;
+        const [item] = arr.splice(fromIdx, 1);
+        arr.splice(toIdx, 0, item);
+        polSortRenderLevel3();
+    }
+}
+
+async function polSortZapisz() {
+    const rows = appState.polecenia?.rows;
+    if (!Array.isArray(rows)) return;
+
+    if (_polSort.line && _polSort.level2Order.length) {
+        _polSort.level2Order.forEach((opisK, groupIdx) => {
+            const members = rows
+                .map((r, i) => ({ r, i }))
+                .filter(x =>
+                    (x.r.Linia || "(brak)") === _polSort.line &&
+                    (x.r.OpisKrotki || "(bez opisu)") === opisK
+                );
+            if (_polSort.opisKrotki === opisK && _polSort.level3Order.length) {
+                _polSort.level3Order.forEach((rowIdx, j) => {
+                    if (rows[rowIdx]) rows[rowIdx].tileOrder = groupIdx * 1000 + j;
+                });
+            } else {
+                members.sort((a, b) => {
+                    const oa = (a.r.tileOrder != null) ? Number(a.r.tileOrder) : a.i;
+                    const ob = (b.r.tileOrder != null) ? Number(b.r.tileOrder) : b.i;
+                    return oa - ob;
+                });
+                members.forEach((m, j) => {
+                    m.r.tileOrder = groupIdx * 1000 + j;
+                });
+            }
+        });
+    } else if (_polSort.line && _polSort.opisKrotki && _polSort.level3Order.length) {
+        _polSort.level3Order.forEach((rowIdx, j) => {
+            if (rows[rowIdx]) rows[rowIdx].tileOrder = j;
+        });
+    }
+
+    if (typeof saveState === "function") await saveState();
+    if (typeof showToast === "function") showToast("✅ Zapisano kolejność kafelków (polecenia)");
+    else alert("Zapisano kolejność kafelków (polecenia)");
+    renderPolecenia();
+}
+
+
 window.openPolecenieModal = openPolecenieModal;
 window.closePolecenieModal = closePolecenieModal;
 window.savePolecenie = savePolecenie;
@@ -504,6 +806,18 @@ window.formatPolecenieOpis = formatPolecenieOpis;
 window.setPoleceniaFilterLinia = setPoleceniaFilterLinia;
 window.exportPoleceniaExcel = exportPoleceniaExcel;
 window.importPoleceniaExcel = importPoleceniaExcel;
+window.openPolSortowanieModal = openPolSortowanieModal;
+window.closePolSortowanieModal = closePolSortowanieModal;
+window.polSortSelectLine = polSortSelectLine;
+window.polSortSelectOpisKrotki = polSortSelectOpisKrotki;
+window.polSortDragStart = polSortDragStart;
+window.polSortDragOver = polSortDragOver;
+window.polSortDrop = polSortDrop;
+window.polSortZapisz = polSortZapisz;
+window.polSortedLines = polSortedLines;
+window.polSortedOpisKrotkiForLine = polSortedOpisKrotkiForLine;
+window.polSortedRowsForGroup = polSortedRowsForGroup;
+window.polLiniaNaturalCmp = polLiniaNaturalCmp;
 
 function polToggleSelectAll(checked) {
     document.querySelectorAll(".pol-sel").forEach(cb => { cb.checked = !!checked; });
