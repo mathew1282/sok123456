@@ -692,13 +692,8 @@ function renderKsiazkaListView(entries) {
             <div class="ksiazka-col-info">
                 <div class="ksiazka-text">${formatKsiazkaTekstHtml(entry.tekst)}</div>
             </div>
-            <div class="ksiazka-col-actions">
-                ${ksiazkaInterwencjeMode ? `
-                    <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'MKK')">MKK</button>
-                    <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'P')">P</button>
-                    <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'L')">L</button>
-                    <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'I')">Inne</button>
-                ` : `
+            <div class="ksiazka-col-actions" style="align-self:flex-end; justify-content:flex-end; align-items:flex-end;">
+                ${ksiazkaInterwencjeMode ? `` : `
                     ${!done ? `
                         <button class="btn-success" style="padding:5px 10px; font-size:12px;" onclick="oznaczZrobione(${globalIdx})">Zrobione</button>
                     ` : `
@@ -753,35 +748,32 @@ function renderKsiazkaColumnsView(filtered) {
                 }
 
                 html += `
-                <div class="${extraClass}" style="${boxStyle} border-radius:10px; padding:12px; margin-bottom:10px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; font-size:13px; position:relative; padding-right:48px;">
-                        <span style="color:#94a3b8;">${escapeHtml(entry.data)} · <strong style="color:#e2e8f0;">${escapeHtml(entry.godzinaStart || "—")}</strong></span>
-                        <span style="display:flex; gap:6px; align-items:flex-start; flex-wrap:wrap; justify-content:flex-end; max-width:55%;">
+                <div class="${extraClass}" style="${boxStyle} border-radius:10px; padding:12px; margin-bottom:10px; display:flex; flex-direction:column; min-height:0;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; font-size:13px; position:relative; padding-right:8px; gap:8px;">
+                        <span style="color:#94a3b8;">${escapeHtml(entry.data)} · <strong style="color:#e2e8f0;">${escapeHtml(entry.godzinaStart || "—")}</strong>
+                            ${done ? " <span style='color:#4ade80;'>✅</span>" : (overdue ? " <span style='color:#f87171;'>⚠</span>" : "")}
+                        </span>
+                        <span style="display:flex; flex-direction:column; gap:4px; align-items:flex-end; flex-wrap:wrap; max-width:65%;">
                             ${ksiazkaProceduraBadgeHtml(entry)}
+                            ${ksiazkaInterwencjeModeBtnsHtml(globalIdx)}
                             ${ksiazkaInterwencjeBadgesHtml(entry, false, globalIdx)}
-                            ${done ? "<span style='color:#4ade80;'>✅</span>" : (overdue ? "<span style='color:#f87171;'>⚠</span>" : "")}
                         </span>
                     </div>
-                    <div style="font-size:13.5px; line-height:1.45; white-space:pre-wrap; color:#e2e8f0; margin-bottom:10px;">
+                    <div style="font-size:13.5px; line-height:1.45; white-space:pre-wrap; color:#e2e8f0; margin-bottom:10px; flex:1;">
                         ${formatKsiazkaTekstHtml(entry.tekst)}
                     </div>
-                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                        ${ksiazkaInterwencjeMode ? `
-                            <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'MKK')">MKK</button>
-                            <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'P')">P</button>
-                            <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'L')">L</button>
-                            <button class="btn-primary" style="padding:5px 10px; font-size:12px; font-weight:700;" onclick="openKsiazkaInterwencjaModal(${globalIdx},'I')">Inne</button>
+                    ${ksiazkaInterwencjeMode ? `` : `
+                    <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; margin-top:auto;">
+                        ${!done ? `
+                            <button class="btn-success" style="padding:5px 10px; font-size:12px;" onclick="oznaczZrobione(${globalIdx})">Zrobione</button>
                         ` : `
-                            ${!done ? `
-                                <button class="btn-success" style="padding:5px 10px; font-size:12px;" onclick="oznaczZrobione(${globalIdx})">Zrobione</button>
-                            ` : `
-                                <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="odznaczZrobione(${globalIdx})">Cofnij</button>
-                            `}
-                            <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="kopiujWpisKsiazki(${globalIdx})">Kopiuj</button>
-                            <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazki(${globalIdx})">Edytuj</button>
-                            <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazki(${globalIdx})">Kasuj</button>
+                            <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="odznaczZrobione(${globalIdx})">Cofnij</button>
                         `}
+                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="kopiujWpisKsiazki(${globalIdx})">Kopiuj</button>
+                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazki(${globalIdx})">Edytuj</button>
+                        <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazki(${globalIdx})">Kasuj</button>
                     </div>
+                    `}
                 </div>
                 `;
             });
@@ -3280,12 +3272,25 @@ function ksiazkaProceduraBadgeHtml(entry) {
     </span>`;
 }
 
+function ksiazkaInterwencjeModeBtnsHtml(globalIdx) {
+    if (!ksiazkaInterwencjeMode) return "";
+    const s = "padding:5px 10px; font-size:12px; font-weight:700;";
+    return `<div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;">
+        <button class="btn-primary" style="${s}" onclick="openKsiazkaInterwencjaModal(${globalIdx},'MKK')">MKK</button>
+        <button class="btn-primary" style="${s}" onclick="openKsiazkaInterwencjaModal(${globalIdx},'P')">P</button>
+        <button class="btn-primary" style="${s}" onclick="openKsiazkaInterwencjaModal(${globalIdx},'L')">L</button>
+        <button class="btn-primary" style="${s}" onclick="openKsiazkaInterwencjaModal(${globalIdx},'I')">Inne</button>
+    </div>`;
+}
+
 function ksiazkaEntryTopBadgesHtml(entry, globalIdx) {
     const proc = ksiazkaProceduraBadgeHtml(entry);
     const inv = ksiazkaInterwencjeBadgesHtml(entry, false, globalIdx);
-    if (!proc && !inv) return "";
+    const modeBtns = ksiazkaInterwencjeModeBtnsHtml(globalIdx);
+    if (!proc && !inv && !modeBtns) return "";
+    // Szlak/procedura na górze, pod spodem przyciski interwencji, potem litery M/P/L/I
     return `<div style="position:absolute; top:6px; right:8px; z-index:2; display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
-        ${proc}${inv}
+        ${proc}${modeBtns}${inv}
     </div>`;
 }
 
@@ -3461,6 +3466,29 @@ function openKsiazkaInterwencjaModal(index, typ) {
     document.body.appendChild(overlay);
     // zapamiętaj szablon do wstawienia
     overlay._szablon = szablon;
+
+    // Zapamiętuj pozycję kursora w textarea (klik w "Wstaw szablon" zdejmuje fokus)
+    const ta = document.getElementById("ksUwagiTekst");
+    if (ta) {
+        const saveCaret = () => {
+            overlay._caretStart = ta.selectionStart;
+            overlay._caretEnd = ta.selectionEnd;
+        };
+        ta.addEventListener("keyup", saveCaret);
+        ta.addEventListener("click", saveCaret);
+        ta.addEventListener("select", saveCaret);
+        ta.addEventListener("mouseup", saveCaret);
+        // start: kursor na końcu treści
+        const len = (ta.value || "").length;
+        overlay._caretStart = len;
+        overlay._caretEnd = len;
+        setTimeout(() => {
+            try {
+                ta.focus();
+                ta.setSelectionRange(len, len);
+            } catch (e) {}
+        }, 40);
+    }
 }
 
 function ksiazkaInterwencjaResolveTags(tekst, entry) {
@@ -3521,10 +3549,38 @@ function ksiazkaInterwencjaWstawSzablon() {
     const entry = (index != null && appState.ksiazkaWydarzen) ? appState.ksiazkaWydarzen[index] : null;
     add = ksiazkaInterwencjaResolveTags(add, entry);
 
+    // Wstaw w miejscu kursora (zaznaczenie zamieniane na szablon)
+    const modalEl = document.getElementById("ksiazkaUwagiEditModal");
     const cur = ta.value || "";
-    ta.value = cur.trim() ? (cur.replace(/\s*$/, "") + "\n\n" + add) : add;
+    let start = (modalEl && typeof modalEl._caretStart === "number")
+        ? modalEl._caretStart
+        : (typeof ta.selectionStart === "number" ? ta.selectionStart : cur.length);
+    let end = (modalEl && typeof modalEl._caretEnd === "number")
+        ? modalEl._caretEnd
+        : (typeof ta.selectionEnd === "number" ? ta.selectionEnd : start);
+    // clamp
+    start = Math.max(0, Math.min(start, cur.length));
+    end = Math.max(0, Math.min(end, cur.length));
+    if (end < start) end = start;
     ta.focus();
-    ta.setSelectionRange(ta.value.length, ta.value.length);
+    // gdy fokus był na przycisku – często selection = 0,0 przy niepustym polu;
+    // jeśli użytkownik nie zaznaczył nic i kursor na początku, a tekst jest – wstaw w miejscu kursora i tak
+    const before = cur.slice(0, start);
+    const after = cur.slice(end);
+    // odstępy tylko gdy trzeba (nie dubluj pustych linii)
+    let piece = add;
+    if (before && !/\s$/.test(before) && !/^\s/.test(piece)) piece = " " + piece;
+    if (after && !/^\s/.test(after) && !/\s$/.test(piece)) piece = piece + " ";
+    ta.value = before + piece + after;
+    const caret = before.length + piece.length;
+    try {
+        ta.setSelectionRange(caret, caret);
+    } catch (err) { /* ignore */ }
+    ta.focus();
+    if (modalEl) {
+        modalEl._caretStart = caret;
+        modalEl._caretEnd = caret;
+    }
 
     if (entry && (!entry.patrole || !entry.patrole.length)) {
         if (typeof showToast === "function") {
@@ -4405,6 +4461,7 @@ window.ksiazkaInterwencjaResolveTags = ksiazkaInterwencjaResolveTags;
 window.ksiazkaInterwencjaWstawSzablon = ksiazkaInterwencjaWstawSzablon;
 window.confirmKsiazkaInterwencja = confirmKsiazkaInterwencja;
 window.ksiazkaProceduraBadgeHtml = ksiazkaProceduraBadgeHtml;
+window.ksiazkaInterwencjeModeBtnsHtml = ksiazkaInterwencjeModeBtnsHtml;
 window.ksiazkaEntryTopBadgesHtml = ksiazkaEntryTopBadgesHtml;
 window.ksiazkaInterwencjeBadgesHtml = ksiazkaInterwencjeBadgesHtml;
 
