@@ -3969,7 +3969,9 @@ function ksiazkaAddRenderPol() {
     const search = ksiazkaAdd.polSearch;
     let rows = search ? allRows.filter(r => ksiazkaAddRowMatches(r, search)) : allRows;
 
-    const lines = [...new Set(rows.map(r => r.Linia || "(brak)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    const lines = (typeof polSortedLines === "function")
+        ? polSortedLines(rows)
+        : [...new Set(rows.map(r => r.Linia || "(brak)"))].sort((a, b) => a.localeCompare(b, "pl", { numeric: true }));
     linieEl.innerHTML = lines.map(line => {
         const hasSel = rows.some(r => (r.Linia || "(brak)") === line && ksiazkaAdd.polIndexes.includes(r._index));
         let cls = "line-pill";
@@ -3990,7 +3992,12 @@ function ksiazkaAddRenderPol() {
     let filtered = rows;
     if (ksiazkaAdd.polLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === ksiazkaAdd.polLine);
 
-    const krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    let krotkie;
+    if (typeof polSortedOpisKrotkiForLine === "function" && ksiazkaAdd.polLine) {
+        krotkie = polSortedOpisKrotkiForLine(ksiazkaAdd.polLine, filtered);
+    } else {
+        krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl", { numeric: true, sensitivity: "base" }));
+    }
     itemsEl.innerHTML = krotkie.map(k => {
         const hasSel = filtered.some(r => (r.OpisKrotki || "(bez opisu)") === k && ksiazkaAdd.polIndexes.includes(r._index));
         let cls = "item-card";
@@ -4004,7 +4011,13 @@ function ksiazkaAddRenderPol() {
         return;
     }
 
-    const level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === ksiazkaAdd.polOpis);
+    let level3;
+    if (typeof polSortedRowsForGroup === "function" && ksiazkaAdd.polLine) {
+        level3 = polSortedRowsForGroup(ksiazkaAdd.polLine, ksiazkaAdd.polOpis, appState.polecenia?.rows || [])
+            .map(x => ({ ...x.r, _index: x.i }));
+    } else {
+        level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === ksiazkaAdd.polOpis);
+    }
     lvl3El.innerHTML = level3.map(r => {
         const sel = ksiazkaAdd.polIndexes.includes(r._index) ? "selected" : "";
         const label = (r.OpisPom || r.Opis || "(brak)").substring(0, 120);
