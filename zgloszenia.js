@@ -246,6 +246,7 @@ function renderZgloszenia() {
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn-primary" onclick="openZgloszenieModal()">+ Zgłoszenie</button>
                 <button class="btn-success" onclick="openProceduraZglModal()">+ Procedura</button>
+                <button class="btn-primary" onclick="openZglSortowanieModal()">⇅ Sortowanie</button>
                 <button class="btn-export" onclick="exportZgloszeniaExcel()">📥 Eksport Excel</button>
                 <button class="btn-import" onclick="document.getElementById('zgloszeniaExcelLoader').click()">📤 Import Excel</button>
                 <input type="file" id="zgloszeniaExcelLoader" accept=".xlsx,.xls,.csv" hidden onchange="importZgloszeniaExcel(event)">
@@ -752,6 +753,321 @@ async function removeSelectedZgloszenia() {
     return true;
 }
 
+
+
+// =====================================
+// SORTOWANIE KAFELKÓW (2. i 3. poziom – drag & drop)
+// 1. poziom (linie): zawsze naturalnie (liczby, potem alfabet)
+// Kolejność zapisywana w row.tileOrder
+// =====================================
+
+let _zglSort = {
+    line: null,       // wybrana linia (1. poziom)
+    opisKrotki: null, // wybrany opis krótki (2. poziom)
+    level2Order: [],  // string[] OpisKrotki
+    level3Order: []   // number[] indeksy wierszy w appState.zgloszenia.rows
+};
+
+function zglLiniaNaturalCmp(a, b) {
+    const aStr = String(a || "").trim();
+    const bStr = String(b || "").trim();
+    const aIsNum = /^\d/.test(aStr);
+    const bIsNum = /^\d/.test(bStr);
+    if (aIsNum && !bIsNum) return -1;
+    if (!aIsNum && bIsNum) return 1;
+    if (aIsNum && bIsNum) {
+        const aNum = parseInt(aStr, 10);
+        const bNum = parseInt(bStr, 10);
+        if (!isNaN(aNum) && !isNaN(bNum) && aNum !== bNum) return aNum - bNum;
+    }
+    return aStr.localeCompare(bStr, "pl", { numeric: true, sensitivity: "base" });
+}
+
+/** Unikalne linie posortowane naturalnie */
+function zglSortedLines(rows) {
+    const lines = [...new Set((rows || []).map(r => r.Linia || "(brak)"))];
+    return lines.sort(zglLiniaNaturalCmp);
+}
+
+/** Klucze 2. poziomu (OpisKrotki) dla linii – wg tileOrder, potem alfabet */
+function zglSortedOpisKrotkiForLine(line, rows) {
+    const all = rows || appState.zgloszenia?.rows || [];
+    const filtered = all
+        .map((r, i) => ({ r, i }))
+        .filter(x => (x.r.Linia || "(brak)") === line);
+    const map = new Map(); // opisKrotki -> min tileOrder
+    filtered.forEach(({ r }) => {
+        const k = r.OpisKrotki || "(bez opisu)";
+        const ord = (r.tileOrder != null && !isNaN(Number(r.tileOrder))) ? Number(r.tileOrder) : Infinity;
+        if (!map.has(k) || ord < map.get(k)) map.set(k, ord);
+    });
+    const keys = [...map.keys()];
+    keys.sort((a, b) => {
+        const oa = map.get(a);
+        const ob = map.get(b);
+        if (oa !== ob) {
+            if (oa === Infinity && ob === Infinity) return a.localeCompare(b, "pl", { sensitivity: "base", numeric: true });
+            if (oa === Infinity) return 1;
+            if (ob === Infinity) return -1;
+            return oa - ob;
+        }
+        return a.localeCompare(b, "pl", { sensitivity: "base", numeric: true });
+    });
+    return keys;
+}
+
+/** Wiersze 3. poziomu dla linia+opisKrotki – wg tileOrder */
+function zglSortedRowsForGroup(line, opisKrotki, rows) {
+    const all = rows || appState.zgloszenia?.rows || [];
+    const filtered = all
+        .map((r, i) => ({ r, i }))
+        .filter(x =>
+            (x.r.Linia || "(brak)") === line &&
+            (x.r.OpisKrotki || "(bez opisu)") === opisKrotki
+        );
+    filtered.sort((a, b) => {
+        const oa = (a.r.tileOrder != null && !isNaN(Number(a.r.tileOrder))) ? Number(a.r.tileOrder) : Infinity;
+        const ob = (b.r.tileOrder != null && !isNaN(Number(b.r.tileOrder))) ? Number(b.r.tileOrder) : Infinity;
+        if (oa !== ob) {
+            if (oa === Infinity && ob === Infinity) return a.i - b.i;
+            if (oa === Infinity) return 1;
+            if (ob === Infinity) return -1;
+            return oa - ob;
+        }
+        return a.i - b.i;
+    });
+    return filtered;
+}
+
+function openZglSortowanieModal() {
+    ensureZgloszeniaState?.();
+    if (!appState.zgloszenia) appState.zgloszenia = { columns: [], rows: [] };
+    if (!Array.isArray(appState.zgloszenia.rows)) appState.zgloszenia.rows = [];
+
+    _zglSort.line = null;
+    _zglSort.opisKrotki = null;
+    _zglSort.level2Order = [];
+    _zglSort.level3Order = [];
+
+    const old = document.getElementById("zglSortModal");
+    if (old) old.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "zglSortModal";
+    overlay.className = "modal-overlay";
+    overlay.style.cssText = "display:flex;align-items:stretch;justify-content:center;padding:12px;z-index:10050;";
+    overlay.innerHTML = `
+        <div class="modal" style="width:min(960px,96vw);height:min(90vh,880px);max-width:none;max-height:none;display:flex;flex-direction:column;padding:16px 18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                <h2 style="margin:0;">⇅ Sortowanie kafelków – Zgłoszenia</h2>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn-success" onclick="zglSortZapisz()">💾 Zapisz kolejność</button>
+                    <button class="btn-danger" onclick="closeZglSortowanieModal()">Zamknij</button>
+                </div>
+            </div>
+            <p style="margin:0 0 12px 0;font-size:13px;color:var(--text-dim);">
+                <strong>1. rząd (linie)</strong> – stały układ: liczby, potem alfabet (bez przeciągania).<br>
+                <strong>2. i 3. rząd</strong> – złap kafelek i upuść w wybranym miejscu. Najpierw wybierz linię, potem opis krótki.
+            </p>
+            <div style="flex:1;overflow:auto;display:flex;flex-direction:column;gap:14px;min-height:0;">
+                <div>
+                    <div style="font-weight:600;margin-bottom:6px;font-size:14px;">1. Nr linii <span style="font-weight:400;color:var(--text-dim);">(tylko wybór)</span></div>
+                    <div id="zglSortLines" class="ks-add-level-frame card-grid" style="gap:6px;border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--bg-light);"></div>
+                </div>
+                <div>
+                    <div style="font-weight:600;margin-bottom:6px;font-size:14px;">2. Opis krótki <span style="font-weight:400;color:var(--text-dim);">(przeciągnij)</span></div>
+                    <div id="zglSortLevel2" class="ks-add-level-frame card-grid" style="gap:6px;border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--bg-light);min-height:48px;"></div>
+                </div>
+                <div>
+                    <div style="font-weight:600;margin-bottom:6px;font-size:14px;">3. Opis / kafelki <span style="font-weight:400;color:var(--text-dim);">(przeciągnij)</span></div>
+                    <div id="zglSortLevel3" class="card-grid" style="gap:6px;min-height:48px;"></div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    zglSortRenderLines();
+    zglSortRenderLevel2();
+    zglSortRenderLevel3();
+}
+
+function closeZglSortowanieModal() {
+    const m = document.getElementById("zglSortModal");
+    if (m) m.remove();
+}
+
+function zglSortRenderLines() {
+    const el = document.getElementById("zglSortLines");
+    if (!el) return;
+    const lines = zglSortedLines(appState.zgloszenia?.rows || []);
+    if (!lines.length) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Brak zgłoszeń</span>";
+        return;
+    }
+    el.innerHTML = lines.map(line => {
+        const active = _zglSort.line === line ? " active" : "";
+        const safe = String(line).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        return `<div class="line-pill${active}" style="cursor:pointer;" onclick="zglSortSelectLine('${safe}')">${escapeHtml(line)}</div>`;
+    }).join("");
+}
+
+function zglSortSelectLine(line) {
+    _zglSort.line = line;
+    _zglSort.opisKrotki = null;
+    _zglSort.level2Order = zglSortedOpisKrotkiForLine(line, appState.zgloszenia?.rows || []);
+    _zglSort.level3Order = [];
+    zglSortRenderLines();
+    zglSortRenderLevel2();
+    zglSortRenderLevel3();
+}
+
+function zglSortRenderLevel2() {
+    const el = document.getElementById("zglSortLevel2");
+    if (!el) return;
+    if (!_zglSort.line) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Wybierz linię powyżej…</span>";
+        return;
+    }
+    if (!_zglSort.level2Order.length) {
+        _zglSort.level2Order = zglSortedOpisKrotkiForLine(_zglSort.line, appState.zgloszenia?.rows || []);
+    }
+    if (!_zglSort.level2Order.length) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Brak opisów krótkich</span>";
+        return;
+    }
+    el.innerHTML = _zglSort.level2Order.map((k, idx) => {
+        const sel = _zglSort.opisKrotki === k ? " selected" : "";
+        return `<div class="item-card${sel}" draggable="true" data-sort-level="2" data-sort-idx="${idx}"
+            style="cursor:grab;"
+            ondragstart="zglSortDragStart(event,2,${idx})"
+            ondragover="zglSortDragOver(event)"
+            ondrop="zglSortDrop(event,2,${idx})"
+            onclick="zglSortSelectOpisKrotki(${idx})">${escapeHtml(k)}</div>`;
+    }).join("");
+}
+
+function zglSortSelectOpisKrotki(idx) {
+    const k = _zglSort.level2Order[idx];
+    if (!k) return;
+    _zglSort.opisKrotki = k;
+    const rows = zglSortedRowsForGroup(_zglSort.line, k, appState.zgloszenia?.rows || []);
+    _zglSort.level3Order = rows.map(x => x.i);
+    zglSortRenderLevel2();
+    zglSortRenderLevel3();
+}
+
+function zglSortRenderLevel3() {
+    const el = document.getElementById("zglSortLevel3");
+    if (!el) return;
+    if (!_zglSort.line || !_zglSort.opisKrotki) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Wybierz opis krótki (2. rząd)…</span>";
+        return;
+    }
+    if (!_zglSort.level3Order.length) {
+        const rows = zglSortedRowsForGroup(_zglSort.line, _zglSort.opisKrotki, appState.zgloszenia?.rows || []);
+        _zglSort.level3Order = rows.map(x => x.i);
+    }
+    const all = appState.zgloszenia?.rows || [];
+    if (!_zglSort.level3Order.length) {
+        el.innerHTML = "<span style='color:var(--text-dim);font-size:13px;'>Brak kafelków</span>";
+        return;
+    }
+    el.innerHTML = _zglSort.level3Order.map((rowIdx, idx) => {
+        const r = all[rowIdx];
+        if (!r) return "";
+        const role = r.procedureRole === "start" ? "▶ start · " : (r.procedureRole === "end" ? "■ koniec · " : "");
+        const label = role + (r.OpisPom || r.Opis || "(brak)").substring(0, 120);
+        return `<div class="item-card" draggable="true" data-sort-level="3" data-sort-idx="${idx}"
+            style="cursor:grab;"
+            ondragstart="zglSortDragStart(event,3,${idx})"
+            ondragover="zglSortDragOver(event)"
+            ondrop="zglSortDrop(event,3,${idx})">${escapeHtml(label)}</div>`;
+    }).join("");
+}
+
+function zglSortDragStart(e, level, idx) {
+    e.dataTransfer.setData("text/plain", JSON.stringify({ level, idx }));
+    e.dataTransfer.effectAllowed = "move";
+}
+
+function zglSortDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+}
+
+function zglSortDrop(e, level, toIdx) {
+    e.preventDefault();
+    e.stopPropagation();
+    let data;
+    try { data = JSON.parse(e.dataTransfer.getData("text/plain")); } catch (err) { return; }
+    if (!data || data.level !== level) return;
+    const fromIdx = data.idx;
+    if (fromIdx === toIdx || fromIdx == null || toIdx == null) return;
+
+    if (level === 2) {
+        const arr = _zglSort.level2Order;
+        if (fromIdx < 0 || fromIdx >= arr.length || toIdx < 0 || toIdx >= arr.length) return;
+        const [item] = arr.splice(fromIdx, 1);
+        arr.splice(toIdx, 0, item);
+        // jeśli przeniesiono aktywny opis – odśwież level3 indeksy w nowej kolejności grupy
+        if (_zglSort.opisKrotki) {
+            const rows = zglSortedRowsForGroup(_zglSort.line, _zglSort.opisKrotki, appState.zgloszenia?.rows || []);
+            // keep current level3Order if same group still selected
+        }
+        zglSortRenderLevel2();
+    } else if (level === 3) {
+        const arr = _zglSort.level3Order;
+        if (fromIdx < 0 || fromIdx >= arr.length || toIdx < 0 || toIdx >= arr.length) return;
+        const [item] = arr.splice(fromIdx, 1);
+        arr.splice(toIdx, 0, item);
+        zglSortRenderLevel3();
+    }
+}
+
+async function zglSortZapisz() {
+    const rows = appState.zgloszenia?.rows;
+    if (!Array.isArray(rows)) return;
+
+    // Zapisz aktualny widok 2. poziomu (dla wybranej linii)
+    if (_zglSort.line && _zglSort.level2Order.length) {
+        // Każda grupa OpisKrotki dostaje bazę kolejności * 1000, wewnątrz zachowaj względne tileOrder lub indeks
+        _zglSort.level2Order.forEach((opisK, groupIdx) => {
+            const members = rows
+                .map((r, i) => ({ r, i }))
+                .filter(x =>
+                    (x.r.Linia || "(brak)") === _zglSort.line &&
+                    (x.r.OpisKrotki || "(bez opisu)") === opisK
+                );
+            // jeśli to aktywna grupa i mamy level3Order – użyj tej kolejności
+            if (_zglSort.opisKrotki === opisK && _zglSort.level3Order.length) {
+                _zglSort.level3Order.forEach((rowIdx, j) => {
+                    if (rows[rowIdx]) rows[rowIdx].tileOrder = groupIdx * 1000 + j;
+                });
+            } else {
+                // posortuj istniejące wg tileOrder / indeksu i przypisz
+                members.sort((a, b) => {
+                    const oa = (a.r.tileOrder != null) ? Number(a.r.tileOrder) : a.i;
+                    const ob = (b.r.tileOrder != null) ? Number(b.r.tileOrder) : b.i;
+                    return oa - ob;
+                });
+                members.forEach((m, j) => {
+                    m.r.tileOrder = groupIdx * 1000 + j;
+                });
+            }
+        });
+    } else if (_zglSort.line && _zglSort.opisKrotki && _zglSort.level3Order.length) {
+        _zglSort.level3Order.forEach((rowIdx, j) => {
+            if (rows[rowIdx]) rows[rowIdx].tileOrder = j;
+        });
+    }
+
+    if (typeof saveState === "function") await saveState();
+    if (typeof showToast === "function") showToast("✅ Zapisano kolejność kafelków");
+    else alert("Zapisano kolejność kafelków");
+    renderZgloszenia();
+}
+
+
 window.initZgloszenia = initZgloszenia;
 window.renderZgloszenia = renderZgloszenia;
 window.setZgloszeniaFilterLinia = setZgloszeniaFilterLinia;
@@ -773,4 +1089,16 @@ window.exportZgloszeniaExcel = exportZgloszeniaExcel;
 window.importZgloszeniaExcel = importZgloszeniaExcel;
 window.zglToggleColFilter = zglToggleColFilter;
 window.zglUsunZaznaczoneClick = zglUsunZaznaczoneClick;
+window.openZglSortowanieModal = openZglSortowanieModal;
+window.closeZglSortowanieModal = closeZglSortowanieModal;
+window.zglSortSelectLine = zglSortSelectLine;
+window.zglSortSelectOpisKrotki = zglSortSelectOpisKrotki;
+window.zglSortDragStart = zglSortDragStart;
+window.zglSortDragOver = zglSortDragOver;
+window.zglSortDrop = zglSortDrop;
+window.zglSortZapisz = zglSortZapisz;
+window.zglSortedLines = zglSortedLines;
+window.zglSortedOpisKrotkiForLine = zglSortedOpisKrotkiForLine;
+window.zglSortedRowsForGroup = zglSortedRowsForGroup;
+window.zglLiniaNaturalCmp = zglLiniaNaturalCmp;
 
