@@ -57,6 +57,9 @@ async function logSprawdzenie(payload) {
     if (payload.entryId) row.entryId = payload.entryId;
     if (payload.entryIdEnd) row.entryIdEnd = payload.entryIdEnd;
     if (payload.procedureId) row.procedureId = payload.procedureId;
+    if (Array.isArray(payload.osoby) && payload.osoby.length) {
+        row.osoby = payload.osoby.map(x => String(x || "").trim()).filter(Boolean);
+    }
     appState.statystyki.sprawdzenia.push(row);
     await saveState();
 }
@@ -138,6 +141,16 @@ async function refreshStatystykiFromKsiazka() {
                 czasMin = durationMinutesBetween(dataOd, g.godzOd, dataDo, g.godzDo);
                 czas = formatDurationMin(czasMin);
             }
+            const osobyRef = [];
+            const _pushO = (arr) => {
+                (arr || []).forEach(n => {
+                    const t = String(n || "").trim();
+                    if (t && !osobyRef.includes(t)) osobyRef.push(t);
+                });
+            };
+            _pushO(g.startEntry && g.startEntry.osoby);
+            _pushO(g.endEntry && g.endEntry.osoby);
+
             const payload = {
                 rodzaj: (g.meta && g.meta.Rodzaj) || "",
                 nazwa: (g.meta && g.meta.Nazwa) || "",
@@ -152,7 +165,8 @@ async function refreshStatystykiFromKsiazka() {
                 czasMin,
                 entryId: (g.startEntry && g.startEntry.id) || null,
                 entryIdEnd: (g.endEntry && g.endEntry.id) || null,
-                procedureId: g.procedureId || null
+                procedureId: g.procedureId || null,
+                ...(osobyRef.length ? { osoby: osobyRef } : {})
             };
             if (isSprawdzenieAlreadyInStats(payload)) {
                 skippedSpr++;
@@ -175,6 +189,7 @@ async function refreshStatystykiFromKsiazka() {
             if (payload.entryId) row.entryId = payload.entryId;
             if (payload.entryIdEnd) row.entryIdEnd = payload.entryIdEnd;
             if (payload.procedureId) row.procedureId = payload.procedureId;
+            if (payload.osoby && payload.osoby.length) row.osoby = [...payload.osoby];
             appState.statystyki.sprawdzenia.push(row);
             addedSpr++;
         }
