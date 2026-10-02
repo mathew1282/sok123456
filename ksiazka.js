@@ -3076,6 +3076,16 @@ async function ksiazkaSprawdzenieZapisz() {
         const czasMin = durationMinutesBetween(dataOd, g.godzOd, dataDo, g.godzDo);
         const czas = formatDurationMin(czasMin);
 
+        const osobyFromEntries = [];
+        const _addO = (arr) => {
+            (arr || []).forEach(n => {
+                const s = String(n || "").trim();
+                if (s && !osobyFromEntries.includes(s)) osobyFromEntries.push(s);
+            });
+        };
+        _addO(g.startEntry?.osoby);
+        _addO(g.endEntry?.osoby);
+
         doZapisu.push({
             rodzaj: g.meta?.Rodzaj || "",
             nazwa: g.meta?.Nazwa || "",
@@ -3090,7 +3100,8 @@ async function ksiazkaSprawdzenieZapisz() {
             czasMin,
             entryId: g.startEntry?.id || null,
             entryIdEnd: g.endEntry?.id || null,
-            procedureId: g.procedureId || null
+            procedureId: g.procedureId || null,
+            ...(osobyFromEntries.length ? { osoby: osobyFromEntries } : {})
         });
     }
 
@@ -3115,6 +3126,7 @@ async function ksiazkaSprawdzenieZapisz() {
                 last.czas = payload.czas;
                 last.czasMin = payload.czasMin;
                 if (payload.procedureId) last.procedureId = payload.procedureId;
+                if (payload.osoby && payload.osoby.length) last.osoby = [...payload.osoby];
             }
         } else {
             if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
@@ -3706,7 +3718,8 @@ const ksiazkaAdd = {
     zglOpis: null,
     polOpis: null,
     zglSearch: "",
-    polSearch: ""
+    polSearch: "",
+    osoby: []   // z „Rozdziel patrol” – linie liczone osobno
 };
 
 function resetKsiazkaAddState() {
@@ -3719,6 +3732,7 @@ function resetKsiazkaAddState() {
     ksiazkaAdd.polOpis = null;
     ksiazkaAdd.zglSearch = "";
     ksiazkaAdd.polSearch = "";
+    ksiazkaAdd.osoby = [];
 }
 
 function openKsiazkaAddModal() {
@@ -4016,6 +4030,7 @@ function ksiazkaAddWyczyscWybor() {
     ksiazkaAdd.polIndexes = [];
     ksiazkaAdd.zglOpis = null;
     ksiazkaAdd.polOpis = null;
+    ksiazkaAdd.osoby = [];
     const prev = document.getElementById("ksAddPreview");
     if (prev) prev.innerHTML = "";
     ksiazkaAddRenderZgl();
@@ -4188,6 +4203,7 @@ async function ksiazkaAddZapisz() {
 
     if (proc && proc.both) {
         // Start + koniec tej samej procedury w jednym zapisie
+        const osobySel = (Array.isArray(ksiazkaAdd.osoby) && ksiazkaAdd.osoby.length) ? [...ksiazkaAdd.osoby] : null;
         appState.ksiazkaWydarzen.push({
             id: baseId + "-s",
             data: dataWpisu,
@@ -4197,7 +4213,8 @@ async function ksiazkaAddZapisz() {
             zrobione: false,
             procedureId: proc.procedureId,
             procedureRole: "start",
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            ...(osobySel ? { osoby: osobySel } : {})
         });
         appState.ksiazkaWydarzen.push({
             id: baseId + "-e",
@@ -4208,7 +4225,8 @@ async function ksiazkaAddZapisz() {
             zrobione: false,
             procedureId: proc.procedureId,
             procedureRole: "end",
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            ...(osobySel ? { osoby: osobySel } : {})
         });
         await saveState();
         renderKsiazka();
@@ -4216,6 +4234,7 @@ async function ksiazkaAddZapisz() {
         ksiazkaAdd.polIndexes = [];
         ksiazkaAdd.zglOpis = null;
         ksiazkaAdd.polOpis = null;
+        ksiazkaAdd.osoby = [];
         const prev = document.getElementById("ksAddPreview");
         if (prev) prev.innerHTML = "";
         ksiazkaAddRenderZgl();
@@ -4239,6 +4258,9 @@ async function ksiazkaAddZapisz() {
         entry.procedureId = proc.procedureId;
         entry.procedureRole = proc.procedureRole;
     }
+    if (Array.isArray(ksiazkaAdd.osoby) && ksiazkaAdd.osoby.length) {
+        entry.osoby = [...ksiazkaAdd.osoby];
+    }
 
     appState.ksiazkaWydarzen.push(entry);
 
@@ -4250,6 +4272,7 @@ async function ksiazkaAddZapisz() {
     ksiazkaAdd.polIndexes = [];
     ksiazkaAdd.zglOpis = null;
     ksiazkaAdd.polOpis = null;
+    ksiazkaAdd.osoby = [];
     const prev = document.getElementById("ksAddPreview");
     if (prev) prev.innerHTML = "";
     ksiazkaAddRenderZgl();
