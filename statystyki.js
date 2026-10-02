@@ -414,6 +414,7 @@ function renderStatystyki() {
             <h2 style="margin:0;">Statystyki</h2>
             <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button class="btn-success" onclick="refreshStatystykiFromKsiazka()">Odśwież</button>
+                <button class="btn-primary" onclick="openWynikiModal()">📋 Wyniki</button>
                 <button class="btn-danger" onclick="clearAllStatystyki()">Kasuj wszystkie statystyki</button>
             </div>
         </div>
@@ -715,6 +716,355 @@ async function clearAllStatystyki() {
     if (typeof showToast === "function") showToast("🗑️ Statystyki wyczyszczone");
 }
 
+
+
+// =====================================
+// WYNIKI (formularz IOK – pozycje 25–76)
+// =====================================
+
+/** Katalog pozycji: grupy + nr + nazwa (bez 77+) */
+const WYNIKI_CATALOG = [
+    { group: "Interwencje wobec osób", items: [
+        { nr: 25, name: "Ilość tylko legitymowanych" },
+        { nr: 26, name: "Ilość pouczonych" },
+        { nr: 27, name: "Ilość osób ukaranych mandatem karnym" },
+        { nr: 28, name: "Kwota mandatów karnych" }
+    ]},
+    { group: "Ilość osób przekazanych do:", items: [
+        { nr: 29, name: "Policji" },
+        { nr: 30, name: "SG, ŻW, SM" },
+        { nr: 31, name: "Inne" },
+        { nr: 32, name: "Pisma interwencyjne do szkół i zakładów pracy" }
+    ]},
+    { group: "Użycie środków przymusu bezpośredniego", items: [
+        { nr: 33, name: "Siła fizyczna" },
+        { nr: 34, name: "Pałka służbowa" },
+        { nr: 35, name: "RMG" },
+        { nr: 36, name: "Kajdanki" },
+        { nr: 37, name: "Pies służbowy" },
+        { nr: 38, name: "Broń palna" },
+        { nr: 39, name: "Paralizator" }
+    ]},
+    { group: "Wykorzystanie środków przymusu bezpośredniego", items: [
+        { nr: 40, name: "Pałka służbowa" },
+        { nr: 41, name: "RMG" },
+        { nr: 42, name: "Broń palna" },
+        { nr: 43, name: "Paralizator" }
+    ]},
+    { group: "Kontrole punktów skupu złomu", items: [
+        { nr: 45, name: "Ilość kontroli" },
+        { nr: 46, name: "Wykryte nieprawidłowości" },
+        { nr: 47, name: "Wartość odzyskanego mienia" },
+        { nr: 48, name: "Ujętych osób: Skupujących" },
+        { nr: 49, name: "Ujętych osób: Sprzedających" }
+    ]},
+    { group: "Wykorzystanie w służbie", items: [
+        { nr: 50, name: "Psów służbowych" },
+        { nr: 51, name: "Samochodów służbowych" },
+        { nr: 52, name: "Fotopułapki" },
+        { nr: 53, name: "M C M" }
+    ]},
+    { group: "Użyte siły", items: [
+        { nr: 54, name: "Policji" },
+        { nr: 55, name: "ŻW" },
+        { nr: 56, name: "SG" },
+        { nr: 57, name: "SM" },
+        { nr: 58, name: "Innych służb porządkowych (ITD, Izba Celna itp.)" },
+        { nr: 59, name: "Innych pracowników kolejowych" },
+        { nr: 60, name: "Ogółem" }
+    ]},
+    { group: "Ochrona transportów kolejowych", items: [
+        { nr: 61, name: "Ilość konwojowanych przesyłek towarowych" },
+        { nr: 62, name: "Ilość f-szy konw. przesyłki towarowe" },
+        { nr: 63, name: "Ilość sprawdzonych wagonów" },
+        { nr: 65, name: "Usterki: Brak plomb" },
+        { nr: 66, name: "Usterki: Plomby uszkodzone lub nieczytelne" },
+        { nr: 67, name: "Usterki: Inne usterki" }
+    ]},
+    { group: "Patrole w pociągach", items: [
+        { nr: 68, name: "Pociągi międzynarodowe PKP IC" },
+        { nr: 69, name: "Pociągi krajowe PKP IC" },
+        { nr: 70, name: "Pociągi krajowe Przewozy Regionalne" },
+        { nr: 71, name: "Pozostałe" }
+    ]},
+    { group: "Inne formy służby SOK", items: [
+        { nr: 73, name: "Ilość patroli stacji osobowych" },
+        { nr: 74, name: "Ilość patroli stacji towarowych" },
+        { nr: 75, name: "Ilość patroli szlaków" },
+        { nr: 76, name: "Ilość posterunków stałych" }
+    ]}
+];
+
+/** Stan edycji wyników w sesji / po zapisie */
+let _wynikiState = {
+    values: {},      // nr -> number|string
+    showAll: false
+};
+
+function wynikiFlatCatalog() {
+    const out = [];
+    WYNIKI_CATALOG.forEach(g => {
+        g.items.forEach(it => out.push({ ...it, group: g.group }));
+    });
+    return out;
+}
+
+function wynikiNormalizeInterwencjaTyp(t) {
+    t = String(t || "Inne").trim();
+    if (t === "M" || t.toUpperCase() === "MKK") return "MKK";
+    if (t === "P" || /^poucz/i.test(t)) return "Pouczony";
+    if (t === "L" || /^legitym/i.test(t)) return "Legitymowany";
+    if (t === "I" || /^inne$/i.test(t)) return "Inne";
+    return t;
+}
+
+function wynikiNormalizeRodzaj(r) {
+    const s = String(r || "").toLowerCase();
+    if (s.includes("szlak")) return "Szlak";
+    if (s.includes("osob")) return "Stacja osobowa";
+    if (s.includes("towar")) return "Stacja towarowa";
+    return String(r || "");
+}
+
+function wynikiIsPatrolDz(patrol) {
+    const n = String(patrol?.nazwa || "").trim().toUpperCase();
+    return n === "DZ" || n === "D.Z." || n === "D Z";
+}
+
+/** Policjanci / WOT ze wszystkich patroli oprócz DZ */
+function wynikiCountFromPatrole() {
+    const patrole = appState.patrole || [];
+    let policja = 0;
+    let wot = 0;
+    patrole.forEach(p => {
+        if (!p || wynikiIsPatrolDz(p)) return;
+        if (p.policjant1 && String(p.policjant1).trim()) policja++;
+        if (p.policjant2 && String(p.policjant2).trim()) policja++;
+        if (p.wot1 && String(p.wot1).trim()) wot++;
+        if (p.wot2 && String(p.wot2).trim()) wot++;
+    });
+    return { policja, wot };
+}
+
+/**
+ * Generuje wartości auto z danych aplikacji.
+ * values: { [nr]: number }
+ */
+function wynikiComputeAutoValues() {
+    ensureStatystykiState();
+    const vals = {};
+
+    const inter = appState.statystyki.interwencje || [];
+    let cL = 0, cP = 0, cM = 0;
+    inter.forEach(i => {
+        const t = wynikiNormalizeInterwencjaTyp(i.typ);
+        if (t === "Legitymowany") cL++;
+        else if (t === "Pouczony") cP++;
+        else if (t === "MKK") cM++;
+    });
+    if (cL > 0) vals[25] = cL;
+    if (cP > 0) vals[26] = cP;
+    if (cM > 0) vals[27] = cM;
+
+    const spr = appState.statystyki.sprawdzenia || [];
+    let cOs = 0, cTow = 0, cSz = 0;
+    spr.forEach(s => {
+        const r = wynikiNormalizeRodzaj(s.rodzaj);
+        if (r === "Stacja osobowa") cOs++;
+        else if (r === "Stacja towarowa") cTow++;
+        else if (r === "Szlak") cSz++;
+    });
+    if (cOs > 0) vals[73] = cOs;
+    if (cTow > 0) vals[74] = cTow;
+    if (cSz > 0) vals[75] = cSz;
+
+    // 51 zawsze 1
+    vals[51] = 1;
+
+    const { policja, wot } = wynikiCountFromPatrole();
+    if (policja > 0) vals[54] = policja;
+    if (wot > 0) vals[58] = wot;
+
+    // 60 = suma sił 54–59 jeśli coś jest
+    const sily = [54, 55, 56, 57, 58, 59].reduce((a, n) => a + (Number(vals[n]) || 0), 0);
+    if (sily > 0) vals[60] = sily;
+
+    return vals;
+}
+
+function openWynikiModal() {
+    ensureStatystykiState();
+    // wczytaj zapisane wyniki jeśli są
+    const saved = (appState.statystyki && appState.statystyki.wyniki) ? appState.statystyki.wyniki : null;
+    const auto = wynikiComputeAutoValues();
+
+    // start: auto + nadpisania z zapisu (zapis wygrywa przy ręcznych polach)
+    const values = { ...auto };
+    if (saved && typeof saved === "object") {
+        Object.keys(saved).forEach(k => {
+            const nr = parseInt(k, 10);
+            if (!isNaN(nr) && saved[k] !== "" && saved[k] != null) {
+                values[nr] = saved[k];
+            }
+        });
+    }
+
+    // Pytanie o kwotę mandatów gdy 27 > 0 i brak 28
+    const mkk = Number(values[27]) || 0;
+    if (mkk > 0 && (values[28] === undefined || values[28] === "" || values[28] === null)) {
+        const ans = prompt("Kwota mandatów karnych (poz. 28) – wpisz liczbę:", "");
+        if (ans !== null && String(ans).trim() !== "") {
+            const n = parseInt(String(ans).replace(/\D/g, ""), 10);
+            if (!isNaN(n)) values[28] = n;
+        }
+    }
+
+    // ponownie 60
+    const sily = [54, 55, 56, 57, 58, 59].reduce((a, n) => a + (Number(values[n]) || 0), 0);
+    if (sily > 0) values[60] = sily;
+
+    _wynikiState.values = values;
+    _wynikiState.showAll = false;
+    renderWynikiModal();
+}
+
+function closeWynikiModal() {
+    const m = document.getElementById("wynikiModal");
+    if (m) m.remove();
+}
+
+function wynikiToggleShowAll() {
+    _wynikiState.showAll = !_wynikiState.showAll;
+    // zbierz wartości z inputów przed re-render
+    wynikiCollectFromDom();
+    renderWynikiModal();
+}
+
+function wynikiCollectFromDom() {
+    document.querySelectorAll("[data-wyniki-nr]").forEach(inp => {
+        const nr = parseInt(inp.getAttribute("data-wyniki-nr"), 10);
+        if (isNaN(nr)) return;
+        const raw = String(inp.value || "").trim();
+        if (raw === "") {
+            delete _wynikiState.values[nr];
+            return;
+        }
+        const n = parseInt(raw.replace(/\D/g, ""), 10);
+        if (!isNaN(n)) _wynikiState.values[nr] = n;
+        else _wynikiState.values[nr] = raw;
+    });
+    // 60 auto
+    const sily = [54, 55, 56, 57, 58, 59].reduce((a, n) => a + (Number(_wynikiState.values[n]) || 0), 0);
+    if (sily > 0) _wynikiState.values[60] = sily;
+    else delete _wynikiState.values[60];
+}
+
+function wynikiHasValue(nr) {
+    const v = _wynikiState.values[nr];
+    if (v === undefined || v === null || v === "") return false;
+    if (typeof v === "number" && v === 0) return false;
+    if (String(v).trim() === "0") return false;
+    return true;
+}
+
+function renderWynikiModal() {
+    const old = document.getElementById("wynikiModal");
+    if (old) old.remove();
+
+    const showAll = !!_wynikiState.showAll;
+    const values = _wynikiState.values || {};
+
+    let body = "";
+    WYNIKI_CATALOG.forEach(g => {
+        const visibleItems = showAll
+            ? g.items
+            : g.items.filter(it => wynikiHasValue(it.nr));
+        if (!visibleItems.length) return;
+
+        body += `<tr><td colspan="3" style="background:var(--bg-input,#1e293b); font-weight:700; padding:10px 12px; border-bottom:1px solid var(--border,#334155);">${escapeHtml(g.group)}</td></tr>`;
+        visibleItems.forEach(it => {
+            const val = values[it.nr] != null ? values[it.nr] : "";
+            body += `<tr>
+                <td style="width:56px; text-align:center; vertical-align:middle;">
+                    <span style="font-weight:800; font-size:16px; color:#facc15;">${it.nr}</span>
+                </td>
+                <td style="vertical-align:middle; padding:8px 10px;">
+                    <div style="font-weight:600; font-size:13px; margin-bottom:2px;">${escapeHtml(it.name)}</div>
+                </td>
+                <td style="width:100px; vertical-align:middle;">
+                    <input type="text" data-wyniki-nr="${it.nr}" value="${escapeHtml(String(val))}"
+                           inputmode="numeric"
+                           style="width:100%; text-align:center; font-weight:700; padding:8px;"
+                           oninput="this.value=this.value.replace(/\\D/g,'')">
+                </td>
+            </tr>`;
+        });
+    });
+
+    if (!body) {
+        body = `<tr><td colspan="3" style="text-align:center; color:var(--text-dim); padding:24px;">Brak wypełnionych pozycji. Użyj „Pokaż całą tabelę” lub uzupełnij dane w statystykach / patrolach.</td></tr>`;
+    }
+
+    const overlay = document.createElement("div");
+    overlay.id = "wynikiModal";
+    overlay.className = "modal-overlay";
+    overlay.style.cssText = "display:flex;align-items:stretch;justify-content:center;padding:12px;z-index:10050;";
+    overlay.innerHTML = `
+        <div class="modal" style="width:min(720px,96vw); height:min(90vh,860px); max-width:none; max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                <h2 style="margin:0;">📋 Wyniki (poz. 25–76)</h2>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn-primary" onclick="wynikiToggleShowAll()">${showAll ? "Tylko wypełnione" : "Pokaż całą tabelę"}</button>
+                    <button class="btn-success" onclick="saveWynikiFromModal()">💾 Zapisz</button>
+                    <button class="btn-danger" onclick="closeWynikiModal()">Zamknij</button>
+                </div>
+            </div>
+            <p style="margin:0 0 10px 0; font-size:13px; color:var(--text-dim);">
+                Nr na <span style="color:#facc15; font-weight:800;">żółto</span>. Auto: 25–27, 51, 54, 58, 73–75.
+                ${showAll ? "Widok: <strong>cała tabela</strong> (edytowalna)." : "Widok: <strong>tylko pozycje z wartością</strong>."}
+            </p>
+            <div style="flex:1; overflow:auto; min-height:0; border:1px solid var(--border); border-radius:12px;">
+                <table style="width:100%; border-collapse:collapse;">
+                    <thead>
+                        <tr style="background:var(--table-header,#1d4ed8); color:#fff;">
+                            <th style="padding:10px; width:56px;">Nr</th>
+                            <th style="padding:10px; text-align:left;">Nazwa</th>
+                            <th style="padding:10px; width:100px;">Wartość</th>
+                        </tr>
+                    </thead>
+                    <tbody>${body}</tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+async function saveWynikiFromModal() {
+    wynikiCollectFromDom();
+    ensureStatystykiState();
+    if (!appState.statystyki.wyniki) appState.statystyki.wyniki = {};
+    // zapisz tylko niepuste
+    const out = {};
+    Object.keys(_wynikiState.values).forEach(k => {
+        const v = _wynikiState.values[k];
+        if (v === undefined || v === null || v === "") return;
+        if (Number(v) === 0) return;
+        out[k] = Number(v) || v;
+    });
+    appState.statystyki.wyniki = out;
+    if (typeof saveState === "function") await saveState();
+    if (typeof showToast === "function") showToast("✅ Zapisano wyniki");
+    // odśwież widok (tylko wypełnione po zapisie)
+    _wynikiState.values = { ...out };
+    // zachowaj 51=1 jeśli było
+    if (out[51] == null) {
+        _wynikiState.values[51] = 1;
+    }
+    renderWynikiModal();
+}
+
+
 window.initStatystyki = initStatystyki;
 window.logInterwencja = logInterwencja;
 window.logSprawdzenie = logSprawdzenie;
@@ -727,4 +1077,8 @@ window.clearAllStatystyki = clearAllStatystyki;
 window.refreshStatystykiFromKsiazka = refreshStatystykiFromKsiazka;
 window.openInterwencjeSzczegoly = openInterwencjeSzczegoly;
 window.closeInterwencjeSzczegoly = closeInterwencjeSzczegoly;
+window.openWynikiModal = openWynikiModal;
+window.closeWynikiModal = closeWynikiModal;
+window.wynikiToggleShowAll = wynikiToggleShowAll;
+window.saveWynikiFromModal = saveWynikiFromModal;
 
