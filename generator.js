@@ -1107,21 +1107,37 @@ function getSkladFromSelectedPatrols() {
     return uniqueNonEmpty(allSklad);
 }
 
-/** Osoby do „Rozbij patrol”: skład + WOT + policjant */
+/** Osoby do „Rozbij/Rozdziel patrol”: skład + WOT + policjant */
 function getRozbijPeopleFromSelectedPatrols() {
+    return getRozbijPeopleDetailedFromSelectedPatrols().map(p => p.name);
+}
+
+/** Osoby z nazwą patrolu – do formatu „Nazwa patrolu: funkcjonariusz” */
+function getRozbijPeopleDetailedFromSelectedPatrols(patrolIndexes) {
+    const idxs = Array.isArray(patrolIndexes) && patrolIndexes.length
+        ? patrolIndexes
+        : (typeof selectedPatrols !== "undefined" ? selectedPatrols : []);
     const all = [];
-    selectedPatrols.forEach(index => {
+    const seen = new Set();
+    idxs.forEach(index => {
         const patrol = appState.patrole?.[index];
         if (!patrol) return;
-        if (Array.isArray(patrol.sklad)) {
-            patrol.sklad.forEach(p => { if (p) all.push(p); });
-        }
-        if (patrol.wot1) all.push(patrol.wot1);
-        if (patrol.wot2) all.push(patrol.wot2);
-        if (patrol.policjant1) all.push(patrol.policjant1);
-        if (patrol.policjant2) all.push(patrol.policjant2);
+        const pName = String(patrol.nazwa || ("Patrol " + (Number(index) + 1))).trim();
+        const add = (p) => {
+            const name = String(p || "").trim();
+            if (!name) return;
+            const key = pName + "|" + name;
+            if (seen.has(key)) return;
+            seen.add(key);
+            all.push({ name, patrolName: pName, patrolIndex: index });
+        };
+        if (Array.isArray(patrol.sklad)) patrol.sklad.forEach(add);
+        if (patrol.wot1) add(patrol.wot1);
+        if (patrol.wot2) add(patrol.wot2);
+        if (patrol.policjant1) add(patrol.policjant1);
+        if (patrol.policjant2) add(patrol.policjant2);
     });
-    return uniqueNonEmpty(all);
+    return all;
 }
 
 function hasWybraniTag() {
@@ -1728,8 +1744,11 @@ function openRozbijPatrolModal() {
     }
 
     _rozbij.persons = [];
-    _rozbij.zglIndexes = [...(selectedZgloszeniaIndexes || [])];
-    _rozbij.polIndexes = [...(selectedPoleceniaIndexes || [])];
+    if (!_rozbij.fromKsiazka) {
+        _rozbij.zglIndexes = [...(selectedZgloszeniaIndexes || [])];
+        _rozbij.polIndexes = [...(selectedPoleceniaIndexes || [])];
+        _rozbij.personDetails = getRozbijPeopleDetailedFromSelectedPatrols();
+    }
     _rozbij.zglLine = null;
     _rozbij.zglOpis = null;
     _rozbij.polLine = null;
@@ -1812,6 +1831,15 @@ function openRozbijPatrolModal() {
 function closeRozbijPatrolModal() {
     const m = document.getElementById("rozbijPatrolModal");
     if (m) m.remove();
+    if (_rozbij) {
+        _rozbij.fromKsiazka = false;
+        _rozbij.personDetails = null;
+    }
+    // Przywróć patrole generatora po sesji z książki
+    if (window._ksiazkaRozdzielPrevPatrols != null && typeof selectedPatrols !== "undefined") {
+        selectedPatrols = window._ksiazkaRozdzielPrevPatrols;
+        window._ksiazkaRozdzielPrevPatrols = null;
+    }
 }
 
 function renderRozbijPersons() {
@@ -1995,7 +2023,22 @@ function buildReplacementsForPersons(personNames) {
     const names = typeof uniqueNonEmpty === "function"
         ? uniqueNonEmpty(personNames)
         : [...new Set((personNames || []).filter(Boolean))];
-    const line = typeof forceOneLine === "function" ? forceOneLine(names) : names.join(", ");
+    // Z książki: „Nazwa patrolu: funkcjonariusz”
+    let line;
+    if (_rozbij && _rozbij.fromKsiazka && Array.isArray(_rozbij.personDetails) && _rozbij.personDetails.length) {
+        const selected = new Set(names.map(n => String(n).trim()));
+        const labels = _rozbij.personDetails
+            .filter(p => selected.has(String(p.name || "").trim()))
+            .map(p => {
+                const pn = String(p.patrolName || "").trim();
+                const nm = String(p.name || "").trim();
+                return pn ? (pn + ": " + nm) : nm;
+            });
+        const uniq = typeof uniqueNonEmpty === "function" ? uniqueNonEmpty(labels) : [...new Set(labels)];
+        line = typeof forceOneLine === "function" ? forceOneLine(uniq) : uniq.join(", ");
+    } else {
+        line = typeof forceOneLine === "function" ? forceOneLine(names) : names.join(", ");
+    }
     const kz = document.getElementById("kzInput")?.value || appState.kz || "";
     const mkk = document.getElementById("mkkInput")?.value || appState.mkk || "";
     const now = new Date();
@@ -2062,24 +2105,53 @@ function confirmRozbijPatrol() {
     let text = buildRozbijPlainText();
     if (typeof capitalizeSentences === "function") text = capitalizeSentences(text);
 
-    // Wstaw do pola wygenerowanego wpisu (jak po „Generuj wpis”)
-    if (typeof plainTextToHtml === "function" && typeof setGeneratedEntryContent === "function") {
+    const toKsiazka = !!(_rozbij && _rozbij.fromKsiazka);
+
+    if (toKsiazka) {
+        // Wstaw do podglądu w oknie „Dodaj wpis” (książka)
+        const el = document.getElementById("ksAddPreview");
+        if (el) {
+            const items = text.split(/\n\n+/).filter(Boolean);
+            const withBullets = items.map(p => "• " + p.replace(/^•\s*/, "")).join("\n");
+            if (typeof plainTextToHtml === "function") {
+                el.innerHTML = plainTextToHtml(withBullets);
+            } else {
+                el.innerText = text;
+            }
+        }
+        // zsynchronizuj wybór zgl/pol w stanie dodawania
+        if (typeof ksiazkaAdd !== "undefined") {
+            if (_rozbij.zglIndexes && _rozbij.zglIndexes.length) {
+                ksiazkaAdd.zglIndexes = [...new Set([...(ksiazkaAdd.zglIndexes || []), ..._rozbij.zglIndexes])];
+            }
+            if (_rozbij.polIndexes && _rozbij.polIndexes.length) {
+                ksiazkaAdd.polIndexes = [...new Set([...(ksiazkaAdd.polIndexes || []), ..._rozbij.polIndexes])];
+            }
+            if (typeof ksiazkaAddRenderZgl === "function") ksiazkaAddRenderZgl();
+            if (typeof ksiazkaAddRenderPol === "function") ksiazkaAddRenderPol();
+        }
+    } else if (typeof plainTextToHtml === "function" && typeof setGeneratedEntryContent === "function") {
         const items = text.split(/\n\n+/).filter(Boolean);
         const withBullets = items.map(p => "• " + p.replace(/^•\s*/, "")).join("\n");
         setGeneratedEntryContent(plainTextToHtml(withBullets));
+        entryManuallyEdited = true;
     } else {
         const el = document.getElementById("generatedEntry");
         if (el) {
             if (el.getAttribute("contenteditable") === "true") el.innerText = text;
             else el.value = text;
         }
+        entryManuallyEdited = true;
     }
-    // Rozbij patrol = świadomy wpis – nie nadpisuj przy zmianie kafelków
-    entryManuallyEdited = true;
 
     closeRozbijPatrolModal();
     if (typeof showToast === "function") {
-        showToast("✅ Wpis na osoby: " + _rozbij.persons.join(", "));
+        const labels = (_rozbij.fromKsiazka && _rozbij.personDetails)
+            ? _rozbij.personDetails
+                .filter(p => _rozbij.persons.includes(p.name))
+                .map(p => (p.patrolName ? p.patrolName + ": " + p.name : p.name))
+            : _rozbij.persons;
+        showToast("✅ Wpis na osoby: " + labels.join(", "));
     }
 }
 
@@ -2233,6 +2305,7 @@ window.updateSequentialPatrolPill = updateSequentialPatrolPill;
 window.updatePatrolAssignPreview = updatePatrolAssignPreview;
 
 window.openRozbijPatrolModal = openRozbijPatrolModal;
+window.getRozbijPeopleDetailedFromSelectedPatrols = getRozbijPeopleDetailedFromSelectedPatrols;
 window.closeRozbijPatrolModal = closeRozbijPatrolModal;
 window.toggleRozbijPerson = toggleRozbijPerson;
 window.rozbijSelectAllPersons = rozbijSelectAllPersons;
