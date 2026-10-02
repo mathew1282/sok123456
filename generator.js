@@ -667,6 +667,12 @@ function renderPoleceniaLevel3() {
     rows = rows.filter(r => (r.OpisKrotki || "(bez opisu)") === selectedPoleceniaOpisKrotki);
     if (search) rows = rows.filter(r => rowMatchesSearch(r, search));
 
+    if (typeof polSortedRowsForGroup === "function" && selectedPoleceniaLine) {
+        const ordered = polSortedRowsForGroup(selectedPoleceniaLine, selectedPoleceniaOpisKrotki, appState.polecenia?.rows || []);
+        const orderMap = new Map(ordered.map((x, i) => [x.i, i]));
+        rows.sort((a, b) => (orderMap.get(a._index) ?? 9999) - (orderMap.get(b._index) ?? 9999));
+    }
+
     let html = "";
     rows.forEach(row => {
         const isSelected = selectedPoleceniaIndexes.includes(row._index);
