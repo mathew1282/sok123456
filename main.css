@@ -567,9 +567,12 @@ tr:hover{ background:var(--tr-hover); }
     padding: 4px 10px;
     border: 1px solid var(--row-border);
     border-radius: 6px;
-    align-items: center;
+    align-items: stretch;
     background: var(--bg);
     transition: background 0.2s;
+}
+.ksiazka-row.ksiazka-header {
+    align-items: center;
 }
 .ksiazka-header {
     background: var(--bg-light);
@@ -611,6 +614,9 @@ tr:hover{ background:var(--tr-hover); }
     flex-wrap: wrap;
     gap: 4px;
     justify-content: flex-end;
+    align-items: flex-end;
+    align-content: flex-end;
+    align-self: end;
     min-width: 180px;
 }
 .ksiazka-col-actions button {
@@ -645,7 +651,7 @@ tr:hover{ background:var(--tr-hover); }
     }
     .ksiazka-col-actions {
         min-width: 0;
-        justify-content: flex-start;
+        justify-content: flex-end;
     }
     .ksiazka-sticky-bar {
         flex-direction: column;
