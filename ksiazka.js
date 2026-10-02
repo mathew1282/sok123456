@@ -2498,35 +2498,25 @@ function getZgloszeniaSprawdzenie() {
 
 function entryMatchesZgloszenieSprawdzenie(entry, zgl) {
     if (!entry || !zgl) return false;
-    // Preferencyjne: procedureId + rola
-    if (entry.procedureId && zgl.procedureId &&
-        String(entry.procedureId) === String(zgl.procedureId)) {
-        if (!entry.procedureRole || !zgl.procedureRole) return true;
-        return entry.procedureRole === zgl.procedureRole;
-    }
-    const t = String(entry.tekst || "").toLowerCase();
-    if (!t) return false;
-    const keys = [zgl.Nazwa, zgl.OpisKrotki, zgl.OpisPom, zgl.Opis, zgl.NazwaSzlaku]
-        .map(x => String(x || "").replace(/<[^>]+>/g, " ").trim())
-        .filter(x => x.length >= 3);
-    return keys.some(k => t.includes(k.toLowerCase()));
+    // TYLKO po procedureId – bez dopasowania po tekście
+    // (polecenia / zwykłe wpisy nie mogą być mylone ze startem szlaku)
+    if (!entry.procedureId || !zgl.procedureId) return false;
+    if (String(entry.procedureId) !== String(zgl.procedureId)) return false;
+    if (!entry.procedureRole || !zgl.procedureRole) return true;
+    return entry.procedureRole === zgl.procedureRole;
 }
 
 function findMatchingZgloszenieForEntry(entry) {
     const zgls = getZgloszeniaSprawdzenie();
-    if (!entry) return null;
-    if (entry.procedureId) {
-        const exact = zgls.find(z =>
-            z.procedureId && String(z.procedureId) === String(entry.procedureId) &&
-            (!entry.procedureRole || z.procedureRole === entry.procedureRole)
-        );
-        if (exact) return exact;
-        const any = zgls.find(z =>
-            z.procedureId && String(z.procedureId) === String(entry.procedureId)
-        );
-        if (any) return any;
-    }
-    return zgls.find(z => entryMatchesZgloszenieSprawdzenie(entry, z)) || null;
+    if (!entry || !entry.procedureId) return null;
+    const exact = zgls.find(z =>
+        z.procedureId && String(z.procedureId) === String(entry.procedureId) &&
+        (!entry.procedureRole || z.procedureRole === entry.procedureRole)
+    );
+    if (exact) return exact;
+    return zgls.find(z =>
+        z.procedureId && String(z.procedureId) === String(entry.procedureId)
+    ) || null;
 }
 
 /** Meta procedury ze zgłoszeń (rodzaj, nazwa, linia, km) – preferuj start */
@@ -3232,26 +3222,14 @@ async function confirmKsiazkaSprawdzenie() {
 /** Badge procedury (Szlak / Osobowa / Towarowa) – start = szary podkreślony, koniec = pogrubiony */
 function ksiazkaProceduraBadgeHtml(entry) {
     if (!entry) return "";
+    // Badge tylko gdy wpis ma jawnie ustawioną procedurę (nie z polecenia / tekstu)
     let role = entry.procedureRole || "";
-    let meta = { Rodzaj: "", Nazwa: "" };
+    if (role !== "start" && role !== "end") return "";
+    if (!entry.procedureId && role !== "start" && role !== "end") return "";
 
-    if (entry.procedureId || role === "start" || role === "end") {
+    let meta = { Rodzaj: "", Nazwa: "" };
+    if (entry.procedureId) {
         meta = getProcedureMetaFromZgl(entry.procedureId, entry);
-        if (!role) {
-            const z = findMatchingZgloszenieForEntry(entry);
-            role = z?.procedureRole || "";
-        }
-    } else {
-        // spróbuj dopasować zgłoszenie sprawdzenia (procedura)
-        const z = (typeof findMatchingZgloszenieForEntry === "function")
-            ? findMatchingZgloszenieForEntry(entry)
-            : null;
-        if (!z || !z.procedureRole) return "";
-        role = z.procedureRole;
-        meta = {
-            Rodzaj: z.Rodzaj || "",
-            Nazwa: z.Nazwa || z.OpisKrotki || ""
-        };
     }
 
     if (role !== "start" && role !== "end") return "";
