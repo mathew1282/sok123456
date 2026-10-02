@@ -3761,12 +3761,13 @@ function openKsiazkaAddModal() {
                 <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                     <label style="font-size:13px; color:#94a3b8;">Godzina</label>
                     <input type="time" id="ksAddGodzina" value="${escapeHtml(nowHHMM())}" style="width:130px;">
+                    <button class="btn-primary" type="button" onclick="openKsiazkaRozdzielPatrol()">👥 Rozdziel patrol</button>
                     <button class="btn-success" onclick="ksiazkaAddZapisz()">💾 Zapisz</button>
                     <button class="btn-danger" onclick="closeKsiazkaAddModal()">Zamknij</button>
                 </div>
             </div>
             <p style="margin:0 0 10px 0; font-size:13px; color:#94a3b8;">
-                Wybierz patrole, zgłoszenia i polecenia – podgląd odświeża się na żywo. Możesz edytować tekst. <strong>Zapisz</strong> dodaje wpis i zostawia okno otwarte (kolejne wpisy). <strong>Zamknij</strong> zamyka okno.
+                Wybierz patrole, zgłoszenia i polecenia – podgląd odświeża się na żywo. Kafelka <strong>start</strong> procedury zapisze wpis jako początek procedury (koniec dodaj osobno). <strong>Rozdziel patrol</strong> wstawia osoby w formacie „patrol: funkcjonariusz”. <strong>Zapisz</strong> dodaje wpis i zostawia okno otwarte.
             </p>
             <div style="flex:1; overflow:auto; display:flex; flex-direction:column; gap:12px; min-height:0;">
                 <div>
@@ -3902,7 +3903,8 @@ function ksiazkaAddRenderZgl() {
     const level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === ksiazkaAdd.zglOpis);
     lvl3El.innerHTML = level3.map(r => {
         const sel = ksiazkaAdd.zglIndexes.includes(r._index) ? "selected" : "";
-        const label = (r.OpisPom || r.Opis || "(brak)").substring(0, 120);
+        const role = r.procedureRole === "start" ? "▶ start · " : (r.procedureRole === "end" ? "■ koniec · " : "");
+        const label = role + (r.OpisPom || r.Opis || "(brak)").substring(0, 120);
         return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="ksiazkaAddToggleZgl(${r._index})">${escapeHtml(label)}</div>`;
     }).join("") || "";
 }
@@ -4082,6 +4084,88 @@ function ksiazkaAddGetPreviewContent() {
     return stripBulletsPlain(el.innerText || "");
 }
 
+/** Wykryj procedurę ze zgłoszeń zaznaczonych w oknie Dodaj wpis */
+function detectKsiazkaAddProcedure() {
+    const rows = appState.zgloszenia?.rows || [];
+    const selected = (ksiazkaAdd.zglIndexes || [])
+        .map(i => ({ i, row: rows[i] }))
+        .filter(x => x.row && x.row.procedureId && (x.row.procedureRole === "start" || x.row.procedureRole === "end"));
+
+    if (!selected.length) return null;
+
+    const starts = selected.filter(x => x.row.procedureRole === "start");
+    const ends = selected.filter(x => x.row.procedureRole === "end");
+
+    // Oba końce tej samej procedury
+    for (const s of starts) {
+        const end = ends.find(e => String(e.row.procedureId) === String(s.row.procedureId));
+        if (end) {
+            return {
+                both: true,
+                procedureId: s.row.procedureId,
+                startRow: s.row,
+                endRow: end.row
+            };
+        }
+    }
+    // Tylko start – procedura „otwarta”, czeka na koniec
+    if (starts.length) {
+        return {
+            both: false,
+            procedureId: starts[0].row.procedureId,
+            procedureRole: "start",
+            row: starts[0].row
+        };
+    }
+    // Tylko koniec
+    if (ends.length) {
+        return {
+            both: false,
+            procedureId: ends[0].row.procedureId,
+            procedureRole: "end",
+            row: ends[0].row
+        };
+    }
+    return null;
+}
+
+function ksiazkaAddResolveData(godzStart) {
+    const parts = typeof parseTimeParts === "function" ? parseTimeParts(godzStart) : null;
+    let dataWpisu = todayPL();
+    if (parts) {
+        const now = new Date();
+        const currentHour = now.getHours();
+        if (currentHour >= 18 && parts.h < 12) {
+            dataWpisu = typeof tomorrowPL === "function" ? tomorrowPL() : dataWpisu;
+        }
+    }
+    return dataWpisu;
+}
+
+/** Rozdziel patrol – jak w generatorze, z formatem „patrol: funkcjonariusz” */
+function openKsiazkaRozdzielPatrol() {
+    if (!ksiazkaAdd.patrole || !ksiazkaAdd.patrole.length) {
+        if (typeof showToast === "function") showToast("Najpierw zaznacz patrol");
+        else alert("Najpierw zaznacz patrol");
+        return;
+    }
+    if (typeof openRozbijPatrolModal !== "function" || typeof _rozbij === "undefined") {
+        alert("Funkcja Rozdziel patrol niedostępna");
+        return;
+    }
+    // Zachowaj patrole generatora – przywrócimy przy zamknięciu modala
+    window._ksiazkaRozdzielPrevPatrols = (typeof selectedPatrols !== "undefined") ? [...selectedPatrols] : [];
+    if (typeof selectedPatrols !== "undefined") selectedPatrols = [...ksiazkaAdd.patrole];
+
+    _rozbij.fromKsiazka = true;
+    _rozbij.personDetails = (typeof getRozbijPeopleDetailedFromSelectedPatrols === "function")
+        ? getRozbijPeopleDetailedFromSelectedPatrols(ksiazkaAdd.patrole)
+        : [];
+    _rozbij.zglIndexes = [...(ksiazkaAdd.zglIndexes || [])];
+    _rozbij.polIndexes = [...(ksiazkaAdd.polIndexes || [])];
+    openRozbijPatrolModal();
+}
+
 async function ksiazkaAddZapisz() {
     ensureKsiazkaState();
 
@@ -4093,25 +4177,66 @@ async function ksiazkaAddZapisz() {
     }
 
     const godzStart = document.getElementById("ksAddGodzina")?.value || nowHHMM();
-    const parts = parseTimeParts(godzStart);
-    let dataWpisu = todayPL();
-    if (parts) {
-        const now = new Date();
-        const currentHour = now.getHours();
-        if (currentHour >= 18 && parts.h < 12) {
-            dataWpisu = tomorrowPL();
-        }
+    const dataWpisu = ksiazkaAddResolveData(godzStart);
+    const proc = detectKsiazkaAddProcedure();
+    const baseId = Date.now() + Math.random().toString(36).slice(2);
+    const patrole = [...ksiazkaAdd.patrole];
+
+    if (proc && proc.both) {
+        // Start + koniec tej samej procedury w jednym zapisie
+        appState.ksiazkaWydarzen.push({
+            id: baseId + "-s",
+            data: dataWpisu,
+            godzinaStart: godzStart,
+            tekst: capitalizeSentencesHtmlKs(tekst),
+            patrole,
+            zrobione: false,
+            procedureId: proc.procedureId,
+            procedureRole: "start",
+            createdAt: new Date().toISOString()
+        });
+        appState.ksiazkaWydarzen.push({
+            id: baseId + "-e",
+            data: dataWpisu,
+            godzinaStart: godzStart,
+            tekst: capitalizeSentencesHtmlKs(tekst),
+            patrole,
+            zrobione: false,
+            procedureId: proc.procedureId,
+            procedureRole: "end",
+            createdAt: new Date().toISOString()
+        });
+        await saveState();
+        renderKsiazka();
+        ksiazkaAdd.zglIndexes = [];
+        ksiazkaAdd.polIndexes = [];
+        ksiazkaAdd.zglOpis = null;
+        ksiazkaAdd.polOpis = null;
+        const prev = document.getElementById("ksAddPreview");
+        if (prev) prev.innerHTML = "";
+        ksiazkaAddRenderZgl();
+        ksiazkaAddRenderPol();
+        if (typeof showToast === "function") showToast("✅ Zapisano procedurę (start + koniec)");
+        else alert("Zapisano procedurę (start + koniec)");
+        return;
     }
 
-    appState.ksiazkaWydarzen.push({
-        id: Date.now() + Math.random().toString(36).slice(2),
+    const entry = {
+        id: baseId,
         data: dataWpisu,
         godzinaStart: godzStart,
         tekst: capitalizeSentencesHtmlKs(tekst),
-        patrole: [...ksiazkaAdd.patrole],
+        patrole,
         zrobione: false,
         createdAt: new Date().toISOString()
-    });
+    };
+
+    if (proc && proc.procedureId && proc.procedureRole) {
+        entry.procedureId = proc.procedureId;
+        entry.procedureRole = proc.procedureRole;
+    }
+
+    appState.ksiazkaWydarzen.push(entry);
 
     await saveState();
     renderKsiazka();
@@ -4126,8 +4251,14 @@ async function ksiazkaAddZapisz() {
     ksiazkaAddRenderZgl();
     ksiazkaAddRenderPol();
 
-    if (typeof showToast === "function") showToast("✅ Zapisano – możesz dodać kolejny");
-    else alert("Zapisano – możesz dodać kolejny");
+    let msg = "✅ Zapisano – możesz dodać kolejny";
+    if (proc && proc.procedureRole === "start") {
+        msg = "✅ Start procedury zapisany – dodaj koniec osobnym wpisem (kafelka ■ koniec)";
+    } else if (proc && proc.procedureRole === "end") {
+        msg = "✅ Koniec procedury zapisany – możesz odświeżyć statystyki";
+    }
+    if (typeof showToast === "function") showToast(msg);
+    else alert(msg);
 }
 
 // =====================================
@@ -4238,6 +4369,8 @@ window.confirmKsiazkaUwagi = confirmKsiazkaUwagi;
 
 window.openKsiazkaAddModal = openKsiazkaAddModal;
 window.closeKsiazkaAddModal = closeKsiazkaAddModal;
+window.openKsiazkaRozdzielPatrol = openKsiazkaRozdzielPatrol;
+window.detectKsiazkaAddProcedure = detectKsiazkaAddProcedure;
 window.ksiazkaAddTogglePatrol = ksiazkaAddTogglePatrol;
 window.ksiazkaAddSelectZglLine = ksiazkaAddSelectZglLine;
 window.ksiazkaAddSelectZglOpis = ksiazkaAddSelectZglOpis;
