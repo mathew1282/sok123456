@@ -840,7 +840,6 @@ function zglSortedRowsForGroup(line, opisKrotki, rows) {
 }
 
 function openZglSortowanieModal() {
-    ensureZgloszeniaState?.();
     if (!appState.zgloszenia) appState.zgloszenia = { columns: [], rows: [] };
     if (!Array.isArray(appState.zgloszenia.rows)) appState.zgloszenia.rows = [];
 
