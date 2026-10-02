@@ -16,14 +16,19 @@ function initPolecenia() {
             if (row.Opis === undefined) row.Opis = "";
             if (row.Linia === undefined) row.Linia = "";
             if (row.OpisPom === undefined) row.OpisPom = "";
-            if (row.Rodzaj === undefined) row.Rodzaj = "Inne";
-            if (row.Nazwa === undefined) row.Nazwa = row.NazwaSzlaku || "";
-            if (row.KmOd === undefined) row.KmOd = row.Km || "";
-            if (row.KmDo === undefined) row.KmDo = "";
+            // Usuń pola szlaku / km – polecenia to tylko zwykłe wpisy
+            delete row.Rodzaj;
+            delete row.Nazwa;
+            delete row.NazwaSzlaku;
+            delete row.KmOd;
+            delete row.KmDo;
+            delete row.Km;
+            delete row.procedureId;
+            delete row.procedureRole;
         });
     }
     if (appState.polecenia) {
-        appState.polecenia.columns = ["Linia", "OpisKrotki", "OpisPom", "Opis", "Rodzaj", "Nazwa", "KmOd", "KmDo"];
+        appState.polecenia.columns = ["Linia", "OpisKrotki", "OpisPom", "Opis"];
     }
     renderPolecenia();
 }
@@ -389,7 +394,7 @@ function formatPolecenieOpis(cmd) {
 // EXCEL – eksport / import
 // =====================================
 
-const POLECENIA_EXCEL_COLUMNS = ["Linia", "OpisKrotki", "OpisPom", "Opis", "Rodzaj", "Nazwa", "KmOd", "KmDo"];
+const POLECENIA_EXCEL_COLUMNS = ["Linia", "OpisKrotki", "OpisPom", "Opis"];
 
 function ensureXlsxLib() {
     if (typeof XLSX !== "undefined") return true;
@@ -453,11 +458,7 @@ async function importPoleceniaExcel(event) {
                 Linia: get("Linia", "Nr linii", "linia"),
                 OpisKrotki: get("OpisKrotki", "Opis krótki", "Opis krotki"),
                 OpisPom: get("OpisPom", "Opis pom", "Opis pomocniczy"),
-                Opis: get("Opis", "Opis pełny"),
-                Rodzaj: get("Rodzaj") || "Inne",
-                Nazwa: get("Nazwa", "NazwaSzlaku"),
-                KmOd: get("KmOd", "Km od", "Km"),
-                KmDo: get("KmDo", "Km do")
+                Opis: get("Opis", "Opis pełny")
             };
         }).filter(r => r.Linia || r.OpisKrotki || r.Opis);
 
