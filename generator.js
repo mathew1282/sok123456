@@ -923,8 +923,6 @@ function ensureUwagiSzablonyModal() {
             <textarea id="szablonPouczony" rows="3" style="width:100%; margin-bottom:12px;"></textarea>
             <label>Legitymowany</label>
             <textarea id="szablonLegitymowany" rows="3" style="width:100%; margin-bottom:12px;"></textarea>
-            <label>Inne</label>
-            <textarea id="szablonInne" rows="3" style="width:100%; margin-bottom:12px;"></textarea>
             <div class="modal-actions">
                 <button class="btn-success" onclick="saveUwagiSzablony()">Zapisz szablony</button>
                 <button class="btn-danger" onclick="closeUwagiSzablonyModal()">Anuluj</button>
@@ -940,10 +938,9 @@ function openUwagiSzablonyModal() {
     document.getElementById("szablonMKK").value = appState.uwagiSzablony["MKK"] || "";
     document.getElementById("szablonPouczony").value = appState.uwagiSzablony["Pouczony"] || "";
     document.getElementById("szablonLegitymowany").value = appState.uwagiSzablony["Legitymowany"] || "";
-    document.getElementById("szablonInne").value = appState.uwagiSzablony["Inne"] || "";
     document.getElementById("uwagiSzablonyModal").style.display = "flex";
     // auto-zapis jak KZ – przy każdej zmianie
-    ["szablonMKK", "szablonPouczony", "szablonLegitymowany", "szablonInne"].forEach(id => {
+    ["szablonMKK", "szablonPouczony", "szablonLegitymowany"].forEach(id => {
         const el = document.getElementById(id);
         if (!el || el._autoSaveBound) return;
         el._autoSaveBound = true;
@@ -952,8 +949,7 @@ function openUwagiSzablonyModal() {
             const map = {
                 szablonMKK: "MKK",
                 szablonPouczony: "Pouczony",
-                szablonLegitymowany: "Legitymowany",
-                szablonInne: "Inne"
+                szablonLegitymowany: "Legitymowany"
             };
             appState.uwagiSzablony[map[id]] = el.value;
             if (typeof saveState === "function") saveState();
@@ -971,7 +967,7 @@ async function saveUwagiSzablony() {
     appState.uwagiSzablony["MKK"] = document.getElementById("szablonMKK").value;
     appState.uwagiSzablony["Pouczony"] = document.getElementById("szablonPouczony").value;
     appState.uwagiSzablony["Legitymowany"] = document.getElementById("szablonLegitymowany").value;
-    appState.uwagiSzablony["Inne"] = document.getElementById("szablonInne").value;
+    // Inne – bez szablonu w UI
     await saveState();
     closeUwagiSzablonyModal();
     showToast("✅ Szablony zapisane");
