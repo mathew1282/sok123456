@@ -942,6 +942,23 @@ function openUwagiSzablonyModal() {
     document.getElementById("szablonLegitymowany").value = appState.uwagiSzablony["Legitymowany"] || "";
     document.getElementById("szablonInne").value = appState.uwagiSzablony["Inne"] || "";
     document.getElementById("uwagiSzablonyModal").style.display = "flex";
+    // auto-zapis jak KZ – przy każdej zmianie
+    ["szablonMKK", "szablonPouczony", "szablonLegitymowany", "szablonInne"].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el || el._autoSaveBound) return;
+        el._autoSaveBound = true;
+        el.addEventListener("input", () => {
+            ensureUwagiState();
+            const map = {
+                szablonMKK: "MKK",
+                szablonPouczony: "Pouczony",
+                szablonLegitymowany: "Legitymowany",
+                szablonInne: "Inne"
+            };
+            appState.uwagiSzablony[map[id]] = el.value;
+            if (typeof saveState === "function") saveState();
+        });
+    });
 }
 
 function closeUwagiSzablonyModal() {
