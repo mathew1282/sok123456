@@ -4,10 +4,13 @@
 
 function ensureStatystykiState() {
     if (!appState.statystyki) {
-        appState.statystyki = { interwencje: [], sprawdzenia: [] };
+        appState.statystyki = { interwencje: [], sprawdzenia: [], wyniki: {} };
     }
     if (!Array.isArray(appState.statystyki.interwencje)) appState.statystyki.interwencje = [];
     if (!Array.isArray(appState.statystyki.sprawdzenia)) appState.statystyki.sprawdzenia = [];
+    if (!appState.statystyki.wyniki || typeof appState.statystyki.wyniki !== "object") {
+        appState.statystyki.wyniki = {};
+    }
 }
 
 function todayPL() {
@@ -36,6 +39,7 @@ async function logInterwencja(typ, extra) {
         if (extra.data) row.data = extra.data;
     }
     appState.statystyki.interwencje.push(row);
+    if (typeof wynikiSyncAutoToState === "function") wynikiSyncAutoToState();
     await saveState();
 }
 
@@ -61,6 +65,7 @@ async function logSprawdzenie(payload) {
         row.osoby = payload.osoby.map(x => String(x || "").trim()).filter(Boolean);
     }
     appState.statystyki.sprawdzenia.push(row);
+    if (typeof wynikiSyncAutoToState === "function") wynikiSyncAutoToState();
     await saveState();
 }
 
@@ -227,6 +232,7 @@ async function refreshStatystykiFromKsiazka() {
         }
     }
 
+    if (typeof wynikiSyncAutoToState === "function") wynikiSyncAutoToState();
     await saveState();
     renderStatystyki();
 
@@ -702,18 +708,21 @@ async function removeSprawdzenie(index) {
     ensureStatystykiState();
     if (!confirm("Usunąć ten wpis ze statystyk?")) return;
     appState.statystyki.sprawdzenia.splice(index, 1);
+    if (typeof wynikiSyncAutoToState === "function") wynikiSyncAutoToState();
     await saveState();
     renderStatystyki();
 }
 
 async function clearAllStatystyki() {
-    if (!confirm("Usunąć WSZYSTKIE statystyki (interwencje i sprawdzenia)?")) return;
+    if (!confirm("Usunąć WSZYSTKIE statystyki (interwencje, sprawdzenia i wyniki)?")) return;
     ensureStatystykiState();
     appState.statystyki.interwencje = [];
     appState.statystyki.sprawdzenia = [];
+    appState.statystyki.wyniki = {};
+    if (typeof _wynikiState !== "undefined") _wynikiState.values = {};
     await saveState();
     renderStatystyki();
-    if (typeof showToast === "function") showToast("🗑️ Statystyki wyczyszczone");
+    if (typeof showToast === "function") showToast("🗑️ Statystyki i wyniki wyczyszczone");
 }
 
 
@@ -890,6 +899,47 @@ function wynikiComputeAutoValues() {
     if (sily > 0) vals[60] = sily;
 
     return vals;
+}
+
+/** Klucze liczone automatycznie – nadpisywane przy Odśwież / logowaniu */
+const WYNIKI_AUTO_NRS = [25, 26, 27, 51, 54, 58, 60, 73, 74, 75];
+
+/**
+ * Przelicza auto-wyniki i zapisuje w appState.statystyki.wyniki.
+ * Ręczne pozycje (np. 28 kwota, 29–50…) zostają.
+ */
+function wynikiSyncAutoToState() {
+    ensureStatystykiState();
+    if (!appState.statystyki.wyniki || typeof appState.statystyki.wyniki !== "object") {
+        appState.statystyki.wyniki = {};
+    }
+    const prev = appState.statystyki.wyniki;
+    const auto = wynikiComputeAutoValues();
+    const next = {};
+    // zachowaj ręczne (nie-auto)
+    Object.keys(prev).forEach(k => {
+        const n = parseInt(k, 10);
+        if (isNaN(n)) return;
+        if (WYNIKI_AUTO_NRS.indexOf(n) >= 0) return;
+        const v = prev[k];
+        if (v === undefined || v === null || v === "" || Number(v) === 0) return;
+        next[n] = v;
+    });
+    // auto
+    Object.keys(auto).forEach(k => {
+        const n = parseInt(k, 10);
+        if (!isNaN(n) && auto[k] != null && Number(auto[k]) !== 0) next[n] = auto[k];
+    });
+    // bez MKK → bez kwoty 28
+    if (!next[27]) delete next[28];
+    appState.statystyki.wyniki = next;
+    return next;
+}
+
+function wynikiClearState() {
+    ensureStatystykiState();
+    appState.statystyki.wyniki = {};
+    if (typeof _wynikiState !== "undefined") _wynikiState.values = {};
 }
 
 function openWynikiModal() {
@@ -1081,4 +1131,6 @@ window.openWynikiModal = openWynikiModal;
 window.closeWynikiModal = closeWynikiModal;
 window.wynikiToggleShowAll = wynikiToggleShowAll;
 window.saveWynikiFromModal = saveWynikiFromModal;
+window.wynikiSyncAutoToState = wynikiSyncAutoToState;
+window.wynikiClearState = wynikiClearState;
 
