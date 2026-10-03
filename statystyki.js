@@ -37,6 +37,7 @@ async function logInterwencja(typ, extra) {
         if (extra.entryId) row.entryId = extra.entryId;
         if (extra.godzina) row.godzina = extra.godzina;
         if (extra.data) row.data = extra.data;
+        if (extra.kwota != null && Number(extra.kwota) > 0) row.kwota = Number(extra.kwota);
     }
     appState.statystyki.interwencje.push(row);
     if (typeof wynikiSyncAutoToState === "function") wynikiSyncAutoToState();
@@ -930,8 +931,15 @@ function wynikiSyncAutoToState() {
         const n = parseInt(k, 10);
         if (!isNaN(n) && auto[k] != null && Number(auto[k]) !== 0) next[n] = auto[k];
     });
-    // bez MKK → bez kwoty 28
-    if (!next[27]) delete next[28];
+    // 28: suma kwot z interwencji MKK (jeśli są) – albo zachowana ręczna
+    let sumaKwot = 0;
+    (appState.statystyki.interwencje || []).forEach(i => {
+        const t = wynikiNormalizeInterwencjaTyp(i.typ);
+        if (t === "MKK" && Number(i.kwota) > 0) sumaKwot += Number(i.kwota);
+    });
+    if (sumaKwot > 0) next[28] = sumaKwot;
+    else if (!next[27]) delete next[28];
+    // jeśli było entry.mkkKwota bez row.kwota – zostaw prev[28]
     appState.statystyki.wyniki = next;
     return next;
 }
@@ -959,15 +967,7 @@ function openWynikiModal() {
         });
     }
 
-    // Pytanie o kwotę mandatów gdy 27 > 0 i brak 28
-    const mkk = Number(values[27]) || 0;
-    if (mkk > 0 && (values[28] === undefined || values[28] === "" || values[28] === null)) {
-        const ans = prompt("Kwota mandatów karnych (poz. 28) – wpisz liczbę:", "");
-        if (ans !== null && String(ans).trim() !== "") {
-            const n = parseInt(String(ans).replace(/\D/g, ""), 10);
-            if (!isNaN(n)) values[28] = n;
-        }
-    }
+    // Kwota (28) pochodzi z wstawiania szablonu MKK (@kwota) – nie pytamy tu
 
     // ponownie 60
     const sily = [54, 55, 56, 57, 58, 59].reduce((a, n) => a + (Number(values[n]) || 0), 0);
