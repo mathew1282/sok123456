@@ -1066,6 +1066,10 @@ let _planEditTemplateId = null; // null = nowy
 let _planNumPatroli = 2; // ile abstrakcyjnych patroli (Patrol 1, Patrol 2, …)
 let _planAddPatrolIndexes = []; // wybór przy „Dodaj punkt”
 let _planCycPatrolIndexes = []; // wybór przy cyklicznych
+let _planSzablonyCollapsed = false;
+let _planCycCollapsed = false;
+let _planMultiPatrolDesc = false; // „Opis dotyczący więcej niż jednego patrolu?”
+let _planSelectedPointIdx = null; // żółta ramka – aktywny punkt
 
 function planNormalizeIndexes(val) {
     if (Array.isArray(val)) {
@@ -1239,34 +1243,48 @@ function renderPlanSluzbyModal() {
         let acc = 0;
         draftHtml = _planDraft.map((r, idx) => {
             acc += (idx === 0 ? 0 : (Number(r.offsetMin) || 0));
-            const godzPreview = minutesToHHMM(acc);
+            const selected = _planMultiPatrolDesc && _planSelectedPointIdx === idx;
+            const boxExtra = selected
+                ? "padding:10px; margin-bottom:8px; border:3px solid #eab308; box-shadow:0 0 0 1px #eab308;"
+                : "padding:10px; margin-bottom:8px;";
+            const idBtns = (_planMultiPatrolDesc && selected)
+                ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0;">
+                    <span style="font-size:12px; color:var(--text-dim); align-self:center;">Identyfikacja w tekście:</span>
+                    ${Array.from({length: nPat}, (_, i) =>
+                        `<button type="button" class="btn-primary" style="padding:4px 10px; font-size:12px;"
+                            onclick="planInsertPatrolMarker(${idx}, ${i})">Patrol ${i + 1}</button>`
+                    ).join("")}
+                   </div>`
+                : "";
             return `
-            <div style="${planThemeBoxStyle("padding:10px; margin-bottom:8px;")}">
-                <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-                    <div style="font-weight:600; color:var(--primary-light);">
-                        #${idx + 1}
-                        ${idx === 0 ? "(start)" : ("+" + (Number(r.offsetMin) || 0) + " min")}
-                        <span style="color:var(--text-dim); font-weight:500; font-size:12px;"> · od startu ~${godzPreview}</span>
+            <div style="${planThemeBoxStyle(boxExtra)}">
+                <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:6px; align-items:center;">
+                    <div style="font-weight:600; color:var(--primary-light);">#${idx + 1}${idx === 0 ? " (start)" : ""}</div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                        ${_planMultiPatrolDesc ? `
+                        <button type="button" class="btn-primary" style="padding:3px 8px; font-size:12px;${selected ? " outline:2px solid #eab308;" : ""}"
+                            onclick="planToggleSelectPoint(${idx})">${selected ? "✓ Zaznaczony" : "Zaznacz"}</button>
+                        ` : ""}
+                        <button type="button" class="btn-danger" style="padding:3px 8px; font-size:12px;" onclick="planDraftUsun(${idx})">Usuń</button>
                     </div>
-                    <button type="button" class="btn-danger" style="padding:3px 8px; font-size:12px;" onclick="planDraftUsun(${idx})">Usuń</button>
                 </div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; align-items:flex-end;">
                     ${idx === 0 ? `<input type="hidden" class="plan-offset" data-idx="${idx}" value="0">` : `
-                    <div style="min-width:100px;">
+                    <div style="min-width:110px;">
                         <label style="font-size:12px;">+ min od poprzedniego</label>
                         <input type="number" class="plan-offset" data-idx="${idx}" value="${Number(r.offsetMin) || 0}" min="0" step="5"
                                style="width:100%;" onchange="planDraftUpdateOffset(${idx}, this.value)">
                     </div>`}
                     <div style="flex:1; min-width:180px;">
-                        <label style="font-size:12px;">Patrole (klik = zaznacz kilka)</label>
+                        <label style="font-size:12px;">Patrole</label>
                         <div class="card-grid" style="gap:6px; margin-top:4px;">
                             ${planBuildAbstractPatrolPills(planEnsureDraftShape(r).patrolIndexes, "planDraftTogglePatrol", idx)}
                         </div>
-                        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">${escapeHtml(planAbstractPatrolsLabel(r.patrolIndexes))}</div>
                     </div>
                 </div>
+                ${idBtns}
                 <label style="font-size:12px;">Treść</label>
-                <textarea class="plan-tekst" data-idx="${idx}" rows="2" style="width:100%; font-size:13px;"
+                <textarea class="plan-tekst" data-idx="${idx}" rows="3" style="width:100%; font-size:13px;"
                           onchange="planDraftUpdateTekst(${idx}, this.value)">${escapeHtml(r.tekst || "")}</textarea>
             </div>`;
         }).join("");
@@ -1277,25 +1295,22 @@ function renderPlanSluzbyModal() {
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
                 <h2 style="margin:0;">📋 Planowanie służby</h2>
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                    <button class="btn-success" onclick="planZapiszDoKsiazki()">Zapisz do Książki</button>
                     <button class="btn-danger" onclick="closePlanSluzbyModal()">Zamknij</button>
                 </div>
             </div>
-            <p style="color:var(--text-dim); font-size:13px; margin:0 0 10px 0;">
-                Szablon = kolejne rekordy z offsetem <strong>od poprzedniego</strong>.
-                Przy starcie podajesz godzinę – reszta się przelicza. Treść: ręcznie lub z 3 poziomów kafelków.
-            </p>
 
             <div style="flex:1; overflow:auto; min-height:0; display:flex; flex-direction:column; gap:12px;">
                 <div>
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
-                        <label style="margin:0; font-weight:600;">Szablony (${szablony.length})</label>
+                        <label style="margin:0; font-weight:600; cursor:pointer; user-select:none;" onclick="planToggleSzablonyCollapse()">
+                            ${_planSzablonyCollapsed ? "▸" : "▾"} Szablony (${szablony.length})
+                        </label>
                         <div style="display:flex; gap:6px; flex-wrap:wrap;">
                             <button type="button" class="btn-success" style="padding:5px 10px; font-size:13px;" onclick="planZapiszJakoSzablon()">+ Zapisz bieżący jako szablon</button>
                             <button type="button" class="btn-primary" style="padding:5px 10px; font-size:13px;" onclick="planWyczyscDraft()">Nowy / pusty</button>
                         </div>
                     </div>
-                    <div id="planSzablonyList" style="${planThemeBoxStyle("max-height:140px; overflow:auto; padding:6px;")}">
+                    <div id="planSzablonyList" style="${_planSzablonyCollapsed ? "display:none;" : ""}${planThemeBoxStyle("max-height:140px; overflow:auto; padding:6px;")}">
                         ${szablony.length === 0
                             ? `<div style="color:var(--text-dim); padding:10px; font-size:13px;">Brak zapisanych szablonów</div>`
                             : szablony.map((s, i) => {
@@ -1331,7 +1346,16 @@ function renderPlanSluzbyModal() {
 
                 <div id="planPodgladBox" style="display:none; ${planThemeBoxStyle("padding:10px; max-height:140px; overflow:auto; font-size:13px; white-space:pre-wrap;")}"></div>
 
-                <h3 style="margin:4px 0 0;">Punkty planu (${_planDraft.length})</h3>
+                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:4px 0 8px 0;">
+                    <h3 style="margin:0;">Punkty planu (${_planDraft.length})</h3>
+                    <span style="font-size:13px; color:var(--text-dim);">Opis dotyczący więcej niż jednego patrolu?</span>
+                    <div class="card-grid" style="gap:6px;">
+                        <div class="line-pill ${_planMultiPatrolDesc ? "active" : ""}" style="cursor:pointer; padding:5px 14px; font-size:12px;"
+                             onclick="planSetMultiPatrolDesc(true)">Tak</div>
+                        <div class="line-pill ${!_planMultiPatrolDesc ? "active" : ""}" style="cursor:pointer; padding:5px 14px; font-size:12px;"
+                             onclick="planSetMultiPatrolDesc(false)">Nie</div>
+                    </div>
+                </div>
                 <div id="planDraftList">${draftHtml}</div>
 
                 <div style="border:1px dashed var(--border); border-radius:10px; padding:12px;">
@@ -1350,7 +1374,7 @@ function renderPlanSluzbyModal() {
                     </div>
                     <div style="margin-bottom:8px;">
                         <label style="font-size:12px;">Treść (ręcznie)</label>
-                        <textarea id="planAddTekst" rows="2" style="width:100%;" placeholder="Wpisz treść ręcznie…" oninput="planUpdateAddPreviewFromTiles()"></textarea>
+                        <textarea id="planAddTekst" rows="4" style="width:100%; min-height:120px;" placeholder="Wpisz treść ręcznie…" oninput="planUpdateAddPreviewFromTiles()"></textarea>
                     </div>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:8px;">
                         <div>
@@ -1375,7 +1399,10 @@ function renderPlanSluzbyModal() {
                 </div>
 
                 <div style="border:1px dashed var(--border); border-radius:10px; padding:12px;">
-                    <div style="font-weight:600; margin-bottom:8px;">Cykliczne zgłoszenia</div>
+                    <div style="font-weight:600; margin-bottom:8px; cursor:pointer; user-select:none;" onclick="planToggleCycCollapse()">
+                        ${_planCycCollapsed ? "▸" : "▾"} Cykliczne zgłoszenia
+                    </div>
+                    <div id="planCycBody" style="${_planCycCollapsed ? "display:none;" : ""}">
                     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
                         <div style="min-width:90px;">
                             <label style="font-size:12px;">Pierwszy +min</label>
@@ -1399,6 +1426,7 @@ function renderPlanSluzbyModal() {
                     <textarea id="planCycTekst" rows="2" style="width:100%; margin-bottom:8px;" placeholder="Treść cykliczna (ręcznie)…" oninput="planUpdateAddPreview('Cyc')"></textarea>
                     <div id="planCycPreview" style="display:none; ${planThemeBoxStyle("padding:10px; margin-bottom:8px; max-height:120px; overflow:auto; font-size:13px; white-space:pre-wrap;")}"></div>
                     <button type="button" class="btn-primary" onclick="planDraftDodajCykliczne()">+ Dodaj serię cykliczną</button>
+                    </div>
                 </div>
             </div>
 
@@ -1750,6 +1778,8 @@ function planWczytajSzablon() {
         patrolIndexes: planNormalizeIndexes(r.patrolIndexes != null ? r.patrolIndexes : r.patrolIndex)
     }));
     if (_planDraft.length) _planDraft[0].offsetMin = 0;
+    _planSzablonyCollapsed = true;
+    _planSelectedPointIdx = null;
     renderPlanSluzbyModal();
     if (typeof showToast === "function") showToast("Wczytano: " + (s.nazwa || "szablon"));
 }
@@ -1871,6 +1901,115 @@ async function planZmienNazweSzablonu(i) {
     await saveState();
     renderPlanSluzbyModal();
 }
+
+
+function planToggleSzablonyCollapse() {
+    // zachowaj teksty z UI
+    document.querySelectorAll(".plan-tekst").forEach(ta => {
+        const idx = parseInt(ta.getAttribute("data-idx"), 10);
+        if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
+    });
+    _planSzablonyCollapsed = !_planSzablonyCollapsed;
+    renderPlanSluzbyModal();
+}
+
+function planToggleCycCollapse() {
+    document.querySelectorAll(".plan-tekst").forEach(ta => {
+        const idx = parseInt(ta.getAttribute("data-idx"), 10);
+        if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
+    });
+    _planCycCollapsed = !_planCycCollapsed;
+    renderPlanSluzbyModal();
+}
+
+function planSetMultiPatrolDesc(on) {
+    document.querySelectorAll(".plan-tekst").forEach(ta => {
+        const idx = parseInt(ta.getAttribute("data-idx"), 10);
+        if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
+    });
+    _planMultiPatrolDesc = !!on;
+    if (!_planMultiPatrolDesc) _planSelectedPointIdx = null;
+    renderPlanSluzbyModal();
+}
+
+function planToggleSelectPoint(idx) {
+    document.querySelectorAll(".plan-tekst").forEach(ta => {
+        const i = parseInt(ta.getAttribute("data-idx"), 10);
+        if (_planDraft[i]) _planDraft[i].tekst = ta.value;
+    });
+    _planSelectedPointIdx = (_planSelectedPointIdx === idx) ? null : idx;
+    renderPlanSluzbyModal();
+    // fokus w treść zaznaczonego
+    if (_planSelectedPointIdx != null) {
+        setTimeout(() => {
+            const ta = document.querySelector(`.plan-tekst[data-idx="${_planSelectedPointIdx}"]`);
+            if (ta) ta.focus();
+        }, 30);
+    }
+}
+
+/** Marker w tekście: ⟦P1⟧ – niewidoczny w finalnym wpisie (usuwany przy generowaniu) */
+function planInsertPatrolMarker(draftIdx, abstractIdx) {
+    const ta = document.querySelector(`.plan-tekst[data-idx="${draftIdx}"]`);
+    if (!ta) return;
+    const marker = "⟦P" + (abstractIdx + 1) + "⟧";
+    const start = typeof ta.selectionStart === "number" ? ta.selectionStart : ta.value.length;
+    const end = typeof ta.selectionEnd === "number" ? ta.selectionEnd : start;
+    const before = ta.value.slice(0, start);
+    const after = ta.value.slice(end);
+    ta.value = before + marker + after;
+    const caret = before.length + marker.length;
+    try { ta.setSelectionRange(caret, caret); } catch (e) {}
+    ta.focus();
+    if (_planDraft[draftIdx]) _planDraft[draftIdx].tekst = ta.value;
+}
+
+/** Usuwa markery ⟦P1⟧ z tekstu (do książki / podglądu finalnego) */
+function planStripPatrolMarkers(tekst) {
+    return String(tekst || "").replace(/⟦P\d+⟧/g, "");
+}
+
+/** Aplikuje tagi z uwzględnieniem markerów ⟦Pn⟧ – każdy segment wg innego patrolu abstrakcyjnego */
+function planApplyTagsWithMarkers(tekst, groupMap, absPatrolIndexesFallback) {
+    const raw = String(tekst || "");
+    // brak markerów – klasyczna ścieżka
+    if (!/⟦P\d+⟧/.test(raw)) {
+        const real = absPatrolIndexesFallback || [];
+        return planStripPatrolMarkers(
+            typeof planApplyTagsToText === "function"
+                ? planApplyTagsToText(raw, real)
+                : raw
+        );
+    }
+    // rozdziel na segmenty: [prefix przed pierwszym markerem] + pary (marker, tekst)
+    const parts = raw.split(/(⟦P\d+⟧)/);
+    let currentAbs = null;
+    let out = "";
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        const m = part.match(/^⟦P(\d+)⟧$/);
+        if (m) {
+            currentAbs = parseInt(m[1], 10) - 1;
+            continue; // marker niewidoczny
+        }
+        if (!part) continue;
+        let realIdxs = absPatrolIndexesFallback || [];
+        if (currentAbs != null && groupMap) {
+            // groupMap: abstract index -> real indexes array (from pending map by key)
+            // uproszczone: użyj mapowania całego punktu + preferuj abs
+            realIdxs = absPatrolIndexesFallback || [];
+        }
+        // Gdy groupMap to mapa abstractIdx -> real[]
+        if (currentAbs != null && groupMap && groupMap[String(currentAbs)]) {
+            realIdxs = groupMap[String(currentAbs)];
+        }
+        out += (typeof planApplyTagsToText === "function")
+            ? planApplyTagsToText(part, realIdxs)
+            : part;
+    }
+    return planStripPatrolMarkers(out);
+}
+
 
 function planBuildAbsoluteTimes(startHHMM) {
     const startMin = timeToMinutes(startHHMM);
@@ -2218,15 +2357,25 @@ async function planFinalizeWriteToKsiazka(mode) {
     abs.forEach(p => {
         const key = planIndexesKey(p.patrole);
         let patrolIndexes = [];
-        if (groupMap.hasOwnProperty(key)) {
+        if (Object.prototype.hasOwnProperty.call(groupMap, key)) {
             patrolIndexes = planNormalizeIndexes(groupMap[key]);
         } else {
-            // fallback: stare mapowanie single lub same abstrakcyjne indeksy
             patrolIndexes = planNormalizeIndexes(p.patrole);
         }
 
+        // mapa abstrakcyjny indeks → realne (kolejność jak w p.patrole)
+        const absList = planNormalizeIndexes(p.patrole);
+        const segMap = {};
+        absList.forEach((a, i) => {
+            if (patrolIndexes[i] != null) segMap[String(a)] = [patrolIndexes[i]];
+            else segMap[String(a)] = patrolIndexes.slice();
+        });
+
         const data = resolveDataForGodzina(p.godzinaStart);
-        let tekst = planApplyTagsToText(p.tekst || "", patrolIndexes);
+        let tekst = (typeof planApplyTagsWithMarkers === "function")
+            ? planApplyTagsWithMarkers(p.tekst || "", segMap, patrolIndexes)
+            : planApplyTagsToText(planStripPatrolMarkers(p.tekst || ""), patrolIndexes);
+        tekst = planStripPatrolMarkers(tekst);
         tekst = tekst.replace(/@godzina\b/gi, p.godzinaStart || nowHHMM());
         tekst = tekst.replace(/@data\b/gi, data);
         tekst = capitalizeSentencesHtmlKs(tekst);
@@ -4391,6 +4540,13 @@ window.replaceAllFromTile = replaceAllFromTile;
 window.closeKsiazkaEditModal = closeKsiazkaEditModal;
 window.confirmEditKsiazka = confirmEditKsiazka;
 window.openPlanSluzbyModal = openPlanSluzbyModal;
+window.planToggleSzablonyCollapse = planToggleSzablonyCollapse;
+window.planToggleCycCollapse = planToggleCycCollapse;
+window.planSetMultiPatrolDesc = planSetMultiPatrolDesc;
+window.planToggleSelectPoint = planToggleSelectPoint;
+window.planInsertPatrolMarker = planInsertPatrolMarker;
+window.planStripPatrolMarkers = planStripPatrolMarkers;
+
 window.closePlanSluzbyModal = closePlanSluzbyModal;
 window.renderPlanSluzbyModal = renderPlanSluzbyModal;
 window.planDraftUpdateOffset = planDraftUpdateOffset;
