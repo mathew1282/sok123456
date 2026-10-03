@@ -3501,6 +3501,165 @@ function ksiazkaEntryTopBadgesHtml(entry, globalIdx) {
 // INTERWENCJE (MKK / P / L / Inne)
 // =====================================
 
+
+/** Pola wyników bez automatu – do interwencji „Inne” */
+const INNE_WYNIKI_GROUPS = [
+    { id: "przek", title: "Przekazania / pisma", items: [
+        { nr: 29, name: "Przekazani do Policji" },
+        { nr: 30, name: "Przekazani do SG, ŻW, SM" },
+        { nr: 31, name: "Przekazani do: Inne" },
+        { nr: 32, name: "Pisma interwencyjne do szkół i zakładów pracy" }
+    ]},
+    { id: "spb_u", title: "Użycie środków przymusu bezpośredniego", items: [
+        { nr: 33, name: "Siła fizyczna" },
+        { nr: 34, name: "Pałka służbowa" },
+        { nr: 35, name: "RMG" },
+        { nr: 36, name: "Kajdanki" },
+        { nr: 37, name: "Pies służbowy" },
+        { nr: 38, name: "Broń palna" },
+        { nr: 39, name: "Paralizator" }
+    ]},
+    { id: "spb_w", title: "Wykorzystanie środków przymusu bezpośredniego", items: [
+        { nr: 40, name: "Pałka służbowa" },
+        { nr: 41, name: "RMG" },
+        { nr: 42, name: "Broń palna" },
+        { nr: 43, name: "Paralizator" }
+    ]},
+    { id: "zlom", title: "Kontrole punktów skupu złomu", items: [
+        { nr: 45, name: "Ilość kontroli" },
+        { nr: 46, name: "Wykryte nieprawidłowości" },
+        { nr: 47, name: "Wartość odzyskanego mienia" },
+        { nr: 48, name: "Ujętych: skupujących" },
+        { nr: 49, name: "Ujętych: sprzedających" }
+    ]},
+    { id: "wykorz", title: "Wykorzystanie w służbie", items: [
+        { nr: 50, name: "Psy służbowe" },
+        { nr: 52, name: "Fotopułapki" },
+        { nr: 53, name: "M C M" }
+    ]},
+    { id: "sily", title: "Użyte siły", items: [
+        { nr: 55, name: "ŻW" },
+        { nr: 56, name: "SG" },
+        { nr: 57, name: "SM" },
+        { nr: 59, name: "Inni pracownicy kolejowi" }
+    ]},
+    { id: "trans", title: "Ochrona transportów / usterki", items: [
+        { nr: 61, name: "Konwojowane przesyłki towarowe" },
+        { nr: 62, name: "F-sze konw. przesyłki towarowe" },
+        { nr: 63, name: "Sprawdzone wagony" },
+        { nr: 65, name: "Brak plomb" },
+        { nr: 66, name: "Plomby uszkodzone / nieczytelne" },
+        { nr: 67, name: "Inne usterki" }
+    ]},
+    { id: "pociagi", title: "Patrole w pociągach", items: [
+        { nr: 68, name: "Międzynarodowe PKP IC" },
+        { nr: 69, name: "Krajowe PKP IC" },
+        { nr: 70, name: "Krajowe PR" },
+        { nr: 71, name: "Pozostałe" }
+    ]},
+    { id: "inne_formy", title: "Inne formy służby", items: [
+        { nr: 76, name: "Posterunki stałe" }
+    ]}
+];
+
+/** Sesja okna Inne: { nr: liczba }, grupy rozwinięte */
+let _inneSessionCounts = {};
+let _inneExpandedGroups = {};
+
+function inneFindItem(nr) {
+    for (const g of INNE_WYNIKI_GROUPS) {
+        const it = g.items.find(x => x.nr === nr);
+        if (it) return { group: g, item: it };
+    }
+    return null;
+}
+
+function inneToggleGroup(gid) {
+    _inneExpandedGroups[gid] = !_inneExpandedGroups[gid];
+    inneRenderGroupsPanel();
+}
+
+function inneAddCount(nr, delta) {
+    const n = Number(nr);
+    const cur = Number(_inneSessionCounts[n]) || 0;
+    const next = Math.max(0, cur + (delta || 1));
+    if (next === 0) delete _inneSessionCounts[n];
+    else _inneSessionCounts[n] = next;
+    inneRenderGroupsPanel();
+}
+
+function inneInsertItemToText(nr) {
+    const found = inneFindItem(nr);
+    if (!found) return;
+    const ta = document.getElementById("ksUwagiTekst");
+    if (!ta) return;
+    const modal = document.getElementById("ksiazkaUwagiEditModal");
+    const line = found.item.name + (Number(_inneSessionCounts[nr]) > 1 ? (" (×" + _inneSessionCounts[nr] + ")") : "");
+    const cur = ta.value || "";
+    let start = (modal && typeof modal._caretStart === "number") ? modal._caretStart : (ta.selectionStart || cur.length);
+    let end = (modal && typeof modal._caretEnd === "number") ? modal._caretEnd : (ta.selectionEnd || start);
+    start = Math.max(0, Math.min(start, cur.length));
+    end = Math.max(0, Math.min(end, cur.length));
+    let piece = line;
+    const before = cur.slice(0, start);
+    const after = cur.slice(end);
+    if (before && !/\s$/.test(before)) piece = "\n" + piece;
+    if (after && !/^\s/.test(after)) piece = piece + "\n";
+    ta.value = before + piece + after;
+    const caret = before.length + piece.length;
+    try { ta.setSelectionRange(caret, caret); } catch (e) {}
+    ta.focus();
+    if (modal) { modal._caretStart = caret; modal._caretEnd = caret; }
+    // +1 przy wstawieniu, jeśli jeszcze 0
+    if (!(_inneSessionCounts[nr] > 0)) inneAddCount(nr, 1);
+    else inneRenderGroupsPanel();
+}
+
+function inneRenderGroupsPanel() {
+    const host = document.getElementById("inneWynikiPanel");
+    if (!host) return;
+    let html = "";
+    INNE_WYNIKI_GROUPS.forEach(g => {
+        const open = !!_inneExpandedGroups[g.id];
+        const countInGroup = g.items.reduce((a, it) => a + (Number(_inneSessionCounts[it.nr]) || 0), 0);
+        html += `<div style="border:1px solid var(--border); border-radius:10px; margin-bottom:8px; overflow:hidden;">
+            <div onclick="inneToggleGroup('${g.id}')" style="cursor:pointer; padding:10px 12px; background:var(--bg-input); display:flex; justify-content:space-between; align-items:center; gap:8px; user-select:none;">
+                <span style="font-weight:700;">${open ? "▾" : "▸"} ${escapeHtml(g.title)}</span>
+                ${countInGroup ? `<span style="font-size:12px; color:#facc15; font-weight:700;">+${countInGroup}</span>` : ""}
+            </div>`;
+        if (open) {
+            html += `<div style="padding:8px 10px;">`;
+            g.items.forEach(it => {
+                const c = Number(_inneSessionCounts[it.nr]) || 0;
+                html += `<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 0; border-bottom:1px solid var(--border);">
+                    <span style="width:36px; text-align:center; font-weight:800; color:#facc15;">${it.nr}</span>
+                    <span style="flex:1; min-width:140px; font-size:13px;">${escapeHtml(it.name)}</span>
+                    <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px;" onclick="inneAddCount(${it.nr},-1)">−</button>
+                    <span style="min-width:24px; text-align:center; font-weight:700;">${c}</span>
+                    <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px;" onclick="inneAddCount(${it.nr},1)">+</button>
+                    <button type="button" class="btn-success" style="padding:4px 10px; font-size:12px;" onclick="inneInsertItemToText(${it.nr})">Wstaw</button>
+                </div>`;
+            });
+            html += `</div>`;
+        }
+        html += `</div>`;
+    });
+    host.innerHTML = html;
+}
+
+function inneApplyCountsToWyniki() {
+    if (typeof ensureStatystykiState === "function") ensureStatystykiState();
+    if (!appState.statystyki.wyniki) appState.statystyki.wyniki = {};
+    Object.keys(_inneSessionCounts).forEach(k => {
+        const nr = parseInt(k, 10);
+        const add = Number(_inneSessionCounts[k]) || 0;
+        if (!add) return;
+        const prev = Number(appState.statystyki.wyniki[nr]) || 0;
+        appState.statystyki.wyniki[nr] = prev + add;
+    });
+}
+
+
 const INTERWENCJE_MAP = {
     MKK: { code: "M", label: "MKK", szablonKey: "MKK" },
     P:   { code: "P", label: "Pouczony", szablonKey: "Pouczony" },
@@ -3658,11 +3817,42 @@ function openKsiazkaInterwencjaModal(index, typ) {
     overlay.id = "ksiazkaUwagiEditModal";
     overlay.className = "modal-overlay";
     overlay.style.display = "flex";
-    overlay.innerHTML = `
+    const isInne = (typ === "I" || typ === "Inne" || meta.code === "I");
+    if (isInne) {
+        _inneSessionCounts = {};
+        _inneExpandedGroups = {};
+    }
+
+    overlay.innerHTML = isInne ? `
+        <div class="modal" style="width:min(900px,94vw); height:min(90vh,860px); max-width:none; max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+                <h2 style="margin:0;">Interwencja: Inne</h2>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="button" class="btn-primary" style="padding:6px 10px;font-size:12px;" onclick="if(typeof openUwagiSzablonyModal==='function')openUwagiSzablonyModal()">Edytuj szablony</button>
+                    <button class="btn-success" onclick="confirmKsiazkaInterwencja()">Zapisz</button>
+                    <button class="btn-danger" onclick="closeKsiazkaUwagiEditModal()">Anuluj</button>
+                </div>
+            </div>
+            <p style="color:var(--text-dim); font-size:13px; margin:0 0 10px 0;">
+                Rozwiń grupę → <strong>+</strong> licznik / <strong>Wstaw</strong> opis do tekstu (kursor). Po zapisie: litera <strong>I</strong> + wyniki.
+            </p>
+            <div style="flex:1; overflow:auto; min-height:0; display:flex; flex-direction:column; gap:12px;">
+                <div id="inneWynikiPanel"></div>
+                <div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                        <button type="button" class="btn-primary" onclick="ksiazkaInterwencjaWstawSzablon()">Wstaw szablon „Inne”</button>
+                    </div>
+                    <label>Treść wpisu</label>
+                    <textarea id="ksUwagiTekst" rows="8" style="width:100%; font-size:14px; line-height:1.45; min-height:140px;">${escapeHtml(base)}</textarea>
+                </div>
+            </div>
+        </div>
+    ` : `
         <div class="modal" style="max-width:640px;">
             <h2 style="margin-top:0;">Interwencja: ${escapeHtml(meta.label)}</h2>
             <p style="color:var(--text-dim); font-size:13px; margin-bottom:10px;">
                 Szablon możesz wstawić przyciskiem poniżej albo dopisać ręcznie. Po zapisie przy wpisie pojawi się litera <strong>${meta.code}</strong>.
+                ${typ === "MKK" || typ === "M" ? " W szablonie MKK użyj <strong>@kwota</strong> – przy wstawieniu program zapyta o kwotę." : ""}
             </p>
             <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
                 <button type="button" class="btn-primary" onclick="ksiazkaInterwencjaWstawSzablon()">Wstaw szablon „${escapeHtml(meta.label)}”</button>
@@ -3702,6 +3892,9 @@ function openKsiazkaInterwencjaModal(index, typ) {
                 ta.setSelectionRange(len, len);
             } catch (e) {}
         }, 40);
+    }
+    if (document.getElementById("inneWynikiPanel")) {
+        inneRenderGroupsPanel();
     }
 }
 
@@ -3863,6 +4056,12 @@ async function confirmKsiazkaInterwencja() {
         };
         if (kwotaSum) row.kwota = kwotaSum;
         appState.statystyki.interwencje.push(row);
+    }
+
+    // Inne – dolicz wybrane pozycje wyników
+    if ((typ === "I" || typ === "Inne" || statTyp === "Inne") && typeof inneApplyCountsToWyniki === "function") {
+        inneApplyCountsToWyniki();
+        _inneSessionCounts = {};
     }
 
     // Kwota mandatów (poz. 28) – suma wszystkich wstawionych przy tej interwencji
@@ -4725,6 +4924,11 @@ window.toggleKsiazkaInterwencjeMode = toggleKsiazkaInterwencjeMode;
 window.openKsiazkaInterwencjaModal = openKsiazkaInterwencjaModal;
 window.ksiazkaInterwencjaResolveTags = ksiazkaInterwencjaResolveTags;
 window.ksiazkaInterwencjaWstawSzablon = ksiazkaInterwencjaWstawSzablon;
+window.inneToggleGroup = inneToggleGroup;
+window.inneAddCount = inneAddCount;
+window.inneInsertItemToText = inneInsertItemToText;
+window.inneRenderGroupsPanel = inneRenderGroupsPanel;
+
 window.confirmKsiazkaInterwencja = confirmKsiazkaInterwencja;
 window.ksiazkaProceduraBadgeHtml = ksiazkaProceduraBadgeHtml;
 window.ksiazkaInterwencjeModeBtnsHtml = ksiazkaInterwencjeModeBtnsHtml;
