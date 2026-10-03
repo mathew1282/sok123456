@@ -1068,8 +1068,8 @@ let _planEditTemplateId = null; // null = nowy
 let _planNumPatroli = 2; // ile abstrakcyjnych patroli (Patrol 1, Patrol 2, …)
 let _planAddPatrolIndexes = []; // wybór przy „Dodaj punkt”
 let _planCycPatrolIndexes = []; // wybór przy cyklicznych
-let _planSzablonyCollapsed = false;
-let _planCycCollapsed = false;
+let _planSzablonyCollapsed = true;
+let _planCycCollapsed = true;
 let _planMultiPatrolDesc = false; // „Opis dotyczący więcej niż jednego patrolu?”
 let _planSelectedPointIdx = null; // żółta ramka – aktywny punkt
 
@@ -1231,6 +1231,10 @@ function closePlanSluzbyModal() {
 function renderPlanSluzbyModal() {
     const overlay = document.getElementById("planSluzbyModal");
     if (!overlay) return;
+    // zachowaj pozycję przewijania (żeby nie skakało do góry)
+    const scrollBox = overlay.querySelector("[data-plan-scroll]");
+    const prevScroll = scrollBox ? scrollBox.scrollTop : 0;
+    const prevStartGodz = document.getElementById("planStartGodz")?.value;
     ensurePlanSzablonyState();
 
     const szablony = appState.planSzablony || [];
@@ -1249,43 +1253,30 @@ function renderPlanSluzbyModal() {
             const boxExtra = selected
                 ? "padding:10px; margin-bottom:8px; border:3px solid #eab308; box-shadow:0 0 0 1px #eab308;"
                 : "padding:10px; margin-bottom:8px;";
-            const idBtns = (_planMultiPatrolDesc && selected)
-                ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin:6px 0;">
-                    <span style="font-size:12px; color:var(--text-dim); align-self:center;">Identyfikacja w tekście:</span>
-                    ${Array.from({length: nPat}, (_, i) =>
-                        `<button type="button" class="btn-primary" style="padding:4px 10px; font-size:12px;"
-                            onclick="planInsertPatrolMarker(${idx}, ${i})">Patrol ${i + 1}</button>`
-                    ).join("")}
-                   </div>`
+            const idBtns = _planMultiPatrolDesc
+                ? Array.from({length: nPat}, (_, i) =>
+                    `<button type="button" class="btn-primary" style="padding:3px 8px; font-size:11px;"
+                        onclick="planInsertPatrolMarker(${idx}, ${i})">P${i + 1}</button>`
+                  ).join("")
                 : "";
             return `
             <div style="${planThemeBoxStyle(boxExtra)}">
-                <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:6px; align-items:center;">
-                    <div style="font-weight:600; color:var(--primary-light);">#${idx + 1}${idx === 0 ? " (start)" : ""}</div>
-                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                        ${_planMultiPatrolDesc ? `
-                        <button type="button" class="btn-primary" style="padding:3px 8px; font-size:12px;${selected ? " outline:2px solid #eab308;" : ""}"
-                            onclick="planToggleSelectPoint(${idx})">${selected ? "✓ Zaznaczony" : "Zaznacz"}</button>
-                        ` : ""}
-                        <button type="button" class="btn-danger" style="padding:3px 8px; font-size:12px;" onclick="planDraftUsun(${idx})">Usuń</button>
-                    </div>
-                </div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; align-items:flex-end;">
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                    <div style="font-weight:700; color:var(--primary-light); white-space:nowrap;">#${idx + 1}${idx === 0 ? " (start)" : ""}</div>
                     ${idx === 0 ? `<input type="hidden" class="plan-offset" data-idx="${idx}" value="0">` : `
-                    <div style="min-width:110px;">
-                        <label style="font-size:12px;">+ min od poprzedniego</label>
-                        <input type="number" class="plan-offset" data-idx="${idx}" value="${Number(r.offsetMin) || 0}" min="0" step="5"
-                               style="width:100%;" onchange="planDraftUpdateOffset(${idx}, this.value)">
-                    </div>`}
-                    <div style="flex:1; min-width:180px;">
-                        <label style="font-size:12px;">Patrole</label>
-                        <div class="card-grid" style="gap:6px; margin-top:4px;">
-                            ${planBuildAbstractPatrolPills(planEnsureDraftShape(r).patrolIndexes, "planDraftTogglePatrol", idx)}
-                        </div>
+                    <input type="number" class="plan-offset" data-idx="${idx}" value="${Number(r.offsetMin) || 0}" min="0" step="5"
+                           title="+ min od poprzedniego" style="width:72px;" onchange="planDraftUpdateOffset(${idx}, this.value)">
+                    <span style="font-size:11px; color:var(--text-dim);">min</span>`}
+                    <div class="card-grid" style="gap:6px; display:flex; flex-wrap:wrap;">
+                        ${planBuildAbstractPatrolPills(planEnsureDraftShape(r).patrolIndexes, "planDraftTogglePatrol", idx)}
                     </div>
+                    ${idBtns}
+                    ${_planMultiPatrolDesc ? `
+                    <button type="button" class="btn-primary" style="padding:3px 8px; font-size:11px;${selected ? " outline:2px solid #eab308;" : ""}"
+                        onclick="planToggleSelectPoint(${idx})">${selected ? "✓" : "Zaznacz"}</button>
+                    ` : ""}
+                    <button type="button" class="btn-danger" style="padding:3px 8px; font-size:11px; margin-left:auto;" onclick="planDraftUsun(${idx})">Usuń</button>
                 </div>
-                ${idBtns}
-                <label style="font-size:12px;">Treść</label>
                 <div class="plan-tekst rich-opis-editor" contenteditable="true" data-idx="${idx}"
                      style="width:100%; min-height:72px; font-size:13px; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); white-space:pre-wrap;"
                      onblur="planDraftUpdateTekst(${idx}, this.isContentEditable ? this.innerHTML : this.value)">${(typeof formatKsiazkaTekstHtml === "function" ? formatKsiazkaTekstHtml(r.tekst || "") : escapeHtml(r.tekst || ""))}</div>
@@ -1302,10 +1293,10 @@ function renderPlanSluzbyModal() {
                 </div>
             </div>
 
-            <div style="flex:1; overflow:auto; min-height:0; display:flex; flex-direction:column; gap:12px;">
+            <div data-plan-scroll style="flex:1; overflow:auto; min-height:0; display:flex; flex-direction:column; gap:12px;">
                 <div>
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
-                        <label style="margin:0; font-weight:600; cursor:pointer; user-select:none;" onclick="planToggleSzablonyCollapse()">
+                        <label id="planSzablonyToggleLabel" style="margin:0; font-weight:600; cursor:pointer; user-select:none;" onclick="planToggleSzablonyCollapse()">
                             ${_planSzablonyCollapsed ? "▸" : "▾"} Szablony (${szablony.length})
                         </label>
                         <div style="display:flex; gap:6px; flex-wrap:wrap;">
@@ -1334,17 +1325,16 @@ function renderPlanSluzbyModal() {
                 </div>
 
                 <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
-                    <div style="min-width:140px;">
-                        <label>Ilość patroli w planie</label>
-                        <input type="number" id="planNumPatroli" value="${nPat}" min="1" max="12" step="1" style="width:100%;"
+                    <div style="flex:1; min-width:140px; max-width:220px;">
+                        <label style="display:block; margin-bottom:4px;">Ilość patroli w planie</label>
+                        <input type="number" id="planNumPatroli" value="${nPat}" min="1" max="12" step="1" style="width:100%; height:40px; box-sizing:border-box;"
                                onchange="planSetNumPatroli(this.value)">
-                        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">Patrol 1 … N (mapowanie przy zapisie)</div>
                     </div>
-                    <div style="min-width:140px;">
-                        <label>Godzina startu planu</label>
-                        <input type="time" id="planStartGodz" value="07:00" style="width:100%;">
+                    <div style="flex:1; min-width:140px; max-width:220px;">
+                        <label style="display:block; margin-bottom:4px;">Godzina startu planu</label>
+                        <input type="time" id="planStartGodz" value="07:00" style="width:100%; height:40px; box-sizing:border-box;">
                     </div>
-                    <button type="button" class="btn-primary" onclick="planPodglad()">Podgląd godzin</button>
+                    <button type="button" class="btn-primary" style="height:40px;" onclick="planPodglad()">Podgląd godzin</button>
                 </div>
 
                 <div id="planPodgladBox" style="display:none; ${planThemeBoxStyle("padding:10px; max-height:140px; overflow:auto; font-size:13px; white-space:pre-wrap;")}"></div>
@@ -1362,18 +1352,15 @@ function renderPlanSluzbyModal() {
                 <div id="planDraftList">${draftHtml}</div>
 
                 <div style="border:1px dashed var(--border); border-radius:10px; padding:12px;">
-                    <div style="font-weight:600; margin-bottom:8px;">Dodaj punkt</div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                        <div style="min-width:100px;">
-                            <label style="font-size:12px;">+ min (0 = start / od poprz.)</label>
-                            <input type="number" id="planAddOffset" value="${_planDraft.length === 0 ? 0 : 60}" min="0" step="5" style="width:100%;">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+                        <div style="font-weight:600; white-space:nowrap;">Dodaj punkt</div>
+                        <input type="number" id="planAddOffset" value="${_planDraft.length === 0 ? 0 : 60}" min="0" step="5"
+                               title="+ min" style="width:72px;" placeholder="min">
+                        <span style="font-size:11px; color:var(--text-dim);">min</span>
+                        <div id="planAddPatrolPills" class="card-grid" style="gap:6px; display:flex; flex-wrap:wrap;">
+                            ${planBuildAbstractPatrolPills(_planAddPatrolIndexes, "planAddTogglePatrol", null)}
                         </div>
-                        <div style="flex:1; min-width:200px;">
-                            <label style="font-size:12px;">Patrole (można kilka)</label>
-                            <div id="planAddPatrolPills" class="card-grid" style="gap:6px; margin-top:4px;">
-                                ${planBuildAbstractPatrolPills(_planAddPatrolIndexes, "planAddTogglePatrol", null)}
-                            </div>
-                        </div>
+                        <button type="button" class="btn-success" style="margin-left:auto;" onclick="planDraftDodaj()">+ Dodaj punkt</button>
                     </div>
                     <div style="margin-bottom:8px;">
                         <label style="font-size:12px;">Treść (ręcznie)</label>
@@ -1398,11 +1385,10 @@ function renderPlanSluzbyModal() {
                         </div>
                     </div>
                     <div id="planAddPreview" style="display:none; ${planThemeBoxStyle("padding:10px; margin-bottom:8px; max-height:120px; overflow:auto; font-size:13px; white-space:pre-wrap;")}"></div>
-                    <button type="button" class="btn-success" onclick="planDraftDodaj()">+ Dodaj punkt</button>
                 </div>
 
                 <div style="border:1px dashed var(--border); border-radius:10px; padding:12px;">
-                    <div style="font-weight:600; margin-bottom:8px; cursor:pointer; user-select:none;" onclick="planToggleCycCollapse()">
+                    <div id="planCycToggleLabel" style="font-weight:600; margin-bottom:8px; cursor:pointer; user-select:none;" onclick="planToggleCycCollapse()">
                         ${_planCycCollapsed ? "▸" : "▾"} Cykliczne zgłoszenia
                     </div>
                     <div id="planCycBody" style="${_planCycCollapsed ? "display:none;" : ""}">
@@ -1443,6 +1429,12 @@ function renderPlanSluzbyModal() {
     // Po renderze – kafelki 3-poziomowe
     planRenderAddTilesZgl();
     planRenderAddTilesPol();
+    if (prevStartGodz) {
+        const g = document.getElementById("planStartGodz");
+        if (g) g.value = prevStartGodz;
+    }
+    const sb = overlay.querySelector("[data-plan-scroll]");
+    if (sb) sb.scrollTop = prevScroll;
 }
 
 function planDraftSyncFromUI() {
@@ -1939,22 +1931,22 @@ async function planZmienNazweSzablonu(i) {
 
 
 function planToggleSzablonyCollapse() {
-    // zachowaj teksty z UI
-    document.querySelectorAll(".plan-tekst").forEach(ta => {
-        const idx = parseInt(ta.getAttribute("data-idx"), 10);
-        if (_planDraft[idx]) _planDraft[idx].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
-    });
     _planSzablonyCollapsed = !_planSzablonyCollapsed;
-    renderPlanSluzbyModal();
+    const list = document.getElementById("planSzablonyList");
+    const lab = document.getElementById("planSzablonyToggleLabel");
+    if (list) list.style.display = _planSzablonyCollapsed ? "none" : "";
+    if (lab) {
+        const n = (appState.planSzablony || []).length;
+        lab.textContent = (_planSzablonyCollapsed ? "▸" : "▾") + " Szablony (" + n + ")";
+    }
 }
 
 function planToggleCycCollapse() {
-    document.querySelectorAll(".plan-tekst").forEach(ta => {
-        const idx = parseInt(ta.getAttribute("data-idx"), 10);
-        if (_planDraft[idx]) _planDraft[idx].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
-    });
     _planCycCollapsed = !_planCycCollapsed;
-    renderPlanSluzbyModal();
+    const body = document.getElementById("planCycBody");
+    const lab = document.getElementById("planCycToggleLabel");
+    if (body) body.style.display = _planCycCollapsed ? "none" : "";
+    if (lab) lab.textContent = (_planCycCollapsed ? "▸" : "▾") + " Cykliczne zgłoszenia";
 }
 
 function planSetMultiPatrolDesc(on) {
@@ -3594,7 +3586,13 @@ function inneInsertItemToText(nr) {
     const ta = document.getElementById("ksUwagiTekst");
     if (!ta) return;
     const modal = document.getElementById("ksiazkaUwagiEditModal");
-    const line = found.item.name + (Number(_inneSessionCounts[nr]) > 1 ? (" (×" + _inneSessionCounts[nr] + ")") : "");
+    inneEnsureNotesState();
+    const noteEl = document.querySelector(`[data-inne-note="${nr}"]`);
+    if (noteEl) inneSaveNote(nr, noteEl.value);
+    const note = (appState.inneNotatki && appState.inneNotatki[nr]) ? String(appState.inneNotatki[nr]).trim() : "";
+    const line = found.item.name
+        + (note ? (": " + note) : "")
+        + (Number(_inneSessionCounts[nr]) > 1 ? (" (×" + _inneSessionCounts[nr] + ")") : "");
     const cur = ta.value || "";
     let start = (modal && typeof modal._caretStart === "number") ? modal._caretStart : (ta.selectionStart || cur.length);
     let end = (modal && typeof modal._caretEnd === "number") ? modal._caretEnd : (ta.selectionEnd || start);
@@ -3615,25 +3613,46 @@ function inneInsertItemToText(nr) {
     else inneRenderGroupsPanel();
 }
 
+function inneEnsureNotesState() {
+    if (!appState.inneNotatki || typeof appState.inneNotatki !== "object") appState.inneNotatki = {};
+}
+
+function inneSaveNote(nr, val) {
+    inneEnsureNotesState();
+    const v = String(val || "").trim();
+    if (v) appState.inneNotatki[nr] = v;
+    else delete appState.inneNotatki[nr];
+    if (typeof saveState === "function") saveState();
+}
+
 function inneRenderGroupsPanel() {
     const host = document.getElementById("inneWynikiPanel");
     if (!host) return;
+    inneEnsureNotesState();
     let html = "";
     INNE_WYNIKI_GROUPS.forEach(g => {
         const open = !!_inneExpandedGroups[g.id];
         const countInGroup = g.items.reduce((a, it) => a + (Number(_inneSessionCounts[it.nr]) || 0), 0);
+        const headExtra = countInGroup > 0
+            ? ` <span style="color:#ef4444; font-weight:800;">+${countInGroup}</span>`
+            : "";
         html += `<div style="border:1px solid var(--border); border-radius:10px; margin-bottom:8px; overflow:hidden;">
             <div onclick="inneToggleGroup('${g.id}')" style="cursor:pointer; padding:10px 12px; background:var(--bg-input); display:flex; justify-content:space-between; align-items:center; gap:8px; user-select:none;">
-                <span style="font-weight:700;">${open ? "▾" : "▸"} ${escapeHtml(g.title)}</span>
-                ${countInGroup ? `<span style="font-size:12px; color:#facc15; font-weight:700;">+${countInGroup}</span>` : ""}
+                <span style="font-weight:700;">${open ? "▾" : "▸"} ${escapeHtml(g.title)}${headExtra}</span>
             </div>`;
         if (open) {
             html += `<div style="padding:8px 10px;">`;
             g.items.forEach(it => {
                 const c = Number(_inneSessionCounts[it.nr]) || 0;
+                const note = appState.inneNotatki[it.nr] || "";
                 html += `<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 0; border-bottom:1px solid var(--border);">
                     <span style="width:36px; text-align:center; font-weight:800; color:#facc15;">${it.nr}</span>
-                    <span style="flex:1; min-width:140px; font-size:13px;">${escapeHtml(it.name)}</span>
+                    <span style="min-width:120px; flex:0 1 180px; font-size:13px;">${escapeHtml(it.name)}</span>
+                    <input type="text" data-inne-note="${it.nr}" value="${escapeHtml(note)}"
+                           placeholder="Notatka…"
+                           style="flex:1; min-width:120px; padding:6px 8px; font-size:13px;"
+                           onchange="inneSaveNote(${it.nr}, this.value)"
+                           onblur="inneSaveNote(${it.nr}, this.value)">
                     <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px;" onclick="inneAddCount(${it.nr},-1)">−</button>
                     <span style="min-width:24px; text-align:center; font-weight:700;">${c}</span>
                     <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px;" onclick="inneAddCount(${it.nr},1)">+</button>
@@ -3645,6 +3664,19 @@ function inneRenderGroupsPanel() {
         html += `</div>`;
     });
     host.innerHTML = html;
+}
+
+
+function inneWstawWszystkieDane() {
+    const nrs = Object.keys(_inneSessionCounts)
+        .map(n => parseInt(n, 10))
+        .filter(n => (Number(_inneSessionCounts[n]) || 0) > 0)
+        .sort((a, b) => a - b);
+    if (!nrs.length) {
+        if (typeof showToast === "function") showToast("Brak pozycji z licznikiem > 0");
+        return;
+    }
+    nrs.forEach(nr => inneInsertItemToText(nr));
 }
 
 function inneApplyCountsToWyniki() {
@@ -3679,20 +3711,34 @@ function toggleKsiazkaInterwencjeMode() {
 
 function ksiazkaInterwencjeBadgesHtml(entry, absolute, entryIndex) {
     const inv = entry && entry.interwencje ? entry.interwencje : {};
-    const codes = [];
-    if (inv.MKK || inv.M) codes.push("M");
-    if (inv.P) codes.push("P");
-    if (inv.L) codes.push("L");
-    if (inv.I || inv.Inne) codes.push("I");
-    if (!codes.length) return "";
+    const counts = (entry && entry.interwencjeCounts && typeof entry.interwencjeCounts === "object")
+        ? entry.interwencjeCounts : {};
+    const items = [];
+    const push = (code, keys) => {
+        let n = 0;
+        keys.forEach(k => {
+            if (typeof counts[k] === "number" && counts[k] > 0) n = Math.max(n, counts[k]);
+        });
+        if (!n) {
+            // legacy bool
+            if (keys.some(k => inv[k])) n = 1;
+        }
+        if (n > 0) items.push({ code, n });
+    };
+    push("M", ["MKK", "M"]);
+    push("P", ["P", "Pouczony"]);
+    push("L", ["L", "Legitymowany"]);
+    push("I", ["I", "Inne"]);
+    if (!items.length) return "";
     const style = absolute
         ? "position:absolute; top:6px; right:8px; z-index:2; display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end;"
         : "display:inline-flex; gap:5px; margin-bottom:4px; flex-wrap:wrap;";
     const idxAttr = (entryIndex != null && entryIndex >= 0) ? String(entryIndex) : "";
-    return `<span style="${style}">` + codes.map(c => {
+    return `<span style="${style}">` + items.map(({ code: c, n }) => {
         const canRemove = idxAttr !== "";
+        const label = n > 1 ? (c + "−" + n) : c;
         return `<span style="display:inline-flex; align-items:center; gap:2px; background:rgba(59,130,246,.15); border:1px solid rgba(96,165,250,.5); border-radius:6px; padding:1px 4px 1px 6px;">
-            <span style="font-weight:800; font-size:13px; color:var(--primary-light,#60a5fa); letter-spacing:0.5px;" title="Interwencja">${c}</span>
+            <span style="font-weight:800; font-size:13px; color:var(--primary-light,#60a5fa); letter-spacing:0.5px;" title="Interwencja ×${n}">${label}</span>
             ${canRemove ? `<button type="button" title="Cofnij interwencję ${c}"
                 onclick="event.stopPropagation(); removeKsiazkaInterwencja(${idxAttr}, '${c}')"
                 style="border:none; background:transparent; color:#f87171; font-weight:800; font-size:12px; line-height:1; cursor:pointer; padding:0 2px;">×</button>` : ""}
@@ -3827,24 +3873,24 @@ function openKsiazkaInterwencjaModal(index, typ) {
         <div class="modal" style="width:min(900px,94vw); height:min(90vh,860px); max-width:none; max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
                 <h2 style="margin:0;">Interwencja: Inne</h2>
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                    <button type="button" class="btn-primary" style="padding:6px 10px;font-size:12px;" onclick="if(typeof openUwagiSzablonyModal==='function')openUwagiSzablonyModal()">Edytuj szablony</button>
-                    <button class="btn-success" onclick="confirmKsiazkaInterwencja()">Zapisz</button>
-                    <button class="btn-danger" onclick="closeKsiazkaUwagiEditModal()">Anuluj</button>
-                </div>
             </div>
             <p style="color:var(--text-dim); font-size:13px; margin:0 0 10px 0;">
-                Rozwiń grupę → <strong>+</strong> licznik / <strong>Wstaw</strong> opis do tekstu (kursor). Po zapisie: litera <strong>I</strong> + wyniki.
+                Rozwiń grupę → notatka / <strong>+</strong> / <strong>Wstaw</strong> w miejscu kursora. Nagłówek pokazuje sumę na czerwono.
             </p>
             <div style="flex:1; overflow:auto; min-height:0; display:flex; flex-direction:column; gap:12px;">
                 <div id="inneWynikiPanel"></div>
                 <div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                        <button type="button" class="btn-primary" onclick="ksiazkaInterwencjaWstawSzablon()">Wstaw szablon „Inne”</button>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; align-items:center;">
+                        <button type="button" class="btn-primary" onclick="inneWstawWszystkieDane()">Wstaw dane</button>
+                        <span style="font-size:12px; color:var(--text-dim);">wstawia wszystkie pozycje z licznikiem &gt; 0 (notatki + nazwy)</span>
                     </div>
                     <label>Treść wpisu</label>
                     <textarea id="ksUwagiTekst" rows="8" style="width:100%; font-size:14px; line-height:1.45; min-height:140px;">${escapeHtml(base)}</textarea>
                 </div>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px; flex-wrap:wrap; border-top:1px solid var(--border); padding-top:12px;">
+                <button class="btn-success" onclick="confirmKsiazkaInterwencja()">Zapisz</button>
+                <button class="btn-danger" onclick="closeKsiazkaUwagiEditModal()">Anuluj</button>
             </div>
         </div>
     ` : `
@@ -3856,7 +3902,7 @@ function openKsiazkaInterwencjaModal(index, typ) {
             </p>
             <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
                 <button type="button" class="btn-primary" onclick="ksiazkaInterwencjaWstawSzablon()">Wstaw szablon „${escapeHtml(meta.label)}”</button>
-                <button type="button" class="btn-primary" style="padding:6px 10px;font-size:12px;" onclick="if(typeof openUwagiSzablonyModal==='function')openUwagiSzablonyModal()">Edytuj szablony</button>
+                <button type="button" class="btn-primary" style="padding:6px 10px;font-size:12px;" onclick="closeKsiazkaUwagiEditModal(); if(typeof openUwagiSzablonyModal==='function')openUwagiSzablonyModal()">Edytuj szablony</button>
             </div>
             <label>Treść wpisu</label>
             <textarea id="ksUwagiTekst" rows="10" style="width:100%; margin-bottom:14px; font-size:14px; line-height:1.45;">${escapeHtml(base)}</textarea>
@@ -3870,6 +3916,7 @@ function openKsiazkaInterwencjaModal(index, typ) {
     // zapamiętaj szablon do wstawienia
     overlay._szablon = szablon;
     overlay._kwotaSum = 0;
+    overlay._szablonInsertCount = 0;
 
     // Zapamiętuj pozycję kursora w textarea (klik w "Wstaw szablon" zdejmuje fokus)
     const ta = document.getElementById("ksUwagiTekst");
@@ -3955,6 +4002,10 @@ function ksiazkaInterwencjaWstawSzablon() {
     const index = window._ksiazkaInterwencjaIndex;
     const entry = (index != null && appState.ksiazkaWydarzen) ? appState.ksiazkaWydarzen[index] : null;
     const typ = window._ksiazkaInterwencjaTyp || "";
+    if (modal) {
+        if (!modal._szablonInsertCount) modal._szablonInsertCount = 0;
+        modal._szablonInsertCount += 1;
+    }
 
     // MKK: pytanie o kwotę → @kwota w szablonie + suma do wyników (poz. 28)
     let kwotaNum = null;
@@ -4028,6 +4079,7 @@ async function confirmKsiazkaInterwencja() {
     tekst = ksiazkaInterwencjaResolveTags(tekst, entry);
     entry.tekst = tekst;
     if (!entry.interwencje || typeof entry.interwencje !== "object") entry.interwencje = {};
+    if (!entry.interwencjeCounts || typeof entry.interwencjeCounts !== "object") entry.interwencjeCounts = {};
     entry.interwencje[typ] = true;
     // kompatybilność liter
     const meta = INTERWENCJE_MAP[typ];
@@ -4037,25 +4089,35 @@ async function confirmKsiazkaInterwencja() {
     const statTyp = meta ? meta.label : (typ === "MKK" ? "MKK" : typ === "P" ? "Pouczony" : typ === "L" ? "Legitymowany" : "Inne");
     const modal = document.getElementById("ksiazkaUwagiEditModal");
     const kwotaSum = (modal && Number(modal._kwotaSum) > 0) ? Number(modal._kwotaSum) : 0;
+    // ile razy wstawiono szablon w tej sesji (min. 1 przy samym zapisie)
+    let times = (modal && Number(modal._szablonInsertCount) > 0) ? Number(modal._szablonInsertCount) : 1;
+    if (typ === "I" || typ === "Inne") times = 1;
+    const countKey = (statTyp === "MKK") ? "MKK" : (statTyp === "Pouczony" ? "P" : (statTyp === "Legitymowany" ? "L" : "I"));
+    entry.interwencjeCounts[countKey] = (Number(entry.interwencjeCounts[countKey]) || 0) + times;
+    if (statTyp === "MKK") entry.interwencjeCounts.MKK = entry.interwencjeCounts[countKey];
+    if (statTyp === "Pouczony") entry.interwencjeCounts.P = entry.interwencjeCounts[countKey];
+    if (statTyp === "Legitymowany") entry.interwencjeCounts.L = entry.interwencjeCounts[countKey];
 
-    if (typeof logInterwencja === "function") {
-        await logInterwencja(statTyp, {
-            entryId: entry.id || null,
-            data: entry.data || undefined,
-            godzina: entry.godzinaStart || undefined,
-            kwota: kwotaSum || undefined
-        });
-    } else {
-        if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [], wyniki: {} };
-        if (!Array.isArray(appState.statystyki.interwencje)) appState.statystyki.interwencje = [];
-        const row = {
-            data: (typeof todayPL === "function" ? todayPL() : new Date().toLocaleDateString("pl-PL")),
-            typ: statTyp,
-            godzina: (typeof nowHHMM === "function" ? nowHHMM() : ""),
-            entryId: entry.id || null
-        };
-        if (kwotaSum) row.kwota = kwotaSum;
-        appState.statystyki.interwencje.push(row);
+    for (let t = 0; t < times; t++) {
+        if (typeof logInterwencja === "function") {
+            await logInterwencja(statTyp, {
+                entryId: entry.id || null,
+                data: entry.data || undefined,
+                godzina: entry.godzinaStart || undefined,
+                kwota: (t === 0 ? kwotaSum : undefined) || undefined
+            });
+        } else {
+            if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [], wyniki: {} };
+            if (!Array.isArray(appState.statystyki.interwencje)) appState.statystyki.interwencje = [];
+            const row = {
+                data: (typeof todayPL === "function" ? todayPL() : new Date().toLocaleDateString("pl-PL")),
+                typ: statTyp,
+                godzina: (typeof nowHHMM === "function" ? nowHHMM() : ""),
+                entryId: entry.id || null
+            };
+            if (t === 0 && kwotaSum) row.kwota = kwotaSum;
+            appState.statystyki.interwencje.push(row);
+        }
     }
 
     // Inne – dolicz wybrane pozycje wyników
@@ -4928,6 +4990,8 @@ window.inneToggleGroup = inneToggleGroup;
 window.inneAddCount = inneAddCount;
 window.inneInsertItemToText = inneInsertItemToText;
 window.inneRenderGroupsPanel = inneRenderGroupsPanel;
+window.inneWstawWszystkieDane = inneWstawWszystkieDane;
+window.inneSaveNote = inneSaveNote;
 
 window.confirmKsiazkaInterwencja = confirmKsiazkaInterwencja;
 window.ksiazkaProceduraBadgeHtml = ksiazkaProceduraBadgeHtml;
