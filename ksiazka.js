@@ -872,13 +872,15 @@ async function clearAllKsiazka() {
     if (!confirm("Na pewno usunąć WSZYSTKIE wpisy z Książki wydarzeń?\n\nZostaną też wyczyszczone WSZYSTKIE statystyki (sprawdzenia + interwencje).")) return;
 
     appState.ksiazkaWydarzen = [];
-    if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
+    if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [], wyniki: {} };
     appState.statystyki.interwencje = [];
     appState.statystyki.sprawdzenia = [];
+    appState.statystyki.wyniki = {};
+    if (typeof wynikiClearState === "function") wynikiClearState();
     await saveState();
     renderKsiazka();
     if (typeof showToast === "function") {
-        showToast("🗑️ Wyczyszczono książkę i wszystkie statystyki");
+        showToast("🗑️ Wyczyszczono książkę, statystyki i wyniki");
     }
 }
 
