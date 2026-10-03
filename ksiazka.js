@@ -3558,6 +3558,16 @@ async function removeKsiazkaInterwencja(entryIndex, code) {
     if (codeU === "M") {
         delete entry.interwencje.MKK;
         delete entry.interwencje.M;
+        // odejmij kwotę z wyników poz. 28
+        const kw = Number(entry.mkkKwota) || 0;
+        if (kw && appState.statystyki) {
+            if (!appState.statystyki.wyniki) appState.statystyki.wyniki = {};
+            const cur = Number(appState.statystyki.wyniki[28]) || 0;
+            const next = Math.max(0, cur - kw);
+            if (next > 0) appState.statystyki.wyniki[28] = next;
+            else delete appState.statystyki.wyniki[28];
+        }
+        delete entry.mkkKwota;
     } else if (codeU === "P") {
         delete entry.interwencje.P;
         delete entry.interwencje.Pouczony;
@@ -3669,6 +3679,7 @@ function openKsiazkaInterwencjaModal(index, typ) {
     document.body.appendChild(overlay);
     // zapamiętaj szablon do wstawienia
     overlay._szablon = szablon;
+    overlay._kwotaSum = 0;
 
     // Zapamiętuj pozycję kursora w textarea (klik w "Wstaw szablon" zdejmuje fokus)
     const ta = document.getElementById("ksUwagiTekst");
@@ -3750,7 +3761,27 @@ function ksiazkaInterwencjaWstawSzablon() {
 
     const index = window._ksiazkaInterwencjaIndex;
     const entry = (index != null && appState.ksiazkaWydarzen) ? appState.ksiazkaWydarzen[index] : null;
+    const typ = window._ksiazkaInterwencjaTyp || "";
+
+    // MKK: pytanie o kwotę → @kwota w szablonie + suma do wyników (poz. 28)
+    let kwotaNum = null;
+    if (typ === "MKK" || typ === "M") {
+        const ans = prompt("Kwota mandatu (zł):", "");
+        if (ans === null) return; // anulowano wstawianie
+        const n = parseInt(String(ans).replace(/\D/g, ""), 10);
+        if (isNaN(n) || n < 0) {
+            if (typeof showToast === "function") showToast("Podaj prawidłową kwotę");
+            return;
+        }
+        kwotaNum = n;
+        add = add.replace(/@kwota\b/gi, String(n));
+        if (!modal._kwotaSum) modal._kwotaSum = 0;
+        modal._kwotaSum += n;
+    }
+
     add = ksiazkaInterwencjaResolveTags(add, entry);
+    // gdy ktoś wstawił @kwota bez pytania (nie-MKK) – zostaw lub wyczyść
+    if (kwotaNum != null) add = add.replace(/@kwota\b/gi, String(kwotaNum));
 
     // Wstaw w miejscu kursora (zaznaczenie zamieniane na szablon)
     const modalEl = document.getElementById("ksiazkaUwagiEditModal");
@@ -3811,27 +3842,52 @@ async function confirmKsiazkaInterwencja() {
 
     // Zapis do STATYSTYK (suma MKK / Pouczony / Legitymowany / Inne)
     const statTyp = meta ? meta.label : (typ === "MKK" ? "MKK" : typ === "P" ? "Pouczony" : typ === "L" ? "Legitymowany" : "Inne");
+    const modal = document.getElementById("ksiazkaUwagiEditModal");
+    const kwotaSum = (modal && Number(modal._kwotaSum) > 0) ? Number(modal._kwotaSum) : 0;
+
     if (typeof logInterwencja === "function") {
         await logInterwencja(statTyp, {
             entryId: entry.id || null,
             data: entry.data || undefined,
-            godzina: entry.godzinaStart || undefined
+            godzina: entry.godzinaStart || undefined,
+            kwota: kwotaSum || undefined
         });
     } else {
-        if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
+        if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [], wyniki: {} };
         if (!Array.isArray(appState.statystyki.interwencje)) appState.statystyki.interwencje = [];
-        appState.statystyki.interwencje.push({
+        const row = {
             data: (typeof todayPL === "function" ? todayPL() : new Date().toLocaleDateString("pl-PL")),
             typ: statTyp,
             godzina: (typeof nowHHMM === "function" ? nowHHMM() : ""),
             entryId: entry.id || null
-        });
+        };
+        if (kwotaSum) row.kwota = kwotaSum;
+        appState.statystyki.interwencje.push(row);
+    }
+
+    // Kwota mandatów (poz. 28) – suma wszystkich wstawionych przy tej interwencji
+    if (kwotaSum && (statTyp === "MKK" || typ === "MKK" || typ === "M")) {
+        if (typeof ensureStatystykiState === "function") ensureStatystykiState();
+        if (!appState.statystyki.wyniki) appState.statystyki.wyniki = {};
+        const prev = Number(appState.statystyki.wyniki[28]) || 0;
+        appState.statystyki.wyniki[28] = prev + kwotaSum;
+        entry.mkkKwota = (Number(entry.mkkKwota) || 0) + kwotaSum;
+        if (typeof wynikiSyncAutoToState === "function") {
+            // nie nadpisuj 28 – to ręczne; sync tylko auto
+            wynikiSyncAutoToState();
+            // przywróć sumę kwot (sync nie rusza 28, ale na wszelki wypadek)
+            appState.statystyki.wyniki[28] = (Number(appState.statystyki.wyniki[28]) || 0);
+            if (!appState.statystyki.wyniki[28] && prev + kwotaSum) {
+                appState.statystyki.wyniki[28] = prev + kwotaSum;
+            }
+        }
     }
 
     await saveState();
     closeKsiazkaUwagiEditModal();
     renderKsiazka();
-    if (typeof showToast === "function") showToast("✅ Zapisano interwencję " + statTyp + " (+1 w statystykach)");
+    const extra = kwotaSum ? (" · kwota +" + kwotaSum + " zł") : "";
+    if (typeof showToast === "function") showToast("✅ Zapisano interwencję " + statTyp + " (+1 w statystykach)" + extra);
 }
 
 
