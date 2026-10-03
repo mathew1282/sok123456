@@ -3679,16 +3679,35 @@ function inneWstawWszystkieDane() {
     nrs.forEach(nr => inneInsertItemToText(nr));
 }
 
-function inneApplyCountsToWyniki() {
+/**
+ * Zapis Inne: ustawia wkłady tego wpisu (entry.inneCounts) i koryguje wyniki.
+ * Ponowne otwarcie: 29=3 → zmieniasz na 1 → wyniki stają się o 2 mniejsze.
+ */
+function inneApplyCountsToWyniki(entry) {
     if (typeof ensureStatystykiState === "function") ensureStatystykiState();
     if (!appState.statystyki.wyniki) appState.statystyki.wyniki = {};
+    const old = (entry && entry.inneCounts && typeof entry.inneCounts === "object") ? entry.inneCounts : {};
+    const neu = {};
     Object.keys(_inneSessionCounts).forEach(k => {
         const nr = parseInt(k, 10);
-        const add = Number(_inneSessionCounts[k]) || 0;
-        if (!add) return;
-        const prev = Number(appState.statystyki.wyniki[nr]) || 0;
-        appState.statystyki.wyniki[nr] = prev + add;
+        const v = Number(_inneSessionCounts[k]) || 0;
+        if (v > 0) neu[nr] = v;
     });
+    // wszystkie klucze ze starych i nowych
+    const keys = new Set([...Object.keys(old).map(Number), ...Object.keys(neu).map(Number)]);
+    keys.forEach(nr => {
+        if (!nr && nr !== 0) return;
+        const o = Number(old[nr]) || 0;
+        const n = Number(neu[nr]) || 0;
+        const cur = Number(appState.statystyki.wyniki[nr]) || 0;
+        const next = Math.max(0, cur - o + n);
+        if (next > 0) appState.statystyki.wyniki[nr] = next;
+        else delete appState.statystyki.wyniki[nr];
+    });
+    if (entry) {
+        entry.inneCounts = neu;
+        if (!Object.keys(neu).length) delete entry.inneCounts;
+    }
 }
 
 
@@ -3739,106 +3758,202 @@ function ksiazkaInterwencjeBadgesHtml(entry, absolute, entryIndex) {
         const label = n > 1 ? (c + "−" + n) : c;
         return `<span style="display:inline-flex; align-items:center; gap:2px; background:rgba(59,130,246,.15); border:1px solid rgba(96,165,250,.5); border-radius:6px; padding:1px 4px 1px 6px;">
             <span style="font-weight:800; font-size:13px; color:var(--primary-light,#60a5fa); letter-spacing:0.5px;" title="Interwencja ×${n}">${label}</span>
-            ${canRemove ? `<button type="button" title="Cofnij interwencję ${c}"
-                onclick="event.stopPropagation(); removeKsiazkaInterwencja(${idxAttr}, '${c}')"
+            ${canRemove ? `<button type="button" title="Zarządzaj interwencją ${c}"
+                onclick="event.stopPropagation(); openInterwencjaRemoveModal(${idxAttr}, '${c}')"
                 style="border:none; background:transparent; color:#f87171; font-weight:800; font-size:12px; line-height:1; cursor:pointer; padding:0 2px;">×</button>` : ""}
         </span>`;
     }).join("") + `</span>`;
 }
 
 /** Cofnij interwencję: usuwa oznaczenie z wpisu i −1 ze statystyk */
-async function removeKsiazkaInterwencja(entryIndex, code) {
+
+function interwencjaNormTyp(t) {
+    t = String(t || "").trim();
+    if (t === "M" || t.toUpperCase() === "MKK") return "MKK";
+    if (t === "P" || /^poucz/i.test(t)) return "Pouczony";
+    if (t === "L" || /^legitym/i.test(t)) return "Legitymowany";
+    if (t === "I" || /^inne$/i.test(t)) return "Inne";
+    return t;
+}
+
+function interwencjaCodeToWant(code) {
+    const u = String(code || "").toUpperCase();
+    if (u === "M") return "MKK";
+    if (u === "P") return "Pouczony";
+    if (u === "L") return "Legitymowany";
+    if (u === "I") return "Inne";
+    return interwencjaNormTyp(code);
+}
+
+/** Lista rekordów statystyk dla wpisu + typu */
+function interwencjaFindStatRows(entry, wantTyp) {
+    if (!appState.statystyki || !Array.isArray(appState.statystyki.interwencje)) return [];
+    const entryId = entry && entry.id != null ? String(entry.id) : null;
+    const rows = [];
+    appState.statystyki.interwencje.forEach((row, i) => {
+        if (interwencjaNormTyp(row.typ) !== wantTyp) return;
+        if (entryId && String(row.entryId || "") === entryId) {
+            rows.push({ i, row });
+        }
+    });
+    // fallback gdy brak entryId na starych rekordach – nie mieszaj z innymi wpisami
+    return rows;
+}
+
+function openInterwencjaRemoveModal(entryIndex, code) {
     ensureKsiazkaState();
     const entry = appState.ksiazkaWydarzen[entryIndex];
     if (!entry) return;
-
-    const codeU = String(code || "").toUpperCase();
-    const labelMap = { M: "MKK", P: "Pouczony", L: "Legitymowany", I: "Inne" };
-    const label = labelMap[codeU] || codeU;
-
-    if (!confirm("Cofnąć interwencję \"" + label + "\" z tego wpisu? (−1 w statystykach)")) return;
-
-    if (!entry.interwencje || typeof entry.interwencje !== "object") entry.interwencje = {};
-
-    if (codeU === "M") {
-        delete entry.interwencje.MKK;
-        delete entry.interwencje.M;
-        // odejmij kwotę z wyników poz. 28
-        const kw = Number(entry.mkkKwota) || 0;
-        if (kw && appState.statystyki) {
-            if (!appState.statystyki.wyniki) appState.statystyki.wyniki = {};
-            const cur = Number(appState.statystyki.wyniki[28]) || 0;
-            const next = Math.max(0, cur - kw);
-            if (next > 0) appState.statystyki.wyniki[28] = next;
-            else delete appState.statystyki.wyniki[28];
+    const want = interwencjaCodeToWant(code);
+    if (want === "Inne") {
+        if (typeof showToast === "function") {
+            showToast("Inne poprawiasz w oknie „Inne” przy wpisie (liczniki → Zapisz)");
         }
-        delete entry.mkkKwota;
-    } else if (codeU === "P") {
-        delete entry.interwencje.P;
-        delete entry.interwencje.Pouczony;
-    } else if (codeU === "L") {
-        delete entry.interwencje.L;
-        delete entry.interwencje.Legitymowany;
-    } else if (codeU === "I") {
-        delete entry.interwencje.I;
-        delete entry.interwencje.Inne;
+        // otwórz Inne do edycji
+        openKsiazkaInterwencjaModal(entryIndex, "I");
+        return;
+    }
+    const labelMap = { MKK: "MKK", Pouczony: "Pouczony (P)", Legitymowany: "Legitymowany (L)" };
+    const label = labelMap[want] || want;
+    let rows = interwencjaFindStatRows(entry, want);
+    // jeśli brak w statystykach, ale jest licznik na wpisie – pokaż sztuczne sloty
+    const counts = entry.interwencjeCounts || {};
+    let nBadge = Number(counts.MKK || counts.M || 0);
+    if (want === "Pouczony") nBadge = Number(counts.P || counts.Pouczony || 0);
+    if (want === "Legitymowany") nBadge = Number(counts.L || counts.Legitymowany || 0);
+    if (!nBadge && entry.interwencje) {
+        if (want === "MKK" && (entry.interwencje.MKK || entry.interwencje.M)) nBadge = 1;
+        if (want === "Pouczony" && (entry.interwencje.P || entry.interwencje.Pouczony)) nBadge = 1;
+        if (want === "Legitymowany" && (entry.interwencje.L || entry.interwencje.Legitymowany)) nBadge = 1;
+    }
+    if (!rows.length && nBadge > 0) {
+        for (let s = 0; s < nBadge; s++) {
+            rows.push({ i: -1 - s, row: { typ: want, kwota: (want === "MKK" && s === 0 ? (entry.mkkKwota || 0) : 0), _virtual: true } });
+        }
     }
 
-    // −1 w statystykach: usuń jeden pasujący rekord (preferuj entryId + typ)
-    if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [] };
+    const old = document.getElementById("interwencjaRemoveModal");
+    if (old) old.remove();
+
+    const listHtml = rows.length
+        ? rows.map((item, idx) => {
+            const kw = Number(item.row.kwota) || 0;
+            const kwTxt = (want === "MKK")
+                ? (kw > 0 ? (` · <strong>${kw} zł</strong>`) : " · bez kwoty")
+                : "";
+            const godz = item.row.godzina ? ` · ${escapeHtml(String(item.row.godzina))}` : "";
+            return `<div style="display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border);">
+                <span style="flex:1; font-size:14px;">#${idx + 1} ${escapeHtml(label)}${kwTxt}${godz}</span>
+                <button type="button" class="btn-danger" style="padding:4px 10px; font-weight:800;"
+                    onclick="removeOneInterwencjaInstance(${entryIndex}, '${want}', ${item.i})">×</button>
+            </div>`;
+        }).join("")
+        : `<div style="padding:16px; color:var(--text-dim);">Brak pozycji do usunięcia.</div>`;
+
+    const overlay = document.createElement("div");
+    overlay.id = "interwencjaRemoveModal";
+    overlay.className = "modal-overlay";
+    overlay.style.display = "flex";
+    overlay.innerHTML = `
+        <div class="modal" style="max-width:480px;">
+            <h2 style="margin-top:0;">${escapeHtml(label)} · ${rows.length} szt.</h2>
+            <p style="color:var(--text-dim); font-size:13px; margin:0 0 10px 0;">
+                Kliknij <strong>×</strong>, aby usunąć pojedynczą pozycję (statystyki i kwota aktualizują się same).
+            </p>
+            <div style="border:1px solid var(--border); border-radius:10px; max-height:50vh; overflow:auto;">
+                ${listHtml}
+            </div>
+            <div class="modal-actions" style="margin-top:14px;">
+                <button class="btn-danger" onclick="closeInterwencjaRemoveModal()">Zamknij</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+function closeInterwencjaRemoveModal() {
+    const m = document.getElementById("interwencjaRemoveModal");
+    if (m) m.remove();
+}
+
+async function removeOneInterwencjaInstance(entryIndex, wantTyp, statIndex) {
+    ensureKsiazkaState();
+    const entry = appState.ksiazkaWydarzen[entryIndex];
+    if (!entry) return;
+    const want = interwencjaNormTyp(wantTyp);
+
+    if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [], wyniki: {} };
     if (!Array.isArray(appState.statystyki.interwencje)) appState.statystyki.interwencje = [];
+    if (!appState.statystyki.wyniki) appState.statystyki.wyniki = {};
 
-    const typAliases = {
-        M: ["MKK", "M"],
-        P: ["Pouczony", "P"],
-        L: ["Legitymowany", "L"],
-        I: ["Inne", "I"]
-    };
-    const aliases = typAliases[codeU] || [label];
-    const entryId = entry.id != null ? String(entry.id) : null;
-
-    const norm = (t) => {
-        t = String(t || "").trim();
-        if (t === "M" || t.toUpperCase() === "MKK") return "MKK";
-        if (t === "P" || /^poucz/i.test(t)) return "Pouczony";
-        if (t === "L" || /^legitym/i.test(t)) return "Legitymowany";
-        if (t === "I" || /^inne$/i.test(t)) return "Inne";
-        return t;
-    };
-    const want = norm(label);
-
-    let removed = false;
-    // 1) z tym samym entryId
-    if (entryId) {
-        for (let i = appState.statystyki.interwencje.length - 1; i >= 0; i--) {
-            const row = appState.statystyki.interwencje[i];
-            if (String(row.entryId || "") === entryId && norm(row.typ) === want) {
-                appState.statystyki.interwencje.splice(i, 1);
-                removed = true;
-                break;
-            }
+    let kw = 0;
+    if (statIndex >= 0 && appState.statystyki.interwencje[statIndex]) {
+        const row = appState.statystyki.interwencje[statIndex];
+        if (interwencjaNormTyp(row.typ) === want) {
+            kw = Number(row.kwota) || 0;
+            appState.statystyki.interwencje.splice(statIndex, 1);
         }
-    }
-    // 2) fallback: ostatni rekord tego typu
-    if (!removed) {
+    } else {
+        // virtual / fallback – usuń ostatni pasujący po entryId
+        const entryId = entry.id != null ? String(entry.id) : null;
         for (let i = appState.statystyki.interwencje.length - 1; i >= 0; i--) {
             const row = appState.statystyki.interwencje[i];
-            if (norm(row.typ) === want) {
-                appState.statystyki.interwencje.splice(i, 1);
-                removed = true;
-                break;
-            }
+            if (interwencjaNormTyp(row.typ) !== want) continue;
+            if (entryId && String(row.entryId || "") !== entryId) continue;
+            kw = Number(row.kwota) || 0;
+            appState.statystyki.interwencje.splice(i, 1);
+            break;
         }
     }
 
+    if (want === "MKK" && kw > 0) {
+        const cur = Number(appState.statystyki.wyniki[28]) || 0;
+        const next = Math.max(0, cur - kw);
+        if (next > 0) appState.statystyki.wyniki[28] = next;
+        else delete appState.statystyki.wyniki[28];
+        entry.mkkKwota = Math.max(0, (Number(entry.mkkKwota) || 0) - kw);
+        if (!entry.mkkKwota) delete entry.mkkKwota;
+    }
+
+    if (!entry.interwencjeCounts) entry.interwencjeCounts = {};
+    const dec = (key) => {
+        const v = Math.max(0, (Number(entry.interwencjeCounts[key]) || 0) - 1);
+        if (v > 0) entry.interwencjeCounts[key] = v;
+        else delete entry.interwencjeCounts[key];
+        return v;
+    };
+    let left = 0;
+    if (want === "MKK") left = dec("MKK");
+    else if (want === "Pouczony") left = dec("P");
+    else if (want === "Legitymowany") left = dec("L");
+
+    if (left <= 0) {
+        if (want === "MKK") { delete entry.interwencje.MKK; delete entry.interwencje.M; }
+        if (want === "Pouczony") { delete entry.interwencje.P; delete entry.interwencje.Pouczony; }
+        if (want === "Legitymowany") { delete entry.interwencje.L; delete entry.interwencje.Legitymowany; }
+    }
+
+    if (typeof wynikiSyncAutoToState === "function") wynikiSyncAutoToState();
     await saveState();
     renderKsiazka();
-    if (typeof showToast === "function") {
-        showToast(removed
-            ? "↩ Cofnięto " + label + " (−1 w statystykach)"
-            : "↩ Usunięto oznaczenie " + label + " (brak wpisu w statystykach)");
+    closeInterwencjaRemoveModal();
+    // odśwież listę jeśli coś zostało
+    const code = want === "MKK" ? "M" : (want === "Pouczony" ? "P" : (want === "Legitymowany" ? "L" : "I"));
+    const still = interwencjaFindStatRows(entry, want);
+    const cLeft = want === "MKK" ? (entry.interwencjeCounts && entry.interwencjeCounts.MKK) :
+        (want === "Pouczony" ? (entry.interwencjeCounts && entry.interwencjeCounts.P) :
+            (entry.interwencjeCounts && entry.interwencjeCounts.L));
+    if ((still.length > 0) || (Number(cLeft) > 0)) {
+        openInterwencjaRemoveModal(entryIndex, code);
     }
+    if (typeof showToast === "function") showToast("↩ Usunięto 1 × " + want + (kw ? (" (−" + kw + " zł)") : ""));
 }
+
+/** legacy – pełne usunięcie (nieużywane z badge, zostawione) */
+async function removeKsiazkaInterwencja(entryIndex, code) {
+    openInterwencjaRemoveModal(entryIndex, code);
+}
+
 
 function openKsiazkaInterwencjaModal(index, typ) {
     ensureKsiazkaState();
@@ -3865,8 +3980,14 @@ function openKsiazkaInterwencjaModal(index, typ) {
     overlay.style.display = "flex";
     const isInne = (typ === "I" || typ === "Inne" || meta.code === "I");
     if (isInne) {
-        _inneSessionCounts = {};
         _inneExpandedGroups = {};
+        _inneSessionCounts = {};
+        if (entry.inneCounts && typeof entry.inneCounts === "object") {
+            Object.keys(entry.inneCounts).forEach(nr => {
+                const v = Number(entry.inneCounts[nr]) || 0;
+                if (v > 0) _inneSessionCounts[nr] = v;
+            });
+        }
     }
 
     overlay.innerHTML = isInne ? `
@@ -3916,6 +4037,7 @@ function openKsiazkaInterwencjaModal(index, typ) {
     // zapamiętaj szablon do wstawienia
     overlay._szablon = szablon;
     overlay._kwotaSum = 0;
+    overlay._kwotaList = [];
     overlay._szablonInsertCount = 0;
 
     // Zapamiętuj pozycję kursora w textarea (klik w "Wstaw szablon" zdejmuje fokus)
@@ -4020,7 +4142,9 @@ function ksiazkaInterwencjaWstawSzablon() {
         kwotaNum = n;
         add = add.replace(/@kwota\b/gi, String(n));
         if (!modal._kwotaSum) modal._kwotaSum = 0;
+        if (!Array.isArray(modal._kwotaList)) modal._kwotaList = [];
         modal._kwotaSum += n;
+        modal._kwotaList.push(n);
     }
 
     add = ksiazkaInterwencjaResolveTags(add, entry);
@@ -4098,13 +4222,15 @@ async function confirmKsiazkaInterwencja() {
     if (statTyp === "Pouczony") entry.interwencjeCounts.P = entry.interwencjeCounts[countKey];
     if (statTyp === "Legitymowany") entry.interwencjeCounts.L = entry.interwencjeCounts[countKey];
 
+    const kwotaList = (modal && Array.isArray(modal._kwotaList)) ? modal._kwotaList.slice() : [];
     for (let t = 0; t < times; t++) {
+        const oneKw = (statTyp === "MKK" && kwotaList[t] != null) ? Number(kwotaList[t]) : 0;
         if (typeof logInterwencja === "function") {
             await logInterwencja(statTyp, {
                 entryId: entry.id || null,
                 data: entry.data || undefined,
                 godzina: entry.godzinaStart || undefined,
-                kwota: (t === 0 ? kwotaSum : undefined) || undefined
+                kwota: oneKw || undefined
             });
         } else {
             if (!appState.statystyki) appState.statystyki = { interwencje: [], sprawdzenia: [], wyniki: {} };
@@ -4115,14 +4241,14 @@ async function confirmKsiazkaInterwencja() {
                 godzina: (typeof nowHHMM === "function" ? nowHHMM() : ""),
                 entryId: entry.id || null
             };
-            if (t === 0 && kwotaSum) row.kwota = kwotaSum;
+            if (oneKw) row.kwota = oneKw;
             appState.statystyki.interwencje.push(row);
         }
     }
 
     // Inne – dolicz wybrane pozycje wyników
     if ((typ === "I" || typ === "Inne" || statTyp === "Inne") && typeof inneApplyCountsToWyniki === "function") {
-        inneApplyCountsToWyniki();
+        inneApplyCountsToWyniki(entry);
         _inneSessionCounts = {};
     }
 
@@ -5000,6 +5126,9 @@ window.ksiazkaEntryTopBadgesHtml = ksiazkaEntryTopBadgesHtml;
 window.ksiazkaInterwencjeBadgesHtml = ksiazkaInterwencjeBadgesHtml;
 
 window.removeKsiazkaInterwencja = removeKsiazkaInterwencja;
+window.openInterwencjaRemoveModal = openInterwencjaRemoveModal;
+window.closeInterwencjaRemoveModal = closeInterwencjaRemoveModal;
+window.removeOneInterwencjaInstance = removeOneInterwencjaInstance;
 
 
 window.openKsiazkaUwagiPicker = openKsiazkaUwagiPicker;
