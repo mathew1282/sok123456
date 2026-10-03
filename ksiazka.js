@@ -1284,8 +1284,9 @@ function renderPlanSluzbyModal() {
                 </div>
                 ${idBtns}
                 <label style="font-size:12px;">Treść</label>
-                <textarea class="plan-tekst" data-idx="${idx}" rows="3" style="width:100%; font-size:13px;"
-                          onchange="planDraftUpdateTekst(${idx}, this.value)">${escapeHtml(r.tekst || "")}</textarea>
+                <div class="plan-tekst rich-opis-editor" contenteditable="true" data-idx="${idx}"
+                     style="width:100%; min-height:72px; font-size:13px; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); white-space:pre-wrap;"
+                     onblur="planDraftUpdateTekst(${idx}, this.isContentEditable ? this.innerHTML : this.value)">${(typeof formatKsiazkaTekstHtml === "function" ? formatKsiazkaTekstHtml(r.tekst || "") : escapeHtml(r.tekst || ""))}</div>
             </div>`;
         }).join("");
     }
@@ -1662,27 +1663,39 @@ function planAddTogglePol(i) {
     planUpdateAddPreviewFromTiles();
 }
 
-/** Treść z ręki + kafelków (3 poziomy) */
+/** Treść z ręki + kafelków – jak „Dodaj wpis”: HTML (bold itd.), bez stripowania */
 function planResolveAddTekstFromTiles() {
     const manual = (document.getElementById("planAddTekst")?.value || "").trim();
     const parts = [];
-    if (manual) parts.push(manual);
+    if (manual) {
+        // ręcznie = zwykły tekst → proste HTML
+        parts.push(escapeHtml(manual).replace(/\n/g, "<br>"));
+    }
 
     if (_planAddTiles.zglIndex != null) {
         const row = appState.zgloszenia?.rows?.[_planAddTiles.zglIndex];
         if (row) {
-            const t = stripHtmlPlain(row.Opis || row.OpisKrotki || "");
-            if (t) parts.push(t);
+            let t = String(row.Opis || row.OpisKrotki || "").trim();
+            if (t) parts.push(t); // zachowaj <b>, <u> itd.
         }
     }
     if (_planAddTiles.polIndex != null) {
         const row = appState.polecenia?.rows?.[_planAddTiles.polIndex];
         if (row) {
-            const t = stripHtmlPlain(row.Opis || row.OpisKrotki || "");
+            let t = String(row.Opis || row.OpisKrotki || "").trim();
             if (t) parts.push(t);
         }
     }
-    return parts.join("\n\n");
+    return parts.filter(Boolean).join("<br><br>");
+}
+
+/** Meta procedury z wybranego zgłoszenia (jak Dodaj wpis) */
+function planResolveAddProcedureMeta() {
+    if (_planAddTiles.zglIndex == null) return null;
+    const row = appState.zgloszenia?.rows?.[_planAddTiles.zglIndex];
+    if (!row || !row.procedureId) return null;
+    if (row.procedureRole !== "start" && row.procedureRole !== "end") return null;
+    return { procedureId: row.procedureId, procedureRole: row.procedureRole };
 }
 
 function planUpdateAddPreviewFromTiles() {
@@ -1691,11 +1704,13 @@ function planUpdateAddPreviewFromTiles() {
     const tekst = planResolveAddTekstFromTiles();
     if (!tekst) {
         box.style.display = "none";
-        box.textContent = "";
+        box.innerHTML = "";
         return;
     }
     box.style.display = "block";
-    box.textContent = tekst;
+    box.innerHTML = (typeof formatKsiazkaTekstHtml === "function")
+        ? formatKsiazkaTekstHtml(tekst)
+        : tekst;
 }
 
 function planUpdateAddPreview(prefix) {
@@ -1725,11 +1740,17 @@ function planDraftDodaj() {
         else alert("Podaj treść ręcznie lub wybierz kafelek");
         return;
     }
-    _planDraft.push({
+    const proc = planResolveAddProcedureMeta();
+    const item = {
         offsetMin: _planDraft.length === 0 ? 0 : offset,
         tekst,
         patrolIndexes: [...patrolIndexes]
-    });
+    };
+    if (proc) {
+        item.procedureId = proc.procedureId;
+        item.procedureRole = proc.procedureRole;
+    }
+    _planDraft.push(item);
     resetPlanAddTiles();
     const ta = document.getElementById("planAddTekst");
     if (ta) ta.value = "";
@@ -1772,11 +1793,18 @@ function planWczytajSzablon() {
             if (pi + 1 > _planNumPatroli) _planNumPatroli = pi + 1;
         });
     });
-    _planDraft = (s.rekordy || []).map(r => planEnsureDraftShape({
-        offsetMin: Number(r.offsetMin) || 0,
-        tekst: r.tekst || "",
-        patrolIndexes: planNormalizeIndexes(r.patrolIndexes != null ? r.patrolIndexes : r.patrolIndex)
-    }));
+    _planDraft = (s.rekordy || []).map(r => {
+        const item = planEnsureDraftShape({
+            offsetMin: Number(r.offsetMin) || 0,
+            tekst: r.tekst || "",
+            patrolIndexes: planNormalizeIndexes(r.patrolIndexes != null ? r.patrolIndexes : r.patrolIndex)
+        });
+        if (r.procedureId && (r.procedureRole === "start" || r.procedureRole === "end")) {
+            item.procedureId = r.procedureId;
+            item.procedureRole = r.procedureRole;
+        }
+        return item;
+    });
     if (_planDraft.length) _planDraft[0].offsetMin = 0;
     _planSzablonyCollapsed = true;
     _planSelectedPointIdx = null;
@@ -1793,7 +1821,7 @@ async function planZapiszJakoSzablon() {
     }
     document.querySelectorAll(".plan-tekst").forEach(ta => {
         const idx = parseInt(ta.getAttribute("data-idx"), 10);
-        if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
+        if (_planDraft[idx]) _planDraft[idx].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
     });
 
     let nazwa = prompt("Nazwa szablonu:", "");
@@ -1802,11 +1830,16 @@ async function planZapiszJakoSzablon() {
 
     const rekordy = _planDraft.map((r, idx) => {
         planEnsureDraftShape(r);
-        return {
+        const rec = {
             offsetMin: idx === 0 ? 0 : (Number(r.offsetMin) || 0),
             tekst: r.tekst || "",
             patrolIndexes: planNormalizeIndexes(r.patrolIndexes)
         };
+        if (r.procedureId && (r.procedureRole === "start" || r.procedureRole === "end")) {
+            rec.procedureId = r.procedureId;
+            rec.procedureRole = r.procedureRole;
+        }
+        return rec;
     });
 
     if (_planEditTemplateId) {
@@ -1907,7 +1940,7 @@ function planToggleSzablonyCollapse() {
     // zachowaj teksty z UI
     document.querySelectorAll(".plan-tekst").forEach(ta => {
         const idx = parseInt(ta.getAttribute("data-idx"), 10);
-        if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
+        if (_planDraft[idx]) _planDraft[idx].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
     });
     _planSzablonyCollapsed = !_planSzablonyCollapsed;
     renderPlanSluzbyModal();
@@ -1916,7 +1949,7 @@ function planToggleSzablonyCollapse() {
 function planToggleCycCollapse() {
     document.querySelectorAll(".plan-tekst").forEach(ta => {
         const idx = parseInt(ta.getAttribute("data-idx"), 10);
-        if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
+        if (_planDraft[idx]) _planDraft[idx].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
     });
     _planCycCollapsed = !_planCycCollapsed;
     renderPlanSluzbyModal();
@@ -1925,7 +1958,7 @@ function planToggleCycCollapse() {
 function planSetMultiPatrolDesc(on) {
     document.querySelectorAll(".plan-tekst").forEach(ta => {
         const idx = parseInt(ta.getAttribute("data-idx"), 10);
-        if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
+        if (_planDraft[idx]) _planDraft[idx].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
     });
     _planMultiPatrolDesc = !!on;
     if (!_planMultiPatrolDesc) _planSelectedPointIdx = null;
@@ -1935,7 +1968,7 @@ function planSetMultiPatrolDesc(on) {
 function planToggleSelectPoint(idx) {
     document.querySelectorAll(".plan-tekst").forEach(ta => {
         const i = parseInt(ta.getAttribute("data-idx"), 10);
-        if (_planDraft[i]) _planDraft[i].tekst = ta.value;
+        if (_planDraft[i]) _planDraft[i].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
     });
     _planSelectedPointIdx = (_planSelectedPointIdx === idx) ? null : idx;
     renderPlanSluzbyModal();
@@ -1953,14 +1986,23 @@ function planInsertPatrolMarker(draftIdx, abstractIdx) {
     const ta = document.querySelector(`.plan-tekst[data-idx="${draftIdx}"]`);
     if (!ta) return;
     const marker = "⟦P" + (abstractIdx + 1) + "⟧";
-    const start = typeof ta.selectionStart === "number" ? ta.selectionStart : ta.value.length;
+    ta.focus();
+    if (ta.isContentEditable) {
+        try {
+            document.execCommand("insertText", false, marker);
+        } catch (e) {
+            ta.innerHTML = (ta.innerHTML || "") + marker;
+        }
+        if (_planDraft[draftIdx]) _planDraft[draftIdx].tekst = ta.innerHTML;
+        return;
+    }
+    const start = typeof ta.selectionStart === "number" ? ta.selectionStart : (ta.value || "").length;
     const end = typeof ta.selectionEnd === "number" ? ta.selectionEnd : start;
-    const before = ta.value.slice(0, start);
-    const after = ta.value.slice(end);
+    const before = (ta.value || "").slice(0, start);
+    const after = (ta.value || "").slice(end);
     ta.value = before + marker + after;
     const caret = before.length + marker.length;
     try { ta.setSelectionRange(caret, caret); } catch (e) {}
-    ta.focus();
     if (_planDraft[draftIdx]) _planDraft[draftIdx].tekst = ta.value;
 }
 
@@ -2017,11 +2059,16 @@ function planBuildAbsoluteTimes(startHHMM) {
     return _planDraft.map((r, idx) => {
         if (idx > 0) acc += (Number(r.offsetMin) || 0);
         planEnsureDraftShape(r);
-        return {
+        const item = {
             godzinaStart: minutesToHHMM(acc),
             tekst: r.tekst || "",
             patrole: planNormalizeIndexes(r.patrolIndexes)
         };
+        if (r.procedureId && (r.procedureRole === "start" || r.procedureRole === "end")) {
+            item.procedureId = r.procedureId;
+            item.procedureRole = r.procedureRole;
+        }
+        return item;
     });
 }
 
@@ -2032,7 +2079,7 @@ function planPodglad() {
     }
     document.querySelectorAll(".plan-tekst").forEach(ta => {
         const idx = parseInt(ta.getAttribute("data-idx"), 10);
-        if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
+        if (_planDraft[idx]) _planDraft[idx].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
     });
     const start = document.getElementById("planStartGodz")?.value || "07:00";
     const abs = planBuildAbsoluteTimes(start);
@@ -2104,7 +2151,7 @@ async function planZapiszDoKsiazki() {
     }
     document.querySelectorAll(".plan-tekst").forEach(ta => {
         const idx = parseInt(ta.getAttribute("data-idx"), 10);
-        if (_planDraft[idx]) _planDraft[idx].tekst = ta.value;
+        if (_planDraft[idx]) _planDraft[idx].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
     });
 
     const startGodz = document.getElementById("planStartGodz")?.value || "07:00";
@@ -2380,7 +2427,7 @@ async function planFinalizeWriteToKsiazka(mode) {
         tekst = tekst.replace(/@data\b/gi, data);
         tekst = capitalizeSentencesHtmlKs(tekst);
 
-        appState.ksiazkaWydarzen.push({
+        const entry = {
             id: Date.now() + Math.random().toString(36).slice(2),
             data: data,
             godzinaStart: p.godzinaStart,
@@ -2389,7 +2436,12 @@ async function planFinalizeWriteToKsiazka(mode) {
             zrobione: false,
             createdAt: new Date().toISOString(),
             zPlanu: true
-        });
+        };
+        if (p.procedureId && (p.procedureRole === "start" || p.procedureRole === "end")) {
+            entry.procedureId = p.procedureId;
+            entry.procedureRole = p.procedureRole;
+        }
+        appState.ksiazkaWydarzen.push(entry);
     });
 
     await saveState();
