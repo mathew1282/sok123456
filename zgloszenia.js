@@ -316,57 +316,58 @@ function zglGroupLevel3Rows(rows) {
 function zglLevel3PairHtml(startRow, endRow, startSelected, endSelected, onStart, onEnd) {
     const ls = (startRow.OpisPom || startRow.Opis || "start").substring(0, 80);
     const le = (endRow.OpisPom || endRow.Opis || "koniec").substring(0, 80);
-    // hover / selected: CSS .zgl-pair-half (jednakowa ramka lewa = prawa)
-    if (!document.getElementById("zglPairHoverStyle")) {
-        const st = document.createElement("style");
+    // Zawsze odśwież CSS (żeby nie zostawała stara wersja w DOM)
+    let st = document.getElementById("zglPairHoverStyle");
+    if (!st) {
+        st = document.createElement("style");
         st.id = "zglPairHoverStyle";
-        st.textContent = `
-            .zgl-pair-card {
-                border: 1px solid var(--border, #334155);
-                border-radius: 10px;
-                overflow: hidden;
-                background: var(--bg-input, transparent);
-            }
-            .zgl-pair-half {
-                box-sizing: border-box;
-                border: 2px solid transparent !important;
-                background: transparent;
-            }
-            .zgl-pair-half + .zgl-pair-half {
-                border-left: 1px solid var(--border, #334155) !important;
-            }
-            .zgl-pair-half.zgl-pair-on {
-                background: rgba(34, 197, 94, 0.14) !important;
-                border: 2px solid #22c55e !important;
-                border-radius: 8px;
-                z-index: 1;
-                position: relative;
-            }
-            .zgl-pair-half.zgl-pair-on + .zgl-pair-half {
-                border-left-width: 2px !important;
-            }
-            .zgl-pair-half:hover {
-                background: rgba(59, 130, 246, 0.16) !important;
-                border: 2px solid #60a5fa !important;
-                border-radius: 8px;
-                z-index: 2;
-                position: relative;
-            }
-            .zgl-pair-half.zgl-pair-on:hover {
-                background: rgba(34, 197, 94, 0.22) !important;
-                border-color: #22c55e !important;
-            }
-        `;
         document.head.appendChild(st);
     }
-    return `<div class="item-card zgl-pair-card" style="display:flex;padding:0;gap:0;cursor:default;">
-        <div role="button" class="zgl-pair-half${startSelected ? " zgl-pair-on" : ""}" onclick="event.stopPropagation();${onStart}"
-             style="flex:1;min-width:0;padding:10px 8px;cursor:pointer;transition:background .12s ease,border-color .12s ease;">
+    st.textContent = `
+        .zgl-pair-card.item-card {
+            display: flex !important;
+            gap: 6px !important;
+            padding: 4px !important;
+            border: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            overflow: visible !important;
+        }
+        .zgl-pair-card.item-card:hover {
+            border-color: transparent !important;
+        }
+        .zgl-pair-half {
+            flex: 1 1 50%;
+            min-width: 0;
+            box-sizing: border-box;
+            padding: 10px 8px;
+            cursor: pointer;
+            border-radius: 10px;
+            border: 2px solid var(--border, #94a3b8) !important;
+            background: var(--bg-input, #fff) !important;
+            color: var(--text);
+            transition: background .12s ease, border-color .12s ease, box-shadow .12s ease;
+        }
+        .zgl-pair-half.zgl-pair-on {
+            background: rgba(34, 197, 94, 0.12) !important;
+            border: 2px solid #22c55e !important;
+            box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.25);
+        }
+        .zgl-pair-half:hover {
+            border-color: #60a5fa !important;
+            background: rgba(59, 130, 246, 0.10) !important;
+        }
+        .zgl-pair-half.zgl-pair-on:hover {
+            border-color: #22c55e !important;
+            background: rgba(34, 197, 94, 0.18) !important;
+        }
+    `;
+    return `<div class="item-card zgl-pair-card" style="cursor:default;">
+        <div role="button" class="zgl-pair-half${startSelected ? " zgl-pair-on" : ""}" onclick="event.stopPropagation();${onStart}">
             <div style="font-size:11px;font-weight:700;color:#16a34a;margin-bottom:2px;">▶ start</div>
             <div style="font-size:13px;line-height:1.3;word-break:break-word;color:var(--text);">${escapeHtml(ls)}</div>
         </div>
-        <div role="button" class="zgl-pair-half${endSelected ? " zgl-pair-on" : ""}" onclick="event.stopPropagation();${onEnd}"
-             style="flex:1;min-width:0;padding:10px 8px;cursor:pointer;transition:background .12s ease,border-color .12s ease;">
+        <div role="button" class="zgl-pair-half${endSelected ? " zgl-pair-on" : ""}" onclick="event.stopPropagation();${onEnd}">
             <div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:2px;">■ koniec</div>
             <div style="font-size:13px;line-height:1.3;word-break:break-word;color:var(--text);">${escapeHtml(le)}</div>
         </div>
