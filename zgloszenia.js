@@ -117,16 +117,15 @@ function getZgloszeniaDisplayList() {
     if (zgloszeniaFilterLinia) {
         list = list.filter(i => String(i.linia) === String(zgloszeniaFilterLinia));
     }
-    // Excel-like filtry kolumn
-    const fLinia = (zglColFilters.Linia || "").trim().toLowerCase();
+    // Excel-like: tylko wybór z listy (dokładne dopasowanie)
+    const fLinia = (zglColFilters.Linia || "").trim();
     const fTyp = (zglColFilters.Typ || "").trim().toLowerCase();
-    const fKrotki = (zglColFilters.OpisKrotki || "").trim().toLowerCase();
-    const fPom = (zglColFilters.OpisPom || "").trim().toLowerCase();
-    if (fLinia) list = list.filter(i => String(i.linia || "").toLowerCase().includes(fLinia));
+    const fKrotki = (zglColFilters.OpisKrotki || "").trim();
+    if (fLinia) list = list.filter(i => String(i.linia || "") === fLinia);
     if (fTyp) {
         list = list.filter(i => {
             const typ = i.typ === "procedura" ? "procedura" : "zgłoszenie";
-            return typ.includes(fTyp) || (i.typ || "").toLowerCase().includes(fTyp);
+            return typ === fTyp;
         });
     }
     if (fKrotki) {
@@ -134,17 +133,7 @@ function getZgloszeniaDisplayList() {
             const k = i.typ === "procedura"
                 ? (i.start?.OpisKrotki || i.end?.OpisKrotki || i.tytul || "")
                 : (i.row?.OpisKrotki || i.tytul || "");
-            return String(k).toLowerCase().includes(fKrotki);
-        });
-    }
-    if (fPom) {
-        list = list.filter(i => {
-            if (i.typ === "procedura") {
-                const p1 = i.start?.OpisPom || "";
-                const p2 = i.end?.OpisPom || "";
-                return (p1 + " " + p2).toLowerCase().includes(fPom);
-            }
-            return String(i.row?.OpisPom || "").toLowerCase().includes(fPom);
+            return String(k) === fKrotki;
         });
     }
 
@@ -168,25 +157,60 @@ function renderZgloszenia() {
         : "background:#16a34a;border-color:#16a34a;color:#fff;";
     const usunLabel = delMode ? "Usuń zaznaczone" : "Usuń zaznaczone";
 
+    function zglUniqueValues(col) {
+        const all = getZgloszeniaDisplayListUnfiltered ? getZgloszeniaDisplayListUnfiltered() : null;
+        // buduj z raw rows / list bez filtrów kolumn
+        const items = [];
+        const seen = new Set();
+        function add(v) {
+            const s = String(v || "").trim();
+            if (!s || seen.has(s)) return;
+            seen.add(s);
+            items.push(s);
+        }
+        if (col === "Typ") {
+            add("procedura");
+            add("zgłoszenie");
+            return items;
+        }
+        (appState.zgloszenia?.rows || []).forEach(r => {
+            if (col === "Linia") add(r.Linia);
+            if (col === "OpisKrotki") add(r.OpisKrotki);
+        });
+        if (col === "Linia") items.sort(compareLiniaNatural);
+        else items.sort((a, b) => a.localeCompare(b, "pl", { sensitivity: "base" }));
+        return items;
+    }
+
     function thFilter(col, label) {
         const active = (zglColFilters[col] || "").trim();
         const open = zglOpenFilterCol === col;
         const arrow = active ? "▼" : "▽";
+        let dropdown = "";
+        if (open) {
+            const vals = zglUniqueValues(col);
+            const opts = vals.map(v => {
+                const sel = active === v;
+                return `<div onclick="event.stopPropagation();zglColFilters['${col}']='${String(v).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}';zglOpenFilterCol=null;renderZgloszenia();"
+                    style="padding:6px 8px;cursor:pointer;border-radius:6px;font-size:13px;${sel ? "background:rgba(59,130,246,.25);font-weight:700;" : ""}"
+                    onmouseover="this.style.background='rgba(59,130,246,.15)'" onmouseout="this.style.background='${sel ? "rgba(59,130,246,.25)" : "transparent"}'">
+                    ${escapeHtml(v)}
+                </div>`;
+            }).join("") || `<div style="padding:6px;color:var(--text-dim);font-size:12px;">Brak wartości</div>`;
+            dropdown = `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:200px;max-height:260px;overflow:auto;padding:6px;background:var(--bg-light);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);"
+                onclick="event.stopPropagation()">
+                ${opts}
+                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;margin-top:6px;"
+                        onclick="zglColFilters['${col}']='';zglOpenFilterCol=null;renderZgloszenia();">Wyczyść</button>
+            </div>`;
+        }
         return `<th style="position:relative; user-select:none;">
             <span style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
                   onclick="event.stopPropagation();zglToggleColFilter('${col}')">
                 ${label} <span style="font-size:10px;opacity:0.8;">${arrow}</span>
                 ${active ? `<span style="font-size:10px;color:#60a5fa;">●</span>` : ""}
             </span>
-            ${open ? `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:180px;padding:8px;background:var(--bg,#0f172a);border:1px solid var(--border,#334155);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);"
-                onclick="event.stopPropagation()">
-                <input type="text" placeholder="Filtruj…" value="${escapeHtml(zglColFilters[col] || "")}"
-                       style="width:100%;padding:6px 8px;border-radius:6px;margin-bottom:6px;"
-                       oninput="zglColFilters['${col}']=this.value;renderZgloszenia();"
-                       onclick="event.stopPropagation()">
-                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;"
-                        onclick="zglColFilters['${col}']='';zglOpenFilterCol=null;renderZgloszenia();">Wyczyść</button>
-            </div>` : ""}
+            ${dropdown}
         </th>`;
     }
 
@@ -261,7 +285,7 @@ function renderZgloszenia() {
                     ${thFilter("Linia", "Nr linii")}
                     ${thFilter("Typ", "Typ")}
                     ${thFilter("OpisKrotki", "Opis krótki")}
-                    ${thFilter("OpisPom", "Opis pom")}
+                    <th>Opis pom</th>
                     <th>Opis</th>
                     <th>Akcje</th>
                 </tr>
