@@ -102,6 +102,34 @@ function labelForZgloszenieId(id) {
     return (r.Linia || "?") + " · " + (r.OpisKrotki || "").substring(0, 40);
 }
 
+
+function polUniqueValues(col) {
+    const seen = new Set();
+    const items = [];
+    (appState.polecenia && appState.polecenia.rows ? appState.polecenia.rows : []).forEach(r => {
+        if (!r) return;
+        const s = String((col === "Linia" ? r.Linia : r.OpisKrotki) || "").trim();
+        if (!s || seen.has(s)) return;
+        seen.add(s);
+        items.push(s);
+    });
+    if (col === "Linia" && typeof compareLiniaNatural === "function") items.sort(compareLiniaNatural);
+    else items.sort((a, b) => a.localeCompare(b, "pl", { sensitivity: "base" }));
+    return items;
+}
+
+function polApplyColFilter(col, value) {
+    if (!polColFilters) polColFilters = { Linia: "", OpisKrotki: "", OpisPom: "" };
+    polColFilters[col] = value == null ? "" : String(value);
+    polOpenFilterCol = null;
+    renderPolecenia();
+}
+
+function polToggleColFilter(col) {
+    polOpenFilterCol = (polOpenFilterCol === col) ? null : col;
+    renderPolecenia();
+}
+
 function renderPolecenia() {
     const container = document.getElementById("poleceniaContainer");
     if (!container) return;
@@ -109,12 +137,10 @@ function renderPolecenia() {
     const allRows = appState.polecenia?.rows || [];
     let rows = allRows.map((row, index) => ({ ...row, _index: index }));
 
-    const fLinia = (polColFilters.Linia || "").trim().toLowerCase();
-    const fKrotki = (polColFilters.OpisKrotki || "").trim().toLowerCase();
-    const fPom = (polColFilters.OpisPom || "").trim().toLowerCase();
-    if (fLinia) rows = rows.filter(r => String(r.Linia || "").toLowerCase().includes(fLinia));
-    if (fKrotki) rows = rows.filter(r => String(r.OpisKrotki || "").toLowerCase().includes(fKrotki));
-    if (fPom) rows = rows.filter(r => String(r.OpisPom || "").toLowerCase().includes(fPom));
+    const fLinia = (polColFilters.Linia || "").trim();
+    const fKrotki = (polColFilters.OpisKrotki || "").trim();
+    if (fLinia) rows = rows.filter(r => String(r.Linia || "") === fLinia);
+    if (fKrotki) rows = rows.filter(r => String(r.OpisKrotki || "") === fKrotki);
 
     // Autofiltr wyświetlania: najpierw numery linii, potem alfabet
     rows = sortPoleceniaRows(rows);
@@ -128,21 +154,31 @@ function renderPolecenia() {
         const active = (polColFilters[col] || "").trim();
         const open = polOpenFilterCol === col;
         const arrow = active ? "▼" : "▽";
-        return `<th style="position:relative; user-select:none;">
+        let dropdown = "";
+        if (open) {
+            const vals = polUniqueValues(col);
+            const opts = vals.map(v => {
+                const sel = active === v;
+                return `<div data-pol-fcol="${col}" data-pol-fval="${escapeHtml(v).replace(/"/g, "&quot;")}"
+                    onclick="event.stopPropagation();polApplyColFilter(this.getAttribute('data-pol-fcol'), this.getAttribute('data-pol-fval'));"
+                    style="padding:6px 8px;cursor:pointer;border-radius:6px;font-size:13px;${sel ? "background:rgba(59,130,246,.25);font-weight:700;" : ""}">
+                    ${escapeHtml(v)}
+                </div>`;
+            }).join("") || `<div style="padding:6px;color:var(--text-dim);font-size:12px;">Brak wartości</div>`;
+            dropdown = `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:200px;max-height:260px;overflow:auto;padding:6px;background:var(--bg-light);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);"
+                onclick="event.stopPropagation()">
+                ${opts}
+                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;margin-top:6px;"
+                        onclick="event.stopPropagation();polApplyColFilter('${col}', '');">Wyczyść</button>
+            </div>`;
+        }
+        return `<th style="position:relative; user-select:none;" onclick="event.stopPropagation()">
             <span style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
                   onclick="event.stopPropagation();polToggleColFilter('${col}')">
                 ${label} <span style="font-size:10px;opacity:0.8;">${arrow}</span>
                 ${active ? `<span style="font-size:10px;color:#60a5fa;">●</span>` : ""}
             </span>
-            ${open ? `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:180px;padding:8px;background:var(--bg,#0f172a);border:1px solid var(--border,#334155);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);"
-                onclick="event.stopPropagation()">
-                <input type="text" placeholder="Filtruj…" value="${escapeHtml(polColFilters[col] || "")}"
-                       style="width:100%;padding:6px 8px;border-radius:6px;margin-bottom:6px;"
-                       oninput="polColFilters['${col}']=this.value;renderPolecenia();"
-                       onclick="event.stopPropagation()">
-                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;"
-                        onclick="polColFilters['${col}']='';polOpenFilterCol=null;renderPolecenia();">Wyczyść</button>
-            </div>` : ""}
+            ${dropdown}
         </th>`;
     }
 
@@ -196,7 +232,7 @@ function renderPolecenia() {
                     ${thCb}
                     ${thFilter("Linia", "Nr linii")}
                     ${thFilter("OpisKrotki", "Opis krótki")}
-                    ${thFilter("OpisPom", "Opis pom")}
+                    <th>Opis pom</th>
                     <th>Opis</th>
                     <th>Akcje</th>
                 </tr>
@@ -253,14 +289,8 @@ function renderPolecenia() {
     `;
 }
 
-function polToggleColFilter(col) {
-    polOpenFilterCol = (polOpenFilterCol === col) ? null : col;
-    renderPolecenia();
-    setTimeout(() => {
-        const inp = document.querySelector('#poleceniaContainer th input[placeholder="Filtruj…"]');
-        if (inp) { inp.focus(); const n = inp.value.length; try { inp.setSelectionRange(n, n); } catch (e) {} }
-    }, 30);
-}
+/* polToggle moved */
+
 
 function polUsunZaznaczoneClick() {
     if (!polDeleteMode) {
@@ -840,3 +870,7 @@ async function removeSelectedPolecenia() {
     return true;
 }
 
+
+window.polApplyColFilter = polApplyColFilter;
+window.polToggleColFilter = polToggleColFilter;
+window.polUniqueValues = polUniqueValues;
