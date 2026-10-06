@@ -16,9 +16,13 @@ function ensureDaneSortState() {
 }
 
 function isDaneNameColumn(name) {
-    const n = String(name || "").toLowerCase().trim();
-    return /^(imi[eę]|nazwisko|name|surname|first\s*name|last\s*name)$/i.test(n)
-        || n === "imie" || n === "imię" || n === "nazwisko";
+    const n = String(name || "").toLowerCase().trim()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    // imie, imię, nazwisko, name...
+    if (n === "imie" || n === "nazwisko" || n === "name" || n === "surname") return true;
+    if (n.indexOf("imie") >= 0 || n.indexOf("nazwisk") >= 0) return true;
+    if (n === "first name" || n === "last name") return true;
+    return false;
 }
 
 function getDaneSortedRows() {
@@ -105,7 +109,7 @@ function renderDane() {
             sortMark = " ▽";
         }
         const titleAttrs = canSort
-            ? `style="cursor:pointer;user-select:none;" onclick="cycleDaneSort(${JSON.stringify(column)})" title="Sortuj: A→Z / Z→A / kolejność wpisu"`
+            ? `style="cursor:pointer;user-select:none;" data-dane-sort-col="${String(column).replace(/"/g, "&quot;")}" onclick="cycleDaneSort(this.getAttribute('data-dane-sort-col'))" title="Sortuj: A→Z / Z→A / kolejność wpisu"`
             : "";
         html += `
             <th>
