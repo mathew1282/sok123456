@@ -283,6 +283,57 @@ function zglShowFilterPanel(col, anchorEl) {
 }
 
 
+
+/** Grupuje 3. poziom: procedura start+end → jedna para (50/50), reszta pojedynczo */
+function zglGroupLevel3Rows(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const byProc = {};
+    list.forEach(r => {
+        if (!r || !r.procedureId) return;
+        if (r.procedureRole !== "start" && r.procedureRole !== "end") return;
+        if (!byProc[r.procedureId]) byProc[r.procedureId] = {};
+        byProc[r.procedureId][r.procedureRole] = r;
+    });
+    const used = new Set();
+    const out = [];
+    list.forEach(r => {
+        if (!r || used.has(r._index)) return;
+        const pid = r.procedureId;
+        if (pid && byProc[pid] && byProc[pid].start && byProc[pid].end) {
+            const s = byProc[pid].start;
+            const e = byProc[pid].end;
+            used.add(s._index);
+            used.add(e._index);
+            out.push({ type: "pair", start: s, end: e, procedureId: pid });
+            return;
+        }
+        used.add(r._index);
+        out.push({ type: "single", row: r });
+    });
+    return out;
+}
+
+function zglLevel3PairHtml(startRow, endRow, startSelected, endSelected, onStart, onEnd) {
+    const ls = (startRow.OpisPom || startRow.Opis || "start").substring(0, 80);
+    const le = (endRow.OpisPom || endRow.Opis || "koniec").substring(0, 80);
+    const bgS = startSelected ? "rgba(34,197,94,.22)" : "transparent";
+    const bgE = endSelected ? "rgba(34,197,94,.22)" : "transparent";
+    const brS = startSelected ? "2px solid #22c55e" : "1px solid var(--border)";
+    const brE = endSelected ? "2px solid #22c55e" : "1px solid var(--border)";
+    return `<div class="item-card" style="display:flex;padding:0;overflow:hidden;gap:0;cursor:default;">
+        <div role="button" onclick="event.stopPropagation();${onStart}"
+             style="flex:1;min-width:0;padding:10px 8px;cursor:pointer;background:${bgS};border-right:1px solid var(--border);box-sizing:border-box;border-top:${brS};border-bottom:${brS};border-left:${brS};">
+            <div style="font-size:11px;font-weight:700;color:#4ade80;margin-bottom:2px;">▶ start</div>
+            <div style="font-size:13px;line-height:1.3;word-break:break-word;">${escapeHtml(ls)}</div>
+        </div>
+        <div role="button" onclick="event.stopPropagation();${onEnd}"
+             style="flex:1;min-width:0;padding:10px 8px;cursor:pointer;background:${bgE};box-sizing:border-box;border-top:${brE};border-bottom:${brE};border-right:${brE};">
+            <div style="font-size:11px;font-weight:700;color:#f87171;margin-bottom:2px;">■ koniec</div>
+            <div style="font-size:13px;line-height:1.3;word-break:break-word;">${escapeHtml(le)}</div>
+        </div>
+    </div>`;
+}
+
 function renderZgloszenia() {
     const container = document.getElementById("zgloszeniaContainer");
     if (!container) return;
@@ -1216,3 +1267,6 @@ window.zglShowFilterPanel = zglShowFilterPanel;
 window.zglCloseFilterPanel = zglCloseFilterPanel;
 window.zglToggleColFilter = zglToggleColFilter;
 window.zglUniqueValues = zglUniqueValues;
+
+window.zglGroupLevel3Rows = zglGroupLevel3Rows;
+window.zglLevel3PairHtml = zglLevel3PairHtml;
