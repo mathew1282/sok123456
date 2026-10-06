@@ -1238,36 +1238,66 @@ function openPlanUsunModal() {
     const old = document.getElementById("planUsunModal");
     if (old) old.remove();
 
-    const rows = batches.map((b, i) => `
-        <label style="display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer;">
-            <input type="checkbox" class="plan-usun-cb" data-batch="${escapeHtml(b.id)}" checked style="margin-top:4px;">
-            <span style="flex:1;">
-                <div style="font-weight:700;">${escapeHtml(b.nazwa)}</div>
-                <div style="font-size:12px; color:var(--text-dim); margin-top:2px;">
-                    ${escapeHtml(b.firstData || "")} ${escapeHtml(b.firstGodz || "")} · ${b.count} pkt
-                </div>
-            </span>
-        </label>
-    `).join("");
-
     const overlay = document.createElement("div");
     overlay.id = "planUsunModal";
     overlay.className = "modal-overlay";
     overlay.style.display = "flex";
+    overlay._batches = batches;
+    const selected = new Set(batches.map((_, i) => i)); // domyślnie wszystkie
+    overlay._selectedBatchIndexes = selected;
+
+    const list = batches.map((b, bi) => {
+        const isSel = selected.has(bi);
+        const border = isSel ? "#22c55e" : "#475569";
+        const bg = isSel ? "rgba(34, 197, 94, 0.12)" : "rgba(71, 85, 105, 0.25)";
+        const opacity = isSel ? "1" : "0.65";
+        return `
+        <div id="planUsunBatch_${bi}"
+             class="ksiazka-sprawd-entry ${isSel ? "selected" : ""}"
+             data-batch-idx="${bi}"
+             onclick="planUsunToggleBatch(${bi})"
+             style="
+                position: relative;
+                border: 2px solid ${border};
+                background: ${bg};
+                border-radius: 10px;
+                padding: 10px;
+                margin-bottom: 8px;
+                cursor: pointer;
+                opacity: ${opacity};
+             ">
+            <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:4px;">
+                <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(239,68,68,.2);color:#fca5a5;">
+                    Planowanie
+                </span>
+                <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(59,130,246,.2);color:#93c5fd;">
+                    ${b.count} pkt
+                </span>
+            </div>
+            <div style="font-weight:700; color:var(--primary-light);">
+                ${escapeHtml(b.nazwa || "Plan (bez nazwy)")}
+            </div>
+            <div style="font-size:13px; color:var(--text-soft); margin-top:4px;">
+                ${escapeHtml(b.firstData || "—")}
+                ${b.firstGodz ? " · <strong>" + escapeHtml(b.firstGodz) + "</strong>" : ""}
+            </div>
+        </div>`;
+    }).join("");
+
     overlay.innerHTML = `
-        <div class="modal" style="max-width:560px; max-height:85vh; display:flex; flex-direction:column;">
+        <div class="modal" style="max-width:580px;">
             <h2 style="margin-top:0;">Usuń planowanie z książki</h2>
-            <p style="color:var(--text-dim); font-size:13px; margin:0 0 10px 0;">
-                Zaznacz partie planu do usunięcia (domyślnie wszystkie). Możesz odznaczyć część.
+            <p style="color:var(--text-dim); font-size:14px; margin-bottom:12px;">
+                Jedna partia planu = jeden wiersz (nazwa szablonu, data, liczba punktów).
+                Domyślnie zaznaczone <strong>wszystkie</strong>. Kliknij kartę, aby odznaczyć / zaznaczyć.
+                <br>${batches.length} partii w książce.
             </p>
-            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
-                <button type="button" class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="planUsunZaznaczWszystkie(true)">Zaznacz wszystkie</button>
-                <button type="button" class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="planUsunZaznaczWszystkie(false)">Odznacz wszystkie</button>
+            <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
+                <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="planUsunZaznaczWszystkie(true)">Zaznacz wszystkie</button>
+                <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;" onclick="planUsunZaznaczWszystkie(false)">Odznacz wszystkie</button>
             </div>
-            <div style="flex:1; overflow:auto; border:1px solid var(--border); border-radius:10px; min-height:120px;">
-                ${rows}
-            </div>
-            <div class="modal-actions" style="margin-top:14px;">
+            <div style="max-height:400px; overflow:auto; margin-bottom:14px;">${list}</div>
+            <div class="modal-actions">
                 <button class="btn-danger" onclick="planUsunZatwierdz()">Usuń zaznaczone</button>
                 <button class="btn-primary" onclick="closePlanUsunModal()">Anuluj</button>
             </div>
@@ -1281,51 +1311,75 @@ function closePlanUsunModal() {
     if (m) m.remove();
 }
 
+function planUsunToggleBatch(bi) {
+    const modal = document.getElementById("planUsunModal");
+    if (!modal || !modal._selectedBatchIndexes) return;
+    const set = modal._selectedBatchIndexes;
+    if (set.has(bi)) set.delete(bi);
+    else set.add(bi);
+    const card = document.getElementById("planUsunBatch_" + bi);
+    if (!card) return;
+    const isSel = set.has(bi);
+    card.classList.toggle("selected", isSel);
+    card.style.border = "2px solid " + (isSel ? "#22c55e" : "#475569");
+    card.style.background = isSel ? "rgba(34, 197, 94, 0.12)" : "rgba(71, 85, 105, 0.25)";
+    card.style.opacity = isSel ? "1" : "0.65";
+}
+
 function planUsunZaznaczWszystkie(on) {
-    document.querySelectorAll(".plan-usun-cb").forEach(cb => { cb.checked = !!on; });
+    const modal = document.getElementById("planUsunModal");
+    if (!modal || !modal._batches) return;
+    const set = modal._selectedBatchIndexes || new Set();
+    modal._selectedBatchIndexes = set;
+    set.clear();
+    if (on) {
+        modal._batches.forEach((_, i) => set.add(i));
+    }
+    modal._batches.forEach((_, bi) => {
+        const card = document.getElementById("planUsunBatch_" + bi);
+        if (!card) return;
+        const isSel = set.has(bi);
+        card.classList.toggle("selected", isSel);
+        card.style.border = "2px solid " + (isSel ? "#22c55e" : "#475569");
+        card.style.background = isSel ? "rgba(34, 197, 94, 0.12)" : "rgba(71, 85, 105, 0.25)";
+        card.style.opacity = isSel ? "1" : "0.65";
+    });
 }
 
 async function planUsunZatwierdz() {
     ensureKsiazkaState();
-    const checked = [...document.querySelectorAll(".plan-usun-cb:checked")].map(cb => cb.getAttribute("data-batch"));
-    if (!checked.length) {
+    const modal = document.getElementById("planUsunModal");
+    if (!modal || !modal._batches) return;
+    const set = modal._selectedBatchIndexes || new Set();
+    const batches = modal._batches;
+    const checkedIds = [...set].map(i => batches[i] && batches[i].id).filter(Boolean);
+    if (!checkedIds.length) {
         if (typeof showToast === "function") showToast("Nic nie zaznaczono");
         return;
     }
-    const set = new Set(checked);
-    if (!confirm("Usunąć zaznaczone planowania z książki (" + checked.length + " partii)?")) return;
+    const idSet = new Set(checkedIds);
+    if (!confirm("Usunąć zaznaczone planowania z książki (" + checkedIds.length + " partii)?")) return;
 
     const before = (appState.ksiazkaWydarzen || []).length;
     const removedEntries = [];
     appState.ksiazkaWydarzen = (appState.ksiazkaWydarzen || []).filter(e => {
         if (!e || !e.zPlanu) return true;
         const id = e.planBatchId || ("legacy_" + (e.createdAt || e.id || ""));
-        // legacy bez batch: jeśli zaznaczono ten legacy id
-        if (set.has(id)) {
+        if (idSet.has(id)) {
             removedEntries.push(e);
             return false;
-        }
-        // stare wpisy zPlanu bez planBatchId – grupa legacy_* per createdAt
-        if (!e.planBatchId) {
-            const leg = "legacy_" + (e.createdAt || e.id || "");
-            if (set.has(leg)) {
-                removedEntries.push(e);
-                return false;
-            }
         }
         return true;
     });
 
-    // statystyki powiązane
     const ids = removedEntries.map(e => e.id).filter(Boolean);
     const procs = removedEntries.map(e => e.procedureId).filter(Boolean);
     if (typeof removeSprawdzeniaLinkedToEntryIds === "function") {
         removeSprawdzeniaLinkedToEntryIds(ids, procs);
     }
-    // interwencje z tych entryId
     if (appState.statystyki && Array.isArray(appState.statystyki.interwencje)) {
-        const idSet = new Set(ids.map(String));
-        appState.statystyki.interwencje = appState.statystyki.interwencje.filter(r => !r.entryId || !idSet.has(String(r.entryId)));
+        const eids = new Set(ids.map(String));
+        appState.statystyki.interwencje = appState.statystyki.interwencje.filter(r => !r.entryId || !eids.has(String(r.entryId)));
     }
     if (typeof wynikiSyncAutoToState === "function") wynikiSyncAutoToState();
 
@@ -5233,6 +5287,7 @@ window.openPlanSluzbyModal = openPlanSluzbyModal;
 window.planDetectProcedureFromTekst = planDetectProcedureFromTekst;
 window.planUsunZatwierdz = planUsunZatwierdz;
 window.planUsunZaznaczWszystkie = planUsunZaznaczWszystkie;
+window.planUsunToggleBatch = planUsunToggleBatch;
 window.closePlanUsunModal = closePlanUsunModal;
 window.openPlanUsunModal = openPlanUsunModal;
 window.planToggleSzablonyCollapse = planToggleSzablonyCollapse;
