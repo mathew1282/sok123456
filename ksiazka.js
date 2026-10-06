@@ -630,7 +630,10 @@ function renderKsiazka() {
             </div>
             <div class="ksiazka-sticky-right">
                 <button class="btn-success" onclick="openKsiazkaAddModal()">➕ Dodaj wpis <span style="opacity:.7;font-size:11px;">(D)</span></button>
-                <button class="btn-primary" onclick="openPlanSluzbyModal()">📋 Planowanie</button>
+                <div style="display:inline-flex; border-radius:10px; overflow:hidden; vertical-align:middle;">
+                    <button class="btn-primary" style="border-radius:10px 0 0 10px; margin:0; flex:1; min-width:110px;" onclick="openPlanSluzbyModal()">📋 Planowanie</button>
+                    <button class="btn-danger" style="border-radius:0 10px 10px 0; margin:0; flex:1; min-width:90px; padding-left:10px; padding-right:10px;" onclick="openPlanUsunModal()" title="Usuń wstawione planowania">🗑 Usuń plan</button>
+                </div>
                 <button class="btn-primary" onclick="openZapiszKsiazkeJakoSzablon()">💾 Zapisz książkę jako szablon</button>
                 <button class="btn-primary" id="ksiazkaInterwencjeBtn"
                     style="${ksiazkaInterwencjeMode ? "background:#dc2626;border-color:#dc2626;" : ""}"
@@ -1199,6 +1202,141 @@ function resetPlanAddTiles() {
     };
 }
 
+
+function getPlanBatchesFromKsiazka() {
+    ensureKsiazkaState();
+    const map = new Map();
+    (appState.ksiazkaWydarzen || []).forEach((e, idx) => {
+        if (!e || !e.zPlanu) return;
+        const id = e.planBatchId || ("legacy_" + (e.createdAt || e.id || idx));
+        if (!map.has(id)) {
+            map.set(id, {
+                id,
+                nazwa: e.planBatchNazwa || "Plan (bez nazwy)",
+                indexes: [],
+                count: 0,
+                firstGodz: e.godzinaStart || "",
+                firstData: e.data || ""
+            });
+        }
+        const b = map.get(id);
+        b.indexes.push(idx);
+        b.count++;
+        if (!b.nazwa && e.planBatchNazwa) b.nazwa = e.planBatchNazwa;
+    });
+    return [...map.values()].sort((a, b) => String(b.firstData).localeCompare(String(a.firstData), "pl") || String(b.firstGodz).localeCompare(String(a.firstGodz)));
+}
+
+function openPlanUsunModal() {
+    ensureKsiazkaState();
+    const batches = getPlanBatchesFromKsiazka();
+    if (!batches.length) {
+        if (typeof showToast === "function") showToast("Brak wpisów z planowania w książce");
+        else alert("Brak wpisów z planowania w książce");
+        return;
+    }
+    const old = document.getElementById("planUsunModal");
+    if (old) old.remove();
+
+    const rows = batches.map((b, i) => `
+        <label style="display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border); cursor:pointer;">
+            <input type="checkbox" class="plan-usun-cb" data-batch="${escapeHtml(b.id)}" checked style="margin-top:4px;">
+            <span style="flex:1;">
+                <div style="font-weight:700;">${escapeHtml(b.nazwa)}</div>
+                <div style="font-size:12px; color:var(--text-dim); margin-top:2px;">
+                    ${escapeHtml(b.firstData || "")} ${escapeHtml(b.firstGodz || "")} · ${b.count} pkt
+                </div>
+            </span>
+        </label>
+    `).join("");
+
+    const overlay = document.createElement("div");
+    overlay.id = "planUsunModal";
+    overlay.className = "modal-overlay";
+    overlay.style.display = "flex";
+    overlay.innerHTML = `
+        <div class="modal" style="max-width:560px; max-height:85vh; display:flex; flex-direction:column;">
+            <h2 style="margin-top:0;">Usuń planowanie z książki</h2>
+            <p style="color:var(--text-dim); font-size:13px; margin:0 0 10px 0;">
+                Zaznacz partie planu do usunięcia (domyślnie wszystkie). Możesz odznaczyć część.
+            </p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                <button type="button" class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="planUsunZaznaczWszystkie(true)">Zaznacz wszystkie</button>
+                <button type="button" class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="planUsunZaznaczWszystkie(false)">Odznacz wszystkie</button>
+            </div>
+            <div style="flex:1; overflow:auto; border:1px solid var(--border); border-radius:10px; min-height:120px;">
+                ${rows}
+            </div>
+            <div class="modal-actions" style="margin-top:14px;">
+                <button class="btn-danger" onclick="planUsunZatwierdz()">Usuń zaznaczone</button>
+                <button class="btn-primary" onclick="closePlanUsunModal()">Anuluj</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+function closePlanUsunModal() {
+    const m = document.getElementById("planUsunModal");
+    if (m) m.remove();
+}
+
+function planUsunZaznaczWszystkie(on) {
+    document.querySelectorAll(".plan-usun-cb").forEach(cb => { cb.checked = !!on; });
+}
+
+async function planUsunZatwierdz() {
+    ensureKsiazkaState();
+    const checked = [...document.querySelectorAll(".plan-usun-cb:checked")].map(cb => cb.getAttribute("data-batch"));
+    if (!checked.length) {
+        if (typeof showToast === "function") showToast("Nic nie zaznaczono");
+        return;
+    }
+    const set = new Set(checked);
+    if (!confirm("Usunąć zaznaczone planowania z książki (" + checked.length + " partii)?")) return;
+
+    const before = (appState.ksiazkaWydarzen || []).length;
+    const removedEntries = [];
+    appState.ksiazkaWydarzen = (appState.ksiazkaWydarzen || []).filter(e => {
+        if (!e || !e.zPlanu) return true;
+        const id = e.planBatchId || ("legacy_" + (e.createdAt || e.id || ""));
+        // legacy bez batch: jeśli zaznaczono ten legacy id
+        if (set.has(id)) {
+            removedEntries.push(e);
+            return false;
+        }
+        // stare wpisy zPlanu bez planBatchId – grupa legacy_* per createdAt
+        if (!e.planBatchId) {
+            const leg = "legacy_" + (e.createdAt || e.id || "");
+            if (set.has(leg)) {
+                removedEntries.push(e);
+                return false;
+            }
+        }
+        return true;
+    });
+
+    // statystyki powiązane
+    const ids = removedEntries.map(e => e.id).filter(Boolean);
+    const procs = removedEntries.map(e => e.procedureId).filter(Boolean);
+    if (typeof removeSprawdzeniaLinkedToEntryIds === "function") {
+        removeSprawdzeniaLinkedToEntryIds(ids, procs);
+    }
+    // interwencje z tych entryId
+    if (appState.statystyki && Array.isArray(appState.statystyki.interwencje)) {
+        const idSet = new Set(ids.map(String));
+        appState.statystyki.interwencje = appState.statystyki.interwencje.filter(r => !r.entryId || !idSet.has(String(r.entryId)));
+    }
+    if (typeof wynikiSyncAutoToState === "function") wynikiSyncAutoToState();
+
+    await saveState();
+    closePlanUsunModal();
+    renderKsiazka();
+    const n = before - (appState.ksiazkaWydarzen || []).length;
+    if (typeof showToast === "function") showToast("🗑️ Usunięto " + n + " wpisów z planowania");
+}
+
+
 function openPlanSluzbyModal() {
     ensurePlanSzablonyState();
     _planDraft = [];
@@ -1683,13 +1821,43 @@ function planResolveAddTekstFromTiles() {
     return parts.filter(Boolean).join("<br><br>");
 }
 
-/** Meta procedury z wybranego zgłoszenia (jak Dodaj wpis) */
+/** Meta procedury z wybranego zgłoszenia (jak Dodaj wpis) – działa też gdy doklejone polecenie */
 function planResolveAddProcedureMeta() {
     if (_planAddTiles.zglIndex == null) return null;
     const row = appState.zgloszenia?.rows?.[_planAddTiles.zglIndex];
     if (!row || !row.procedureId) return null;
     if (row.procedureRole !== "start" && row.procedureRole !== "end") return null;
     return { procedureId: row.procedureId, procedureRole: row.procedureRole };
+}
+
+/** Wykryj procedurę po treści (HTML/plain) – gdy meta zginęła, a tekst pochodzi ze zgłoszenia */
+function planDetectProcedureFromTekst(tekst) {
+    const rows = appState.zgloszenia?.rows || [];
+    if (!rows.length || !tekst) return null;
+    const plain = String(tekst)
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+    if (!plain) return null;
+    let best = null;
+    let bestLen = 0;
+    rows.forEach(r => {
+        if (!r || !r.procedureId) return;
+        if (r.procedureRole !== "start" && r.procedureRole !== "end") return;
+        const chunk = String(r.Opis || r.OpisKrotki || "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toLowerCase();
+        if (chunk.length < 12) return;
+        if (plain.includes(chunk) && chunk.length > bestLen) {
+            bestLen = chunk.length;
+            best = { procedureId: r.procedureId, procedureRole: r.procedureRole };
+        }
+    });
+    return best;
 }
 
 function planUpdateAddPreviewFromTiles() {
@@ -2172,6 +2340,13 @@ async function planZapiszDoKsiazki() {
     window._planGroupMap = {}; // key -> number[] (prawdziwe indeksy patroli)
     window._planGroupStep = 0;
     window._planGroupMapCurrent = []; // wybór multi w bieżącym kroku
+    // nazwa partii (szablon lub data)
+    if (_planEditTemplateId && Array.isArray(appState.planSzablony)) {
+        const s = appState.planSzablony.find(x => x.id === _planEditTemplateId);
+        window._planPendingNazwa = s ? (s.nazwa || "Szablon") : null;
+    } else {
+        window._planPendingNazwa = "Plan " + new Date().toLocaleString("pl-PL");
+    }
 
     closePlanSluzbyModal();
     planShowGroupMapStep();
@@ -2395,6 +2570,12 @@ async function planFinalizeWriteToKsiazka(mode) {
         appState.ksiazkaWydarzen = [];
     }
 
+    const batchId = "plan_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    const batchNazwa = (window._planPendingNazwa && String(window._planPendingNazwa).trim())
+        ? String(window._planPendingNazwa).trim()
+        : ("Plan " + new Date().toLocaleString("pl-PL"));
+    window._planPendingNazwa = null;
+
     abs.forEach(p => {
         const key = planIndexesKey(p.patrole);
         let patrolIndexes = [];
@@ -2429,11 +2610,23 @@ async function planFinalizeWriteToKsiazka(mode) {
             patrole: patrolIndexes,
             zrobione: false,
             createdAt: new Date().toISOString(),
-            zPlanu: true
+            zPlanu: true,
+            planBatchId: batchId,
+            planBatchNazwa: batchNazwa
         };
-        if (p.procedureId && (p.procedureRole === "start" || p.procedureRole === "end")) {
-            entry.procedureId = p.procedureId;
-            entry.procedureRole = p.procedureRole;
+        // procedura z punktu planu LUB wykrycie ze zgłoszeń po treści
+        let procId = p.procedureId || null;
+        let procRole = p.procedureRole || null;
+        if ((!procId || (procRole !== "start" && procRole !== "end")) && typeof planDetectProcedureFromTekst === "function") {
+            const det = planDetectProcedureFromTekst(p.tekst || tekst);
+            if (det) {
+                procId = det.procedureId;
+                procRole = det.procedureRole;
+            }
+        }
+        if (procId && (procRole === "start" || procRole === "end")) {
+            entry.procedureId = procId;
+            entry.procedureRole = procRole;
         }
         appState.ksiazkaWydarzen.push(entry);
     });
@@ -5037,6 +5230,11 @@ window.replaceAllFromTile = replaceAllFromTile;
 window.closeKsiazkaEditModal = closeKsiazkaEditModal;
 window.confirmEditKsiazka = confirmEditKsiazka;
 window.openPlanSluzbyModal = openPlanSluzbyModal;
+window.planDetectProcedureFromTekst = planDetectProcedureFromTekst;
+window.planUsunZatwierdz = planUsunZatwierdz;
+window.planUsunZaznaczWszystkie = planUsunZaznaczWszystkie;
+window.closePlanUsunModal = closePlanUsunModal;
+window.openPlanUsunModal = openPlanUsunModal;
 window.planToggleSzablonyCollapse = planToggleSzablonyCollapse;
 window.planToggleCycCollapse = planToggleCycCollapse;
 window.planSetMultiPatrolDesc = planSetMultiPatrolDesc;
