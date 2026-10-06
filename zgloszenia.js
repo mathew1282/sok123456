@@ -205,11 +205,11 @@ function renderZgloszenia() {
                 const sel = active === v;
                 return `<div data-zgl-fcol="${col}" data-zgl-fval="${escapeHtml(v).replace(/"/g, "&quot;")}"
                     onclick="event.stopPropagation();zglApplyColFilter(this.getAttribute('data-zgl-fcol'), this.getAttribute('data-zgl-fval'));"
-                    style="padding:6px 8px;cursor:pointer;border-radius:6px;font-size:13px;${sel ? "background:rgba(59,130,246,.25);font-weight:700;" : ""}">
+                    style="padding:6px 8px;cursor:pointer;border-radius:6px;font-size:13px;color:var(--text);${sel ? "background:rgba(59,130,246,.2);font-weight:700;" : ""}">
                     ${escapeHtml(v)}
                 </div>`;
             }).join("") || `<div style="padding:6px;color:var(--text-dim);font-size:12px;">Brak wartości</div>`;
-            dropdown = `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:200px;max-height:260px;overflow:auto;padding:6px;background:var(--bg-light);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);"
+            dropdown = `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:200px;max-height:260px;overflow:auto;padding:6px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);"
                 onclick="event.stopPropagation()">
                 ${opts}
                 <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;margin-top:6px;"
@@ -217,11 +217,13 @@ function renderZgloszenia() {
             </div>`;
         }
         return `<th style="position:relative; user-select:none;" onclick="event.stopPropagation()">
-            <span style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
+            <span style="cursor:pointer; display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap;"
                   onclick="event.stopPropagation();zglToggleColFilter('${col}')">
                 ${label} <span style="font-size:10px;opacity:0.8;">${arrow}</span>
-                ${active ? `<span style="font-size:10px;color:#60a5fa;">●</span>` : ""}
+                ${active ? `<span style="font-size:11px;color:#93c5fd;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(active)}">● ${escapeHtml(active)}</span>` : ""}
             </span>
+            ${active ? `<button type="button" title="Wyczyść filtr" onclick="event.stopPropagation();zglApplyColFilter('${col}', '');"
+                style="margin-left:4px;border:none;background:transparent;color:#f87171;font-weight:800;cursor:pointer;font-size:14px;line-height:1;padding:0 2px;">×</button>` : ""}
             ${dropdown}
         </th>`;
     }
