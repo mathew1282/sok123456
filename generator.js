@@ -525,8 +525,18 @@ function renderZgloszeniaLevel3() {
         rows.sort((a, b) => (orderMap.get(a._index) ?? 9999) - (orderMap.get(b._index) ?? 9999));
     }
 
+    const groups = (typeof zglGroupLevel3Rows === "function") ? zglGroupLevel3Rows(rows) : rows.map(r => ({ type: "single", row: r }));
     let html = "";
-    rows.forEach(row => {
+    groups.forEach(g => {
+        if (g.type === "pair") {
+            const sSel = selectedZgloszeniaIndexes.includes(g.start._index);
+            const eSel = selectedZgloszeniaIndexes.includes(g.end._index);
+            html += (typeof zglLevel3PairHtml === "function")
+                ? zglLevel3PairHtml(g.start, g.end, sSel, eSel, `toggleZgloszenie(${g.start._index})`, `toggleZgloszenie(${g.end._index})`)
+                : "";
+            return;
+        }
+        const row = g.row;
         const isSelected = selectedZgloszeniaIndexes.includes(row._index);
         let rolePrefix = "";
         if (row.procedureRole === "start") rolePrefix = "▶ start · ";
