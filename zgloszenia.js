@@ -146,6 +146,43 @@ function getZgloszeniaDisplayList() {
     return list;
 }
 
+
+function zglUniqueValues(col) {
+    const seen = new Set();
+    const items = [];
+    function add(v) {
+        const s = String(v == null ? "" : v).trim();
+        if (!s || seen.has(s)) return;
+        seen.add(s);
+        items.push(s);
+    }
+    if (col === "Typ") {
+        add("procedura");
+        add("zgłoszenie");
+        return items;
+    }
+    (appState.zgloszenia && appState.zgloszenia.rows ? appState.zgloszenia.rows : []).forEach(r => {
+        if (!r) return;
+        if (col === "Linia") add(r.Linia);
+        if (col === "OpisKrotki") add(r.OpisKrotki);
+    });
+    if (col === "Linia" && typeof compareLiniaNatural === "function") items.sort(compareLiniaNatural);
+    else items.sort((a, b) => a.localeCompare(b, "pl", { sensitivity: "base" }));
+    return items;
+}
+
+function zglApplyColFilter(col, value) {
+    if (!zglColFilters) zglColFilters = { Linia: "", Typ: "", OpisKrotki: "", OpisPom: "" };
+    zglColFilters[col] = value == null ? "" : String(value);
+    zglOpenFilterCol = null;
+    renderZgloszenia();
+}
+
+function zglToggleColFilter(col) {
+    zglOpenFilterCol = (zglOpenFilterCol === col) ? null : col;
+    renderZgloszenia();
+}
+
 function renderZgloszenia() {
     const container = document.getElementById("zgloszeniaContainer");
     if (!container) return;
@@ -157,31 +194,6 @@ function renderZgloszenia() {
         : "background:#16a34a;border-color:#16a34a;color:#fff;";
     const usunLabel = delMode ? "Usuń zaznaczone" : "Usuń zaznaczone";
 
-    function zglUniqueValues(col) {
-        const all = getZgloszeniaDisplayListUnfiltered ? getZgloszeniaDisplayListUnfiltered() : null;
-        // buduj z raw rows / list bez filtrów kolumn
-        const items = [];
-        const seen = new Set();
-        function add(v) {
-            const s = String(v || "").trim();
-            if (!s || seen.has(s)) return;
-            seen.add(s);
-            items.push(s);
-        }
-        if (col === "Typ") {
-            add("procedura");
-            add("zgłoszenie");
-            return items;
-        }
-        (appState.zgloszenia?.rows || []).forEach(r => {
-            if (col === "Linia") add(r.Linia);
-            if (col === "OpisKrotki") add(r.OpisKrotki);
-        });
-        if (col === "Linia") items.sort(compareLiniaNatural);
-        else items.sort((a, b) => a.localeCompare(b, "pl", { sensitivity: "base" }));
-        return items;
-    }
-
     function thFilter(col, label) {
         const active = (zglColFilters[col] || "").trim();
         const open = zglOpenFilterCol === col;
@@ -189,11 +201,11 @@ function renderZgloszenia() {
         let dropdown = "";
         if (open) {
             const vals = zglUniqueValues(col);
-            const opts = vals.map(v => {
+            const opts = vals.map((v, vi) => {
                 const sel = active === v;
-                return `<div onclick="event.stopPropagation();zglColFilters['${col}']='${String(v).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}';zglOpenFilterCol=null;renderZgloszenia();"
-                    style="padding:6px 8px;cursor:pointer;border-radius:6px;font-size:13px;${sel ? "background:rgba(59,130,246,.25);font-weight:700;" : ""}"
-                    onmouseover="this.style.background='rgba(59,130,246,.15)'" onmouseout="this.style.background='${sel ? "rgba(59,130,246,.25)" : "transparent"}'">
+                return `<div data-zgl-fcol="${col}" data-zgl-fval="${escapeHtml(v).replace(/"/g, "&quot;")}"
+                    onclick="event.stopPropagation();zglApplyColFilter(this.getAttribute('data-zgl-fcol'), this.getAttribute('data-zgl-fval'));"
+                    style="padding:6px 8px;cursor:pointer;border-radius:6px;font-size:13px;${sel ? "background:rgba(59,130,246,.25);font-weight:700;" : ""}">
                     ${escapeHtml(v)}
                 </div>`;
             }).join("") || `<div style="padding:6px;color:var(--text-dim);font-size:12px;">Brak wartości</div>`;
@@ -201,10 +213,10 @@ function renderZgloszenia() {
                 onclick="event.stopPropagation()">
                 ${opts}
                 <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;margin-top:6px;"
-                        onclick="zglColFilters['${col}']='';zglOpenFilterCol=null;renderZgloszenia();">Wyczyść</button>
+                        onclick="event.stopPropagation();zglApplyColFilter('${col}', '');">Wyczyść</button>
             </div>`;
         }
-        return `<th style="position:relative; user-select:none;">
+        return `<th style="position:relative; user-select:none;" onclick="event.stopPropagation()">
             <span style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
                   onclick="event.stopPropagation();zglToggleColFilter('${col}')">
                 ${label} <span style="font-size:10px;opacity:0.8;">${arrow}</span>
@@ -297,15 +309,8 @@ function renderZgloszenia() {
     `;
 }
 
-function zglToggleColFilter(col) {
-    zglOpenFilterCol = (zglOpenFilterCol === col) ? null : col;
-    renderZgloszenia();
-    // fokus w input filtr
-    setTimeout(() => {
-        const inp = document.querySelector(`th input[placeholder="Filtruj…"]`);
-        if (inp) { inp.focus(); const n = inp.value.length; try { inp.setSelectionRange(n, n); } catch (e) {} }
-    }, 30);
-}
+/* zglToggleColFilter redefined with helpers */
+
 
 function zglUsunZaznaczoneClick() {
     if (!zglDeleteMode) {
@@ -1125,3 +1130,7 @@ window.zglSortedOpisKrotkiForLine = zglSortedOpisKrotkiForLine;
 window.zglSortedRowsForGroup = zglSortedRowsForGroup;
 window.zglLiniaNaturalCmp = zglLiniaNaturalCmp;
 
+
+window.zglApplyColFilter = zglApplyColFilter;
+window.zglToggleColFilter = zglToggleColFilter;
+window.zglUniqueValues = zglUniqueValues;
