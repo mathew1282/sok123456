@@ -316,7 +316,6 @@ function zglGroupLevel3Rows(rows) {
 function zglLevel3PairHtml(startRow, endRow, startSelected, endSelected, onStart, onEnd) {
     const ls = (startRow.OpisPom || startRow.Opis || "start").substring(0, 80);
     const le = (endRow.OpisPom || endRow.Opis || "koniec").substring(0, 80);
-    // Zawsze odśwież CSS (żeby nie zostawała stara wersja w DOM)
     let st = document.getElementById("zglPairHoverStyle");
     if (!st) {
         st = document.createElement("style");
@@ -324,52 +323,64 @@ function zglLevel3PairHtml(startRow, endRow, startSelected, endSelected, onStart
         document.head.appendChild(st);
     }
     st.textContent = `
+        /* Jedna ramka = jedna procedura (start|koniec) */
         .zgl-pair-card.item-card {
             display: flex !important;
-            gap: 6px !important;
-            padding: 4px !important;
-            border: none !important;
-            background: transparent !important;
+            flex-direction: row !important;
+            align-items: stretch !important;
+            gap: 0 !important;
+            padding: 0 !important;
+            border: 2px solid var(--border, #64748b) !important;
+            border-radius: 10px !important;
+            background: var(--bg-input, #fff) !important;
+            overflow: hidden !important;
             box-shadow: none !important;
-            overflow: visible !important;
         }
         .zgl-pair-card.item-card:hover {
-            border-color: transparent !important;
+            border-color: var(--primary-light, #3b82f6) !important;
         }
         .zgl-pair-half {
-            flex: 1 1 50%;
-            min-width: 0;
-            box-sizing: border-box;
-            padding: 10px 8px;
+            flex: 1 1 50% !important;
+            width: 50% !important;
+            max-width: 50% !important;
+            min-width: 0 !important;
+            min-height: 100% !important;
+            align-self: stretch !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: flex-start !important;
+            box-sizing: border-box !important;
+            padding: 10px 8px !important;
             cursor: pointer;
-            border-radius: 10px;
-            border: 2px solid var(--border, #94a3b8) !important;
-            background: var(--bg-input, #fff) !important;
+            border: none !important;
+            border-radius: 0 !important;
+            background: transparent !important;
             color: var(--text);
-            transition: background .12s ease, border-color .12s ease, box-shadow .12s ease;
+            transition: background .12s ease;
+        }
+        /* linia w środku między start a koniec */
+        .zgl-pair-half:first-child {
+            border-right: 1px solid var(--border, #94a3b8) !important;
         }
         .zgl-pair-half.zgl-pair-on {
-            background: rgba(34, 197, 94, 0.12) !important;
-            border: 2px solid #22c55e !important;
-            box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.25);
+            background: rgba(34, 197, 94, 0.16) !important;
+            box-shadow: inset 0 0 0 2px #22c55e;
         }
         .zgl-pair-half:hover {
-            border-color: #60a5fa !important;
-            background: rgba(59, 130, 246, 0.10) !important;
+            background: rgba(59, 130, 246, 0.12) !important;
         }
         .zgl-pair-half.zgl-pair-on:hover {
-            border-color: #22c55e !important;
-            background: rgba(34, 197, 94, 0.18) !important;
+            background: rgba(34, 197, 94, 0.22) !important;
         }
     `;
     return `<div class="item-card zgl-pair-card" style="cursor:default;">
         <div role="button" class="zgl-pair-half${startSelected ? " zgl-pair-on" : ""}" onclick="event.stopPropagation();${onStart}">
             <div style="font-size:11px;font-weight:700;color:#16a34a;margin-bottom:2px;">▶ start</div>
-            <div style="font-size:13px;line-height:1.3;word-break:break-word;color:var(--text);">${escapeHtml(ls)}</div>
+            <div style="font-size:13px;line-height:1.3;word-break:break-word;color:var(--text);flex:1;">${escapeHtml(ls)}</div>
         </div>
         <div role="button" class="zgl-pair-half${endSelected ? " zgl-pair-on" : ""}" onclick="event.stopPropagation();${onEnd}">
             <div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:2px;">■ koniec</div>
-            <div style="font-size:13px;line-height:1.3;word-break:break-word;color:var(--text);">${escapeHtml(le)}</div>
+            <div style="font-size:13px;line-height:1.3;word-break:break-word;color:var(--text);flex:1;">${escapeHtml(le)}</div>
         </div>
     </div>`;
 }
