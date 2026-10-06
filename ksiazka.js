@@ -715,7 +715,7 @@ function renderKsiazkaListView(entries) {
     return html;
 }
 
-/** Widok kolumn (gdy wybrano 2+ patrole) */
+/** Widok kolumn (gdy wybrano 2+ patrole) – 2 → 2 kolumny, 3 → 3 itd. */
 function renderKsiazkaColumnsView(filtered) {
     const columns = ksiazkaFilterPatrole.map(idx => ({
         key: idx,
@@ -723,11 +723,12 @@ function renderKsiazkaColumnsView(filtered) {
         entries: filtered.filter(e => (e.patrole || []).includes(idx))
     }));
 
-    let html = `<div style="display:flex; gap:16px; overflow-x:auto; align-items:flex-start;">`;
+    const n = Math.max(1, columns.length);
+    let html = `<div style="display:grid; grid-template-columns:repeat(${n}, minmax(0, 1fr)); gap:16px; align-items:flex-start;">`;
 
     columns.forEach(col => {
         html += `
-        <div style="min-width:280px; max-width:380px; flex:1; background:#1e293b; border:1px solid #334155; border-radius:12px; padding:14px;">
+        <div style="min-width:0; background:var(--bg-input, #1e293b); border:1px solid var(--border, #334155); border-radius:12px; padding:14px;">
             <div style="font-weight:700; font-size:16px; margin-bottom:12px; color:#60a5fa; border-bottom:1px solid #334155; padding-bottom:8px;">
                 ${escapeHtml(col.name)} <span style="color:#94a3b8; font-weight:500; font-size:13px;">(${col.entries.length})</span>
             </div>
@@ -3827,6 +3828,17 @@ function inneAddCount(nr, delta) {
     inneRenderGroupsPanel();
 }
 
+/** Ręczne wpisanie liczby (klik w 0 / wartość) – plus/minus zostają */
+function inneSetCount(nr, val) {
+    const n = Number(nr);
+    const parsed = parseInt(String(val || "").replace(/\D/g, ""), 10);
+    const next = isNaN(parsed) ? 0 : Math.max(0, parsed);
+    if (next === 0) delete _inneSessionCounts[n];
+    else _inneSessionCounts[n] = next;
+    inneRenderGroupsPanel();
+}
+
+
 function inneInsertItemToText(nr) {
     const found = inneFindItem(nr);
     if (!found) return;
@@ -3901,7 +3913,12 @@ function inneRenderGroupsPanel() {
                            onchange="inneSaveNote(${it.nr}, this.value)"
                            onblur="inneSaveNote(${it.nr}, this.value)">
                     <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px;" onclick="inneAddCount(${it.nr},-1)">−</button>
-                    <span style="min-width:24px; text-align:center; font-weight:700;">${c}</span>
+                    <input type="text" inputmode="numeric" data-inne-count="${it.nr}" value="${c}"
+                           style="width:40px; min-width:24px; text-align:center; font-weight:700; padding:2px 4px; border:1px solid transparent; background:transparent; color:inherit; font-size:inherit;"
+                           onfocus="this.select()"
+                           onchange="inneSetCount(${it.nr}, this.value)"
+                           onblur="inneSetCount(${it.nr}, this.value)"
+                           onclick="event.stopPropagation(); this.select()">
                     <button type="button" class="btn-primary" style="padding:4px 8px; font-size:12px;" onclick="inneAddCount(${it.nr},1)">+</button>
                     <button type="button" class="btn-success" style="padding:4px 10px; font-size:12px;" onclick="inneInsertItemToText(${it.nr})">Wstaw</button>
                 </div>`;
@@ -5367,6 +5384,7 @@ window.ksiazkaInterwencjaResolveTags = ksiazkaInterwencjaResolveTags;
 window.ksiazkaInterwencjaWstawSzablon = ksiazkaInterwencjaWstawSzablon;
 window.inneToggleGroup = inneToggleGroup;
 window.inneAddCount = inneAddCount;
+window.inneSetCount = inneSetCount;
 window.inneInsertItemToText = inneInsertItemToText;
 window.inneRenderGroupsPanel = inneRenderGroupsPanel;
 window.inneWstawWszystkieDane = inneWstawWszystkieDane;
