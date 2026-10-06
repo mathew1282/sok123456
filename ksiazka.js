@@ -2129,9 +2129,20 @@ async function planZapiszJakoSzablon() {
         if (_planDraft[idx]) _planDraft[idx].tekst = ta.isContentEditable ? ta.innerHTML : (ta.value || "");
     });
 
-    let nazwa = prompt("Nazwa szablonu:", "");
-    if (nazwa == null) return;
-    nazwa = String(nazwa).trim() || ("Szablon " + new Date().toLocaleString("pl-PL"));
+    // Jeśli pracujemy na wczytanym szablonie – podpowiedz jego nazwę (łatwe nadpisanie)
+    let defaultNazwa = "";
+    if (_planEditTemplateId && Array.isArray(appState.planSzablony)) {
+        const cur = appState.planSzablony.find(s => s.id === _planEditTemplateId);
+        if (cur && cur.nazwa) defaultNazwa = String(cur.nazwa);
+    }
+    let nazwa = prompt(
+        defaultNazwa
+            ? "Nazwa szablonu (Enter = nadpisz „" + defaultNazwa + "”):"
+            : "Nazwa szablonu:",
+        defaultNazwa
+    );
+    if (nazwa == null) return; // anuluj
+    nazwa = String(nazwa).trim() || defaultNazwa || ("Szablon " + new Date().toLocaleString("pl-PL"));
 
     const rekordy = _planDraft.map((r, idx) => {
         planEnsureDraftShape(r);
@@ -2154,7 +2165,9 @@ async function planZapiszJakoSzablon() {
             existing.rekordy = rekordy;
             existing.numPatroli = Math.max(1, Math.min(12, Number(_planNumPatroli) || 2));
             await saveState();
-            if (typeof showToast === "function") showToast("✅ Zaktualizowano szablon");
+            if (typeof showToast === "function") {
+                showToast(nazwa === defaultNazwa ? "✅ Nadpisano szablon „" + nazwa + "”" : "✅ Zaktualizowano szablon „" + nazwa + "”");
+            }
             renderPlanSluzbyModal();
             return;
         }
