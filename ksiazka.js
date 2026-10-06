@@ -894,13 +894,19 @@ async function kopiujWpisKsiazki(index) {
     if (!e) return;
 
     let text = String(e.tekst || "");
-    // HTML → zwykły tekst
+    // HTML → zwykły tekst; <br> / nowe linie bloków → spacja (czytelny ciąg)
     if (/<[^>]+>/.test(text)) {
+        text = text
+            .replace(/<br\s*\/?>/gi, " ")
+            .replace(/<\/p\s*>/gi, " ")
+            .replace(/<\/div\s*>/gi, " ")
+            .replace(/<\/li\s*>/gi, " ");
         const tmp = document.createElement("div");
         tmp.innerHTML = text;
         text = tmp.innerText || tmp.textContent || "";
     }
     text = stripBulletsPlain(text);
+    text = text.replace(/[ \t]+/g, " ").replace(/ *\n+/g, " ").trim();
 
     try {
         await navigator.clipboard.writeText(text);
@@ -1751,9 +1757,19 @@ function planRenderAddTilesZgl() {
         return;
     }
     const level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === _planAddTiles.zglOpis);
-    lvl3El.innerHTML = level3.map(r => {
+    const groups = (typeof zglGroupLevel3Rows === "function") ? zglGroupLevel3Rows(level3) : level3.map(r => ({ type: "single", row: r }));
+    lvl3El.innerHTML = groups.map(g => {
+        if (g.type === "pair") {
+            const sSel = _planAddTiles.zglIndex === g.start._index;
+            const eSel = _planAddTiles.zglIndex === g.end._index;
+            return (typeof zglLevel3PairHtml === "function")
+                ? zglLevel3PairHtml(g.start, g.end, sSel, eSel, `planAddToggleZgl(${g.start._index})`, `planAddToggleZgl(${g.end._index})`)
+                : "";
+        }
+        const r = g.row;
         const sel = _planAddTiles.zglIndex === r._index ? "selected" : "";
-        const label = (r.OpisPom || r.Opis || "(brak)").substring(0, 100);
+        const role = r.procedureRole === "start" ? "▶ start · " : (r.procedureRole === "end" ? "■ koniec · " : "");
+        const label = (role + (r.OpisPom || r.Opis || "(brak)")).substring(0, 100);
         return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="planAddToggleZgl(${r._index})">${escapeHtml(label)}</div>`;
     }).join("") || "";
 }
@@ -5004,7 +5020,16 @@ function ksiazkaAddRenderZgl() {
     } else {
         level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === ksiazkaAdd.zglOpis);
     }
-    lvl3El.innerHTML = level3.map(r => {
+    const groups = (typeof zglGroupLevel3Rows === "function") ? zglGroupLevel3Rows(level3) : level3.map(r => ({ type: "single", row: r }));
+    lvl3El.innerHTML = groups.map(g => {
+        if (g.type === "pair") {
+            const sSel = ksiazkaAdd.zglIndexes.includes(g.start._index);
+            const eSel = ksiazkaAdd.zglIndexes.includes(g.end._index);
+            return (typeof zglLevel3PairHtml === "function")
+                ? zglLevel3PairHtml(g.start, g.end, sSel, eSel, `ksiazkaAddToggleZgl(${g.start._index})`, `ksiazkaAddToggleZgl(${g.end._index})`)
+                : "";
+        }
+        const r = g.row;
         const sel = ksiazkaAdd.zglIndexes.includes(r._index) ? "selected" : "";
         const role = r.procedureRole === "start" ? "▶ start · " : (r.procedureRole === "end" ? "■ koniec · " : "");
         const label = role + (r.OpisPom || r.Opis || "(brak)").substring(0, 120);
