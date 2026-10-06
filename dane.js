@@ -2,9 +2,66 @@
 // DANE FUNKCJONARIUSZY
 // =====================================
 
+/** Sort: null | { col, dir: "asc"|"desc" } – zapamiętane w appState.daneSort */
+function ensureDaneSortState() {
+    if (!appState.daneSort || typeof appState.daneSort !== "object") {
+        try {
+            const raw = localStorage.getItem("sok-dane-sort");
+            if (raw) appState.daneSort = JSON.parse(raw);
+        } catch (e) {}
+    }
+    if (!appState.daneSort || typeof appState.daneSort !== "object") {
+        appState.daneSort = { col: null, dir: null };
+    }
+}
+
+function isDaneNameColumn(name) {
+    const n = String(name || "").toLowerCase().trim();
+    return /^(imi[eę]|nazwisko|name|surname|first\s*name|last\s*name)$/i.test(n)
+        || n === "imie" || n === "imię" || n === "nazwisko";
+}
+
+function getDaneSortedRows() {
+    ensureDaneSortState();
+    const columns = appState.dane.columns || [];
+    const rows = appState.dane.rows || [];
+    // indeksy w kolejności oryginalnej
+    const indices = rows.map((_, i) => i);
+    const sort = appState.daneSort;
+    if (!sort || !sort.col || !sort.dir) return indices;
+    const col = sort.col;
+    if (!columns.includes(col)) return indices;
+    indices.sort((ia, ib) => {
+        const a = String(rows[ia][col] || "").toLowerCase();
+        const b = String(rows[ib][col] || "").toLowerCase();
+        const c = a.localeCompare(b, "pl", { sensitivity: "base" });
+        return sort.dir === "desc" ? -c : c;
+    });
+    return indices;
+}
+
+async function cycleDaneSort(col) {
+    ensureDaneSortState();
+    if (!isDaneNameColumn(col)) return;
+    const s = appState.daneSort;
+    if (s.col !== col) {
+        s.col = col;
+        s.dir = "asc";
+    } else if (s.dir === "asc") {
+        s.dir = "desc";
+    } else {
+        s.col = null;
+        s.dir = null;
+    }
+    try { localStorage.setItem("sok-dane-sort", JSON.stringify(s)); } catch (e) {}
+    if (typeof saveState === "function") await saveState();
+    renderDane();
+}
+
 function initDane() {
     const container = document.getElementById("daneContainer");
     if (!container) return;
+    ensureDaneSortState();
     renderDane();
 }
 
@@ -15,9 +72,12 @@ function initDane() {
 function renderDane() {
     const container = document.getElementById("daneContainer");
     if (!container) return;
+    ensureDaneSortState();
 
     const columns = appState.dane.columns;
     const rows = appState.dane.rows;
+    const order = getDaneSortedRows();
+    const sort = appState.daneSort || {};
 
     let html = `
     <div class="card">
@@ -37,12 +97,22 @@ function renderDane() {
     `;
 
     columns.forEach((column, index) => {
+        const canSort = isDaneNameColumn(column);
+        let sortMark = "";
+        if (canSort && sort.col === column) {
+            sortMark = sort.dir === "asc" ? " ▲" : (sort.dir === "desc" ? " ▼" : "");
+        } else if (canSort) {
+            sortMark = " ▽";
+        }
+        const titleAttrs = canSort
+            ? `style="cursor:pointer;user-select:none;" onclick="cycleDaneSort(${JSON.stringify(column)})" title="Sortuj: A→Z / Z→A / kolejność wpisu"`
+            : "";
         html += `
             <th>
-                ${column}
+                <span ${titleAttrs}>${column}${sortMark}</span>
                 <br><br>
-                <button class="btn-primary" onclick="renameDaneColumn(${index})">Zmień</button>
-                <button class="btn-danger" onclick="removeDaneColumn(${index})">Usuń</button>
+                <button class="btn-primary" onclick="event.stopPropagation();renameDaneColumn(${index})">Zmień</button>
+                <button class="btn-danger" onclick="event.stopPropagation();removeDaneColumn(${index})">Usuń</button>
             </th>
         `;
     });
@@ -54,13 +124,15 @@ function renderDane() {
     <tbody>
     `;
 
-    rows.forEach((row, rowIndex) => {
+    order.forEach(rowIndex => {
+        const row = rows[rowIndex];
         html += `<tr>`;
         columns.forEach(column => {
+            const val = (row[column] || "").replace(/"/g, "&quot;");
             html += `
             <td>
-                <input type="text" value="${row[column] || ''}" 
-                       onchange="updateDaneCell(${rowIndex}, '${column}', this.value)">
+                <input type="text" value="${val}" 
+                       onchange="updateDaneCell(${rowIndex}, '${String(column).replace(/'/g, "\\'")}', this.value)">
             </td>`;
         });
         html += `
@@ -255,3 +327,7 @@ window.removeDaneRow = removeDaneRow;
 window.updateDaneCell = updateDaneCell;
 window.exportDaneExcel = exportDaneExcel;
 window.importDaneExcel = importDaneExcel;
+
+window.cycleDaneSort = cycleDaneSort;
+window.initDane = initDane;
+window.renderDane = renderDane;
