@@ -206,7 +206,7 @@ function zglShowFilterPanel(col, anchorEl) {
         "position:fixed",
         "z-index:9999",
         "width:280px",
-        "height:min(70vh, 520px)",
+        "height:auto",
         "display:flex",
         "flex-direction:column",
         "background:var(--bg-input)",
@@ -248,12 +248,21 @@ function zglShowFilterPanel(col, anchorEl) {
     panel.appendChild(foot);
     document.body.appendChild(panel);
 
-    // pozycja pod nagłówkiem
-    const rect = (anchorEl && anchorEl.getBoundingClientRect) ? anchorEl.getBoundingClientRect() : { left: 40, bottom: 80, right: 200 };
+    // wysokość wg liczby pozycji (krótka lista = mały panel; dużo = max ~70vh)
+    const rowH = 36;
+    const footH = 52;
+    const pad = 12;
+    const n = Math.max(1, vals.length);
+    let ph = pad + footH + n * rowH;
+    const phMax = Math.min(Math.floor(window.innerHeight * 0.7), 520);
+    const phMin = 100;
+    if (ph > phMax) ph = phMax;
+    if (ph < phMin) ph = phMin;
+
+    const rect = (anchorEl && anchorEl.getBoundingClientRect) ? anchorEl.getBoundingClientRect() : { left: 40, bottom: 80, top: 80 };
     let left = rect.left;
     let top = rect.bottom + 4;
     const pw = 280;
-    const ph = Math.min(window.innerHeight * 0.7, 520);
     if (left + pw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pw - 8);
     if (top + ph > window.innerHeight - 8) top = Math.max(8, rect.top - ph - 4);
     panel.style.left = left + "px";
@@ -294,8 +303,6 @@ function renderZgloszenia() {
                 ${label} <span style="font-size:10px;opacity:0.85;">${arrow}</span>
                 ${active ? `<span style="font-size:11px;opacity:0.95;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(active)}">● ${escapeHtml(active)}</span>` : ""}
             </span>
-            ${active ? `<button type="button" title="Wyczyść filtr" onclick="event.stopPropagation();zglApplyColFilter('${col}', '');"
-                style="margin-left:4px;border:none;background:transparent;color:#f87171;font-weight:800;cursor:pointer;font-size:14px;line-height:1;padding:0 2px;">×</button>` : ""}
         </th>`;
     }
 
