@@ -209,11 +209,13 @@ function renderZgloszenia() {
                     ${escapeHtml(v)}
                 </div>`;
             }).join("") || `<div style="padding:6px;color:var(--text-dim);font-size:12px;">Brak wartości</div>`;
-            dropdown = `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:200px;max-height:260px;overflow:auto;padding:6px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);"
+            dropdown = `<div style="position:absolute;left:0;top:100%;z-index:80;min-width:240px;width:max(240px, 100%);height:min(70vh, 520px);display:flex;flex-direction:column;padding:0;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.28);overflow:hidden;"
                 onclick="event.stopPropagation()">
-                ${opts}
-                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;margin-top:6px;"
-                        onclick="event.stopPropagation();zglApplyColFilter('${col}', '');">Wyczyść</button>
+                <div style="flex:1;overflow:auto;padding:6px 6px 4px 6px;min-height:0;">${opts}</div>
+                <div style="padding:8px;border-top:1px solid var(--border);background:var(--bg-light);flex-shrink:0;">
+                <button type="button" class="btn-primary" style="padding:6px 8px;font-size:12px;width:100%;"
+                        onclick="event.stopPropagation();zglApplyColFilter('${col}', '');">Wyczyść filtr</button>
+                </div>
             </div>`;
         }
         return `<th style="position:relative; user-select:none;" onclick="event.stopPropagation()">
