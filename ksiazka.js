@@ -4064,17 +4064,128 @@ function interwencjaFindStatRows(entry, wantTyp) {
     return rows;
 }
 
+
+function inneFindNameByNr(nr) {
+    const n = Number(nr);
+    if (typeof INNE_WYNIKI_GROUPS !== "undefined") {
+        for (const g of INNE_WYNIKI_GROUPS) {
+            const it = (g.items || []).find(x => Number(x.nr) === n);
+            if (it) return it.name;
+        }
+    }
+    return "Poz. " + n;
+}
+
+/** Okno jak MKK/P/L: lista pozycji Inne z tego wpisu + × do usunięcia */
+function openInneRemoveModal(entryIndex) {
+    ensureKsiazkaState();
+    const entry = appState.ksiazkaWydarzen[entryIndex];
+    if (!entry) return;
+    const counts = (entry.inneCounts && typeof entry.inneCounts === "object") ? entry.inneCounts : {};
+    const items = Object.keys(counts)
+        .map(nr => ({ nr: parseInt(nr, 10), val: Number(counts[nr]) || 0 }))
+        .filter(x => x.nr && x.val > 0)
+        .sort((a, b) => a.nr - b.nr);
+
+    const old = document.getElementById("interwencjaRemoveModal");
+    if (old) old.remove();
+
+    const listHtml = items.length
+        ? items.map((it, idx) => {
+            const name = inneFindNameByNr(it.nr);
+            return `<div style="display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid var(--border);">
+                <span style="flex:1; font-size:14px;">
+                    <strong style="color:#facc15;">${it.nr}.</strong> ${escapeHtml(name)}
+                    <span style="color:var(--text-dim);"> · ×${it.val}</span>
+                </span>
+                <button type="button" class="btn-danger" style="padding:4px 10px; font-weight:800;"
+                    onclick="removeOneInneCount(${entryIndex}, ${it.nr})" title="Usuń tę pozycję">×</button>
+            </div>`;
+        }).join("")
+        : `<div style="padding:16px; color:var(--text-dim);">Brak zapisanych pozycji Inne przy tym wpisie.</div>`;
+
+    const overlay = document.createElement("div");
+    overlay.id = "interwencjaRemoveModal";
+    overlay.className = "modal-overlay";
+    overlay.style.display = "flex";
+    overlay.innerHTML = `
+        <div class="modal" style="max-width:520px;">
+            <h2 style="margin-top:0;">Inne · ${items.length} poz.</h2>
+            <p style="color:var(--text-dim); font-size:13px; margin:0 0 10px 0;">
+                Kliknij <strong>×</strong>, aby usunąć pozycję z tego wpisu (wyniki zaktualizują się same).
+            </p>
+            <div style="border:1px solid var(--border); border-radius:10px; max-height:50vh; overflow:auto;">
+                ${listHtml}
+            </div>
+            <div class="modal-actions" style="margin-top:14px;">
+                <button class="btn-danger" onclick="closeInterwencjaRemoveModal()">Zamknij</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+async function removeOneInneCount(entryIndex, nr) {
+    ensureKsiazkaState();
+    const entry = appState.ksiazkaWydarzen[entryIndex];
+    if (!entry) return;
+    nr = parseInt(nr, 10);
+    if (!entry.inneCounts || typeof entry.inneCounts !== "object") entry.inneCounts = {};
+    const val = Number(entry.inneCounts[nr]) || 0;
+    if (val <= 0) {
+        delete entry.inneCounts[nr];
+    } else {
+        // odejmij cały wkład tej pozycji z wpisu
+        if (typeof ensureStatystykiState === "function") ensureStatystykiState();
+        if (!appState.statystyki.wyniki) appState.statystyki.wyniki = {};
+        const cur = Number(appState.statystyki.wyniki[nr]) || 0;
+        const next = Math.max(0, cur - val);
+        if (next > 0) appState.statystyki.wyniki[nr] = next;
+        else delete appState.statystyki.wyniki[nr];
+        delete entry.inneCounts[nr];
+    }
+
+    const leftKeys = Object.keys(entry.inneCounts || {}).filter(k => Number(entry.inneCounts[k]) > 0);
+    if (!leftKeys.length) {
+        delete entry.inneCounts;
+        if (entry.interwencje) {
+            delete entry.interwencje.I;
+            delete entry.interwencje.Inne;
+        }
+        if (entry.interwencjeCounts) {
+            delete entry.interwencjeCounts.I;
+            delete entry.interwencjeCounts.Inne;
+        }
+        // usuń rekordy "Inne" ze statystyk dla tego entry
+        if (appState.statystyki && Array.isArray(appState.statystyki.interwencje)) {
+            const entryId = entry.id != null ? String(entry.id) : null;
+            appState.statystyki.interwencje = appState.statystyki.interwencje.filter(row => {
+                if (!row) return false;
+                const t = interwencjaNormTyp(row.typ);
+                if (t !== "Inne") return true;
+                if (entryId && String(row.entryId || "") === entryId) return false;
+                return true;
+            });
+        }
+    }
+
+    if (typeof wynikiSyncAutoToState === "function") wynikiSyncAutoToState();
+    await saveState();
+    renderKsiazka();
+    closeInterwencjaRemoveModal();
+
+    const still = entry.inneCounts && Object.keys(entry.inneCounts).some(k => Number(entry.inneCounts[k]) > 0);
+    if (still) openInneRemoveModal(entryIndex);
+    if (typeof showToast === "function") showToast("↩ Usunięto poz. " + nr + " z Inne");
+}
+
 function openInterwencjaRemoveModal(entryIndex, code) {
     ensureKsiazkaState();
     const entry = appState.ksiazkaWydarzen[entryIndex];
     if (!entry) return;
     const want = interwencjaCodeToWant(code);
     if (want === "Inne") {
-        if (typeof showToast === "function") {
-            showToast("Inne poprawiasz w oknie „Inne” przy wpisie (liczniki → Zapisz)");
-        }
-        // otwórz Inne do edycji
-        openKsiazkaInterwencjaModal(entryIndex, "I");
+        openInneRemoveModal(entryIndex);
         return;
     }
     const labelMap = { MKK: "MKK", Pouczony: "Pouczony (P)", Legitymowany: "Legitymowany (L)" };
@@ -5398,6 +5509,8 @@ window.ksiazkaInterwencjeBadgesHtml = ksiazkaInterwencjeBadgesHtml;
 
 window.removeKsiazkaInterwencja = removeKsiazkaInterwencja;
 window.openInterwencjaRemoveModal = openInterwencjaRemoveModal;
+window.openInneRemoveModal = openInneRemoveModal;
+window.removeOneInneCount = removeOneInneCount;
 window.closeInterwencjaRemoveModal = closeInterwencjaRemoveModal;
 window.removeOneInterwencjaInstance = removeOneInterwencjaInstance;
 
