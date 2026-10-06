@@ -1459,8 +1459,15 @@ function renderPlanSluzbyModal() {
                   ).join("")
                 : "";
             return `
-            <div style="${planThemeBoxStyle(boxExtra)}">
+            <div class="plan-draft-item" data-plan-idx="${idx}"
+                 ondragover="planDraftDragOver(event)"
+                 ondrop="planDraftDrop(event, ${idx})"
+                 style="${planThemeBoxStyle(boxExtra)}">
                 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                    <span draggable="true" title="Przeciągnij, aby zmienić kolejność"
+                          ondragstart="planDraftDragStart(event, ${idx})"
+                          ondragend="planDraftDragEnd(event)"
+                          style="cursor:grab; user-select:none; opacity:0.75; font-size:16px; padding:2px 4px;">⋮⋮</span>
                     <div style="font-weight:700; color:var(--primary-light); white-space:nowrap;">#${idx + 1}${idx === 0 ? " (start)" : ""}</div>
                     ${idx === 0 ? `<input type="hidden" class="plan-offset" data-idx="${idx}" value="0">` : `
                     <input type="number" class="plan-offset" data-idx="${idx}" value="${Number(r.offsetMin) || 0}" min="0" step="5"
@@ -1474,7 +1481,13 @@ function renderPlanSluzbyModal() {
                     <button type="button" class="btn-primary" style="padding:3px 8px; font-size:11px;${selected ? " outline:2px solid #eab308;" : ""}"
                         onclick="planToggleSelectPoint(${idx})">${selected ? "✓" : "Zaznacz"}</button>
                     ` : ""}
-                    <button type="button" class="btn-danger" style="padding:3px 8px; font-size:11px; margin-left:auto;" onclick="planDraftUsun(${idx})">Usuń</button>
+                    <span style="display:inline-flex; gap:4px; margin-left:auto; align-items:center;">
+                        <button type="button" class="btn-primary" style="padding:3px 8px; font-size:12px;${idx === 0 ? "opacity:0.35;" : ""}" title="Wyżej"
+                            onclick="event.stopPropagation();planDraftMove(${idx},-1)" ${idx === 0 ? "disabled" : ""}>↑</button>
+                        <button type="button" class="btn-primary" style="padding:3px 8px; font-size:12px;${idx === _planDraft.length - 1 ? "opacity:0.35;" : ""}" title="Niżej"
+                            onclick="event.stopPropagation();planDraftMove(${idx},1)" ${idx === _planDraft.length - 1 ? "disabled" : ""}>↓</button>
+                        <button type="button" class="btn-danger" style="padding:3px 8px; font-size:11px;" onclick="planDraftUsun(${idx})">Usuń</button>
+                    </span>
                 </div>
                 <div class="plan-tekst rich-opis-editor" contenteditable="true" data-idx="${idx}"
                      style="width:100%; min-height:72px; font-size:13px; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); white-space:pre-wrap;"
@@ -1632,6 +1645,16 @@ function renderPlanSluzbyModal() {
         const g = document.getElementById("planStartGodz");
         if (g) g.value = prevStartGodz;
     }
+
+    if (!document.getElementById("planDraftDragStyle")) {
+        const st = document.createElement("style");
+        st.id = "planDraftDragStyle";
+        st.textContent = `.plan-draft-item.plan-draft-dragover{ outline:2px dashed #3b82f6; outline-offset:2px; }
+            .plan-draft-item [contenteditable="true"]{ cursor:text; }
+            .plan-draft-item [contenteditable="true"]:hover{ cursor:text; }`;
+        document.head.appendChild(st);
+    }
+
     const sb = overlay.querySelector("[data-plan-scroll]");
     if (sb) sb.scrollTop = prevScroll;
 }
@@ -1698,6 +1721,55 @@ function planSetNumPatroli(val) {
 function planDraftUpdateTekst(idx, val) {
     if (!_planDraft[idx]) return;
     _planDraft[idx].tekst = val;
+}
+
+
+/** Przesuń punkt planu o delta (−1 w górę, +1 w dół) */
+function planDraftMove(idx, delta) {
+    if (!_planDraft || !_planDraft.length) return;
+    const from = Number(idx);
+    const to = from + Number(delta);
+    if (from < 0 || from >= _planDraft.length) return;
+    if (to < 0 || to >= _planDraft.length) return;
+    const item = _planDraft.splice(from, 1)[0];
+    _planDraft.splice(to, 0, item);
+    // punkt #1 zawsze offset 0
+    if (_planDraft[0]) _planDraft[0].offsetMin = 0;
+    renderPlanSluzbyModal();
+}
+
+let _planDragFrom = null;
+function planDraftDragStart(ev, idx) {
+    _planDragFrom = idx;
+    try {
+        ev.dataTransfer.effectAllowed = "move";
+        ev.dataTransfer.setData("text/plain", String(idx));
+    } catch (e) {}
+    if (ev.currentTarget) ev.currentTarget.style.opacity = "0.55";
+}
+function planDraftDragOver(ev) {
+    ev.preventDefault();
+    try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
+    const row = ev.currentTarget;
+    if (row && row.classList) row.classList.add("plan-draft-dragover");
+}
+function planDraftDrop(ev, toIdx) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const from = _planDragFrom != null ? _planDragFrom : parseInt(ev.dataTransfer.getData("text/plain"), 10);
+    _planDragFrom = null;
+    document.querySelectorAll(".plan-draft-dragover").forEach(el => el.classList.remove("plan-draft-dragover"));
+    if (isNaN(from) || isNaN(toIdx) || from === toIdx) return;
+    if (from < 0 || from >= _planDraft.length || toIdx < 0 || toIdx >= _planDraft.length) return;
+    const item = _planDraft.splice(from, 1)[0];
+    _planDraft.splice(toIdx, 0, item);
+    if (_planDraft[0]) _planDraft[0].offsetMin = 0;
+    renderPlanSluzbyModal();
+}
+function planDraftDragEnd(ev) {
+    _planDragFrom = null;
+    if (ev.currentTarget) ev.currentTarget.style.opacity = "";
+    document.querySelectorAll(".plan-draft-dragover").forEach(el => el.classList.remove("plan-draft-dragover"));
 }
 
 function planDraftUsun(idx) {
@@ -5437,6 +5509,11 @@ window.replaceAllFromTile = replaceAllFromTile;
 window.closeKsiazkaEditModal = closeKsiazkaEditModal;
 window.confirmEditKsiazka = confirmEditKsiazka;
 window.openPlanSluzbyModal = openPlanSluzbyModal;
+window.planDraftDragEnd = planDraftDragEnd;
+window.planDraftDrop = planDraftDrop;
+window.planDraftDragOver = planDraftDragOver;
+window.planDraftDragStart = planDraftDragStart;
+window.planDraftMove = planDraftMove;
 window.planDetectProcedureFromTekst = planDetectProcedureFromTekst;
 window.planUsunZatwierdz = planUsunZatwierdz;
 window.planUsunZaznaczWszystkie = planUsunZaznaczWszystkie;
