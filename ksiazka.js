@@ -728,34 +728,34 @@ function renderKsiazkaColumnsView(filtered) {
 
     columns.forEach(col => {
         html += `
-        <div style="min-width:0; background:var(--bg-input, #1e293b); border:1px solid var(--border, #334155); border-radius:12px; padding:14px;">
-            <div style="font-weight:700; font-size:16px; margin-bottom:12px; color:#60a5fa; border-bottom:1px solid #334155; padding-bottom:8px;">
-                ${escapeHtml(col.name)} <span style="color:#94a3b8; font-weight:500; font-size:13px;">(${col.entries.length})</span>
+        <div style="min-width:0; background:var(--bg-light); border:1px solid var(--border); border-radius:12px; padding:14px;">
+            <div style="font-weight:700; font-size:16px; margin-bottom:12px; color:var(--primary-light, #2563eb); border-bottom:1px solid var(--border); padding-bottom:8px;">
+                ${escapeHtml(col.name)} <span style="color:var(--text-dim); font-weight:500; font-size:13px;">(${col.entries.length})</span>
             </div>
         `;
 
         if (col.entries.length === 0) {
-            html += `<div style="color:#64748b; font-size:13px; padding:10px 0;">Brak wpisów</div>`;
+            html += `<div style="color:var(--text-dim); font-size:13px; padding:10px 0;">Brak wpisów</div>`;
         } else {
             col.entries.forEach(entry => {
                 const globalIdx = appState.ksiazkaWydarzen.findIndex(e => e.id === entry.id);
                 const overdue = isOverdue(entry);
                 const done = !!entry.zrobione;
 
-                let boxStyle = "background:#0f172a; border:1px solid #334155;";
+                let boxStyle = "background:var(--bg-input); border:1px solid var(--border); color:var(--text);";
                 let extraClass = "";
                 if (done) {
-                    boxStyle = "background:rgba(34,197,94,0.15); border:1px solid #22c55e;";
+                    boxStyle = "background:rgba(34,197,94,0.12); border:1px solid #22c55e; color:var(--text);";
                 } else if (overdue) {
-                    boxStyle = "background:rgba(220,38,38,0.18); border:1px solid #dc2626;";
+                    boxStyle = "background:rgba(220,38,38,0.12); border:1px solid #dc2626; color:var(--text);";
                     extraClass = "ksiazka-overdue-box";
                 }
 
                 html += `
                 <div class="${extraClass}" style="${boxStyle} border-radius:10px; padding:12px; margin-bottom:10px; display:flex; flex-direction:column; min-height:0;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; font-size:13px; position:relative; padding-right:8px; gap:8px;">
-                        <span style="color:#94a3b8;">${escapeHtml(entry.data)} · <strong style="color:#e2e8f0;">${escapeHtml(entry.godzinaStart || "—")}</strong>
-                            ${done ? " <span style='color:#4ade80;'>✅</span>" : (overdue ? " <span style='color:#f87171;'>⚠</span>" : "")}
+                        <span style="color:var(--text-dim);">${escapeHtml(entry.data)} · <strong style="color:var(--text);">${escapeHtml(entry.godzinaStart || "—")}</strong>
+                            ${done ? " <span style='color:#16a34a;'>✅</span>" : (overdue ? " <span style='color:#dc2626;'>⚠</span>" : "")}
                         </span>
                         <span style="display:flex; flex-direction:column; gap:4px; align-items:flex-end; flex-wrap:wrap; max-width:65%;">
                             ${ksiazkaProceduraBadgeHtml(entry)}
@@ -763,7 +763,7 @@ function renderKsiazkaColumnsView(filtered) {
                             ${ksiazkaInterwencjeBadgesHtml(entry, false, globalIdx)}
                         </span>
                     </div>
-                    <div style="font-size:13.5px; line-height:1.45; white-space:pre-wrap; color:#e2e8f0; margin-bottom:10px; flex:1;">
+                    <div style="font-size:13.5px; line-height:1.45; white-space:pre-wrap; color:var(--text-soft); margin-bottom:10px; flex:1;">
                         ${formatKsiazkaTekstHtml(entry.tekst)}
                     </div>
                     ${ksiazkaInterwencjeMode ? `` : `
