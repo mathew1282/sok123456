@@ -118,17 +118,114 @@ function polUniqueValues(col) {
     return items;
 }
 
+function polCloseFilterPanel() {
+    const panel = document.getElementById("polFilterPanel");
+    if (panel) panel.remove();
+    polOpenFilterCol = null;
+}
+
 function polApplyColFilter(col, value) {
     if (!polColFilters) polColFilters = { Linia: "", OpisKrotki: "", OpisPom: "" };
     polColFilters[col] = value == null ? "" : String(value);
-    polOpenFilterCol = null;
+    polCloseFilterPanel();
     renderPolecenia();
 }
 
-function polToggleColFilter(col) {
-    polOpenFilterCol = (polOpenFilterCol === col) ? null : col;
-    renderPolecenia();
+function polToggleColFilter(col, anchorEl) {
+    if (polOpenFilterCol === col && document.getElementById("polFilterPanel")) {
+        polCloseFilterPanel();
+        return;
+    }
+    polOpenFilterCol = col;
+    polShowFilterPanel(col, anchorEl);
 }
+
+function polShowFilterPanel(col, anchorEl) {
+    polCloseFilterPanel();
+    polOpenFilterCol = col;
+    const active = (polColFilters[col] || "").trim();
+    const vals = polUniqueValues(col);
+
+    const panel = document.createElement("div");
+    panel.id = "polFilterPanel";
+    panel.style.cssText = [
+        "position:fixed",
+        "z-index:9999",
+        "width:280px",
+        "height:auto",
+        "display:flex",
+        "flex-direction:column",
+        "background:var(--bg-input)",
+        "color:var(--text)",
+        "border:1px solid var(--border)",
+        "border-radius:10px",
+        "box-shadow:0 12px 40px rgba(0,0,0,.35)",
+        "overflow:hidden"
+    ].join(";");
+
+    const list = document.createElement("div");
+    list.style.cssText = "flex:1;overflow:auto;padding:6px;min-height:0;";
+    if (!vals.length) {
+        list.innerHTML = '<div style="padding:10px;color:var(--text-dim);font-size:13px;">Brak wartości</div>';
+    } else {
+        vals.forEach(v => {
+            const row = document.createElement("div");
+            row.textContent = v;
+            row.style.cssText = "padding:8px 10px;cursor:pointer;border-radius:6px;font-size:13px;color:var(--text);"
+                + (active === v ? "background:rgba(59,130,246,.22);font-weight:700;" : "");
+            row.onmouseenter = () => { if (active !== v) row.style.background = "rgba(59,130,246,.12)"; };
+            row.onmouseleave = () => { row.style.background = active === v ? "rgba(59,130,246,.22)" : "transparent"; };
+            row.onclick = (e) => { e.stopPropagation(); polApplyColFilter(col, v); };
+            list.appendChild(row);
+        });
+    }
+
+    const foot = document.createElement("div");
+    foot.style.cssText = "padding:8px;border-top:1px solid var(--border);background:var(--bg-light);flex-shrink:0;";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-primary";
+    btn.textContent = "Wyczyść filtr";
+    btn.style.cssText = "padding:6px 8px;font-size:12px;width:100%;";
+    btn.onclick = (e) => { e.stopPropagation(); polApplyColFilter(col, ""); };
+    foot.appendChild(btn);
+
+    panel.appendChild(list);
+    panel.appendChild(foot);
+    document.body.appendChild(panel);
+
+    // wysokość wg liczby pozycji (krótka lista = mały panel; dużo = max ~70vh)
+    const rowH = 36;
+    const footH = 52;
+    const pad = 12;
+    const n = Math.max(1, vals.length);
+    let ph = pad + footH + n * rowH;
+    const phMax = Math.min(Math.floor(window.innerHeight * 0.7), 520);
+    const phMin = 100;
+    if (ph > phMax) ph = phMax;
+    if (ph < phMin) ph = phMin;
+
+    const rect = (anchorEl && anchorEl.getBoundingClientRect) ? anchorEl.getBoundingClientRect() : { left: 40, bottom: 80, top: 80 };
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    const pw = 280;
+    if (left + pw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - pw - 8);
+    if (top + ph > window.innerHeight - 8) top = Math.max(8, rect.top - ph - 4);
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+    panel.style.height = ph + "px";
+
+    setTimeout(() => {
+        const closer = (ev) => {
+            if (panel.contains(ev.target)) return;
+            if (ev.target.closest && ev.target.closest("[data-pol-filter-btn]")) return;
+            document.removeEventListener("mousedown", closer, true);
+            polCloseFilterPanel();
+        };
+        document.addEventListener("mousedown", closer, true);
+    }, 0);
+}
+
 
 function renderPolecenia() {
     const container = document.getElementById("poleceniaContainer");
@@ -152,33 +249,13 @@ function renderPolecenia() {
 
     function thFilter(col, label) {
         const active = (polColFilters[col] || "").trim();
-        const open = polOpenFilterCol === col;
         const arrow = active ? "▼" : "▽";
-        let dropdown = "";
-        if (open) {
-            const vals = polUniqueValues(col);
-            const opts = vals.map(v => {
-                const sel = active === v;
-                return `<div data-pol-fcol="${col}" data-pol-fval="${escapeHtml(v).replace(/"/g, "&quot;")}"
-                    onclick="event.stopPropagation();polApplyColFilter(this.getAttribute('data-pol-fcol'), this.getAttribute('data-pol-fval'));"
-                    style="padding:6px 8px;cursor:pointer;border-radius:6px;font-size:13px;${sel ? "background:rgba(59,130,246,.25);font-weight:700;" : ""}">
-                    ${escapeHtml(v)}
-                </div>`;
-            }).join("") || `<div style="padding:6px;color:var(--text-dim);font-size:12px;">Brak wartości</div>`;
-            dropdown = `<div style="position:absolute;left:0;top:100%;z-index:50;min-width:200px;max-height:260px;overflow:auto;padding:6px;background:var(--bg-light);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);"
-                onclick="event.stopPropagation()">
-                ${opts}
-                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;width:100%;margin-top:6px;"
-                        onclick="event.stopPropagation();polApplyColFilter('${col}', '');">Wyczyść</button>
-            </div>`;
-        }
-        return `<th style="position:relative; user-select:none;" onclick="event.stopPropagation()">
-            <span style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
-                  onclick="event.stopPropagation();polToggleColFilter('${col}')">
-                ${label} <span style="font-size:10px;opacity:0.8;">${arrow}</span>
-                ${active ? `<span style="font-size:10px;color:#60a5fa;">●</span>` : ""}
+        return `<th style="position:relative; user-select:none; white-space:nowrap;" onclick="event.stopPropagation()">
+            <span data-pol-filter-btn="1" style="cursor:pointer; display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap; color:inherit;"
+                  onclick="event.stopPropagation();polToggleColFilter('${col}', this)">
+                ${label} <span style="font-size:10px;opacity:0.85;">${arrow}</span>
+                ${active ? `<span style="font-size:11px;opacity:0.95;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(active)}">● ${escapeHtml(active)}</span>` : ""}
             </span>
-            ${dropdown}
         </th>`;
     }
 
@@ -213,7 +290,7 @@ function renderPolecenia() {
         : "";
 
     container.innerHTML = `
-    <div class="card" onclick="if(polOpenFilterCol){polOpenFilterCol=null;renderPolecenia();}">
+    <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
             <div><h2 style="margin:0;">📌 Polecenia</h2></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -872,5 +949,7 @@ async function removeSelectedPolecenia() {
 
 
 window.polApplyColFilter = polApplyColFilter;
+window.polShowFilterPanel = polShowFilterPanel;
+window.polCloseFilterPanel = polCloseFilterPanel;
 window.polToggleColFilter = polToggleColFilter;
 window.polUniqueValues = polUniqueValues;
