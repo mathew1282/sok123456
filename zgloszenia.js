@@ -316,18 +316,36 @@ function zglGroupLevel3Rows(rows) {
 function zglLevel3PairHtml(startRow, endRow, startSelected, endSelected, onStart, onEnd) {
     const ls = (startRow.OpisPom || startRow.Opis || "start").substring(0, 80);
     const le = (endRow.OpisPom || endRow.Opis || "koniec").substring(0, 80);
-    const bgS = startSelected ? "rgba(34,197,94,.22)" : "transparent";
-    const bgE = endSelected ? "rgba(34,197,94,.22)" : "transparent";
+    const bgS = startSelected ? "rgba(34,197,94,.28)" : "transparent";
+    const bgE = endSelected ? "rgba(34,197,94,.28)" : "transparent";
     const brS = startSelected ? "2px solid #22c55e" : "1px solid var(--border)";
     const brE = endSelected ? "2px solid #22c55e" : "1px solid var(--border)";
-    return `<div class="item-card" style="display:flex;padding:0;overflow:hidden;gap:0;cursor:default;">
-        <div role="button" onclick="event.stopPropagation();${onStart}"
-             style="flex:1;min-width:0;padding:10px 8px;cursor:pointer;background:${bgS};border-right:1px solid var(--border);box-sizing:border-box;border-top:${brS};border-bottom:${brS};border-left:${brS};">
+    // hover: tylko ta połowa (klasy + styl wstrzyknięty raz)
+    if (!document.getElementById("zglPairHoverStyle")) {
+        const st = document.createElement("style");
+        st.id = "zglPairHoverStyle";
+        st.textContent = `
+            .zgl-pair-half:hover {
+                background: rgba(59, 130, 246, 0.22) !important;
+                outline: 2px solid #60a5fa;
+                outline-offset: -2px;
+                z-index: 1;
+            }
+            .zgl-pair-half.zgl-pair-on:hover {
+                background: rgba(34, 197, 94, 0.35) !important;
+                outline-color: #22c55e;
+            }
+        `;
+        document.head.appendChild(st);
+    }
+    return `<div class="item-card zgl-pair-card" style="display:flex;padding:0;overflow:hidden;gap:0;cursor:default;">
+        <div role="button" class="zgl-pair-half${startSelected ? " zgl-pair-on" : ""}" onclick="event.stopPropagation();${onStart}"
+             style="flex:1;min-width:0;padding:10px 8px;cursor:pointer;background:${bgS};border-right:1px solid var(--border);box-sizing:border-box;border-top:${brS};border-bottom:${brS};border-left:${brS};transition:background .12s ease;">
             <div style="font-size:11px;font-weight:700;color:#4ade80;margin-bottom:2px;">▶ start</div>
             <div style="font-size:13px;line-height:1.3;word-break:break-word;">${escapeHtml(ls)}</div>
         </div>
-        <div role="button" onclick="event.stopPropagation();${onEnd}"
-             style="flex:1;min-width:0;padding:10px 8px;cursor:pointer;background:${bgE};box-sizing:border-box;border-top:${brE};border-bottom:${brE};border-right:${brE};">
+        <div role="button" class="zgl-pair-half${endSelected ? " zgl-pair-on" : ""}" onclick="event.stopPropagation();${onEnd}"
+             style="flex:1;min-width:0;padding:10px 8px;cursor:pointer;background:${bgE};box-sizing:border-box;border-top:${brE};border-bottom:${brE};border-right:${brE};transition:background .12s ease;">
             <div style="font-size:11px;font-weight:700;color:#f87171;margin-bottom:2px;">■ koniec</div>
             <div style="font-size:13px;line-height:1.3;word-break:break-word;">${escapeHtml(le)}</div>
         </div>
