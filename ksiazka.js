@@ -714,26 +714,38 @@ function ksiazkaScrollToCurrentTime() {
     }
     if (!best) best = nodes[nodes.length - 1];
 
-    // Scroll kontenera #content (nie window) – tak scrolluje się aplikacja
-    const scroller = document.getElementById("content")
-        || document.querySelector(".main-content")
-        || document.scrollingElement
-        || document.documentElement;
+    // Znajdź prawdziwy element ze scrollem (zwykle #content)
+    function findScrollParent(el) {
+        let p = el.parentElement;
+        while (p) {
+            const st = window.getComputedStyle(p);
+            const oy = st.overflowY;
+            if ((oy === "auto" || oy === "scroll") && p.scrollHeight > p.clientHeight + 4) {
+                return p;
+            }
+            p = p.parentElement;
+        }
+        return document.getElementById("content")
+            || document.scrollingElement
+            || document.documentElement;
+    }
+
+    const scroller = findScrollParent(best);
 
     try {
         const elRect = best.getBoundingClientRect();
         const scRect = scroller.getBoundingClientRect ? scroller.getBoundingClientRect() : { top: 0 };
         const offsetInScroller = elRect.top - scRect.top + (scroller.scrollTop || 0);
         const viewH = scroller.clientHeight || window.innerHeight;
-        // wpis „teraz” ~20% od góry widocznego obszaru (widać wcześniejsze nad nim)
-        const target = Math.max(0, offsetInScroller - viewH * 0.20);
+        // ~22% od góry – widać kilka wcześniejszych wpisów
+        const target = Math.max(0, offsetInScroller - Math.max(72, viewH * 0.22));
         if (typeof scroller.scrollTo === "function") {
             scroller.scrollTo({ top: target, behavior: "smooth" });
         } else {
             scroller.scrollTop = target;
         }
         best.classList.add("ksiazka-time-focus");
-        setTimeout(() => best && best.classList.remove("ksiazka-time-focus"), 2000);
+        setTimeout(() => best && best.classList.remove("ksiazka-time-focus"), 2500);
     } catch (e) {
         try { best.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e2) {}
     }
@@ -765,9 +777,10 @@ function renderKsiazkaListView(entries) {
         else if (overdue) rowClass += " ksiazka-overdue";
 
         const patrolLabel = (entry.patrole || []).map(i => getPatrolName(i)).join(", ");
+        const minOfDay = (typeof timeToMinutes === "function") ? timeToMinutes(entry.godzinaStart || "00:00") : 0;
 
         html += `
-        <div class="${rowClass}" style="position:relative;">
+        <div class="${rowClass}" data-ks-entry="1" data-ks-min="${minOfDay}" data-ks-id="${escapeHtml(String(entry.id || ""))}" style="position:relative;">
             ${ksiazkaEntryTopBadgesHtml(entry, globalIdx)}
             <div class="ksiazka-col-time">
                 <div class="ksiazka-time">${escapeHtml(entry.godzinaStart || "—")}</div>
