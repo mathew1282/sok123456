@@ -413,7 +413,7 @@ function renderZgloszenia() {
     function thFilter(col, label) {
         const active = (zglColFilters[col] || "").trim();
         const arrow = active ? "▼" : "▽";
-        return `<th style="position:relative; user-select:none; white-space:nowrap;" onclick="event.stopPropagation()">
+        return `<th class="col-meta" style="position:relative; user-select:none; white-space:nowrap;" onclick="event.stopPropagation()">
             <span data-zgl-filter-btn="1" style="cursor:pointer; display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap; color:inherit;"
                   onclick="event.stopPropagation();zglToggleColFilter('${col}', this)">
                 ${label} <span style="font-size:10px;opacity:0.85;">${arrow}</span>
@@ -428,19 +428,23 @@ function renderZgloszenia() {
             if (item.typ === "procedura") {
                 const krotki = item.start?.OpisKrotki || item.end?.OpisKrotki || item.tytul || "";
                 const pom = [item.start?.OpisPom, item.end?.OpisPom].filter(Boolean).join(" / ");
-                const preview = "▶ " + zglPlain(item.start?.Opis).slice(0, 50) + " → ■ " + zglPlain(item.end?.Opis).slice(0, 50);
+                const fmt = (typeof formatKsiazkaTekstHtml === "function")
+                    ? formatKsiazkaTekstHtml
+                    : (t => escapeHtml(zglPlain(t)).replace(/\n/g, "<br>"));
+                const opisHtml = `<div style="margin-bottom:8px;"><strong style="color:#4ade80;">▶ start</strong><div style="margin-top:2px;">${fmt(item.start?.Opis || "")}</div></div>`
+                    + `<div><strong style="color:#f87171;">■ koniec</strong><div style="margin-top:2px;">${fmt(item.end?.Opis || "")}</div></div>`;
                 const key = "p:" + (item.startIndex ?? "") + ":" + (item.endIndex ?? "");
                 const cb = delMode
-                    ? `<td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>`
+                    ? `<td class="col-meta" style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>`
                     : "";
                 return `<tr>
                     ${cb}
-                    <td>${escapeHtml(item.linia)}</td>
-                    <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(168,85,247,.2);color:#d8b4fe;">Procedura</span></td>
-                    <td style="font-weight:600;">${escapeHtml(krotki)}</td>
-                    <td style="font-size:13px;color:var(--text-dim);">${escapeHtml((pom || "").substring(0, 60))}${(pom || "").length > 60 ? "…" : ""}</td>
-                    <td style="font-size:12px;color:var(--text-dim);max-width:280px;">${escapeHtml(preview)}${preview.length >= 100 ? "…" : ""}</td>
-                    <td style="white-space:nowrap;">
+                    <td class="col-meta">${escapeHtml(item.linia)}</td>
+                    <td class="col-meta"><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(168,85,247,.2);color:#d8b4fe;">Procedura</span></td>
+                    <td class="col-meta" style="font-weight:600;">${escapeHtml(krotki)}</td>
+                    <td class="col-meta" style="font-size:13px;color:var(--text-dim);">${escapeHtml(pom || "")}</td>
+                    <td class="col-opis">${opisHtml}</td>
+                    <td class="col-meta">
                         <button class="btn-primary" onclick="editProceduraZgl(${item.startIndex}, ${item.endIndex})">Edytuj</button>
                     </td>
                 </tr>`;
@@ -450,15 +454,15 @@ function renderZgloszenia() {
             const cb = delMode
                 ? `<td style="width:36px;"><input type="checkbox" class="zgl-sel" data-key="${key}" onclick="event.stopPropagation()"></td>`
                 : "";
-            const opisPrev = zglPlain(r.Opis).slice(0, 100);
+            const fmt = (typeof formatKsiazkaTekstHtml === "function") ? formatKsiazkaTekstHtml : (t => escapeHtml(zglPlain(t)).replace(/\n/g, "<br>"));
             return `<tr>
                 ${cb}
-                <td>${escapeHtml(item.linia)}</td>
-                <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(34,197,94,.15);color:#86efac;">Zgłoszenie</span></td>
-                <td style="font-weight:600;">${escapeHtml(r.OpisKrotki || item.tytul || "")}</td>
-                <td style="font-size:13px;color:var(--text-dim);">${escapeHtml((r.OpisPom || "").substring(0, 60))}${(r.OpisPom || "").length > 60 ? "…" : ""}</td>
-                <td style="font-size:12px;color:var(--text-dim);max-width:280px;">${escapeHtml(opisPrev)}${(r.Opis || "").length > 100 ? "…" : ""}</td>
-                <td style="white-space:nowrap;">
+                <td class="col-meta">${escapeHtml(item.linia)}</td>
+                <td class="col-meta"><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:rgba(34,197,94,.15);color:#86efac;">Zgłoszenie</span></td>
+                <td class="col-meta" style="font-weight:600;">${escapeHtml(r.OpisKrotki || item.tytul || "")}</td>
+                <td class="col-meta" style="font-size:13px;color:var(--text-dim);">${escapeHtml(r.OpisPom || "")}</td>
+                <td class="col-opis">${fmt(r.Opis || "")}</td>
+                <td class="col-meta">
                     <button class="btn-primary" onclick="editZgloszenie(${item.index})">Edytuj</button>
                 </td>
             </tr>`;
@@ -493,9 +497,9 @@ function renderZgloszenia() {
                     ${thFilter("Linia", "Nr linii")}
                     ${thFilter("Typ", "Typ")}
                     ${thFilter("OpisKrotki", "Opis krótki")}
-                    <th>Opis pom</th>
-                    <th>Opis</th>
-                    <th>Akcje</th>
+                    <th class="col-meta">Opis pom</th>
+                    <th class="col-opis">Opis</th>
+                    <th class="col-meta">Akcje</th>
                 </tr>
             </thead>
             <tbody>${body}</tbody>
