@@ -24,7 +24,7 @@ function tomorrowPL() {
 
 /** Parsuje "HH:MM" → {h, m} lub null */
 function parseTimeParts(str) {
-    const m = String(str || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+    const m = String(str || "").trim().match(/^(\d{1,2})[:.hH](\d{2})/);
     if (!m) return null;
     const h = parseInt(m[1], 10);
     const min = parseInt(m[2], 10);
@@ -658,7 +658,8 @@ function renderKsiazka() {
     container.innerHTML = html;
     // przewiń do godziny „teraz” (kilka wpisów wcześniej widać nad środkiem)
     requestAnimationFrame(() => {
-        setTimeout(() => ksiazkaScrollToCurrentTime(), 40);
+        setTimeout(() => ksiazkaScrollToCurrentTime(), 80);
+        setTimeout(() => ksiazkaScrollToCurrentTime(), 300);
     });
 }
 
@@ -677,21 +678,18 @@ function ensureKsiazkaTimeFocusStyle() {
 
 function ksiazkaScrollToCurrentTime() {
     ensureKsiazkaTimeFocusStyle();
-    const nodes = Array.from(document.querySelectorAll("[data-ks-entry][data-ks-min]"));
+    const nodes = Array.from(document.querySelectorAll("#ksiazkaContainer [data-ks-entry][data-ks-min]"));
     if (!nodes.length) return;
 
-    const now = (typeof nowHHMM === "function") ? nowHHMM() : "";
-    let nowMin = (typeof timeToMinutes === "function") ? timeToMinutes(now) : (new Date().getHours() * 60 + new Date().getMinutes());
-    if (!Number.isFinite(nowMin)) nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+    // zawsze z Date – toLocaleTimeString czasem daje "13.15" zamiast "13:15"
+    const d = new Date();
+    const nowMin = d.getHours() * 60 + d.getMinutes();
 
-    // najbliższy wpis o godzinie <= teraz; jak brak – pierwszy >= teraz; jak brak – ostatni
     let best = null;
     let bestDiff = Infinity;
     nodes.forEach(el => {
         const m = parseInt(el.getAttribute("data-ks-min"), 10);
         if (!Number.isFinite(m)) return;
-        const diff = m - nowMin;
-        // preferuj wpis nie późniejszy niż teraz; wśród nich najbliższy
         if (m <= nowMin) {
             const d = nowMin - m;
             if (d < bestDiff) {
@@ -701,6 +699,7 @@ function ksiazkaScrollToCurrentTime() {
         }
     });
     if (!best) {
+        bestDiff = Infinity;
         nodes.forEach(el => {
             const m = parseInt(el.getAttribute("data-ks-min"), 10);
             if (!Number.isFinite(m)) return;
@@ -715,13 +714,26 @@ function ksiazkaScrollToCurrentTime() {
     }
     if (!best) best = nodes[nodes.length - 1];
 
-    // lekki podgląd wcześniejszych: element ~22% od góry viewportu
+    // Scroll kontenera #content (nie window) – tak scrolluje się aplikacja
+    const scroller = document.getElementById("content")
+        || document.querySelector(".main-content")
+        || document.scrollingElement
+        || document.documentElement;
+
     try {
-        const rect = best.getBoundingClientRect();
-        const targetY = window.scrollY + rect.top - Math.max(80, window.innerHeight * 0.22);
-        window.scrollTo({ top: Math.max(0, targetY), behavior: "smooth" });
+        const elRect = best.getBoundingClientRect();
+        const scRect = scroller.getBoundingClientRect ? scroller.getBoundingClientRect() : { top: 0 };
+        const offsetInScroller = elRect.top - scRect.top + (scroller.scrollTop || 0);
+        const viewH = scroller.clientHeight || window.innerHeight;
+        // wpis „teraz” ~20% od góry widocznego obszaru (widać wcześniejsze nad nim)
+        const target = Math.max(0, offsetInScroller - viewH * 0.20);
+        if (typeof scroller.scrollTo === "function") {
+            scroller.scrollTo({ top: target, behavior: "smooth" });
+        } else {
+            scroller.scrollTop = target;
+        }
         best.classList.add("ksiazka-time-focus");
-        setTimeout(() => best.classList.remove("ksiazka-time-focus"), 1800);
+        setTimeout(() => best && best.classList.remove("ksiazka-time-focus"), 2000);
     } catch (e) {
         try { best.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e2) {}
     }
