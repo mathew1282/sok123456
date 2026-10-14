@@ -656,7 +656,77 @@ function renderKsiazka() {
 
     html += `</div>`;
     container.innerHTML = html;
+    // przewiń do godziny „teraz” (kilka wpisów wcześniej widać nad środkiem)
+    requestAnimationFrame(() => {
+        setTimeout(() => ksiazkaScrollToCurrentTime(), 40);
+    });
 }
+
+/**
+ * Ustawia widok książki wokół aktualnej godziny:
+ * wpis ~teraz bliżej góry/środka, wcześniejsze nad nim, późniejsze poniżej.
+ */
+
+function ensureKsiazkaTimeFocusStyle() {
+    if (document.getElementById("ksiazkaTimeFocusStyle")) return;
+    const st = document.createElement("style");
+    st.id = "ksiazkaTimeFocusStyle";
+    st.textContent = `.ksiazka-time-focus{ outline:2px solid #3b82f6; outline-offset:2px; border-radius:10px; transition:outline .2s ease; }`;
+    document.head.appendChild(st);
+}
+
+function ksiazkaScrollToCurrentTime() {
+    ensureKsiazkaTimeFocusStyle();
+    const nodes = Array.from(document.querySelectorAll("[data-ks-entry][data-ks-min]"));
+    if (!nodes.length) return;
+
+    const now = (typeof nowHHMM === "function") ? nowHHMM() : "";
+    let nowMin = (typeof timeToMinutes === "function") ? timeToMinutes(now) : (new Date().getHours() * 60 + new Date().getMinutes());
+    if (!Number.isFinite(nowMin)) nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+
+    // najbliższy wpis o godzinie <= teraz; jak brak – pierwszy >= teraz; jak brak – ostatni
+    let best = null;
+    let bestDiff = Infinity;
+    nodes.forEach(el => {
+        const m = parseInt(el.getAttribute("data-ks-min"), 10);
+        if (!Number.isFinite(m)) return;
+        const diff = m - nowMin;
+        // preferuj wpis nie późniejszy niż teraz; wśród nich najbliższy
+        if (m <= nowMin) {
+            const d = nowMin - m;
+            if (d < bestDiff) {
+                bestDiff = d;
+                best = el;
+            }
+        }
+    });
+    if (!best) {
+        nodes.forEach(el => {
+            const m = parseInt(el.getAttribute("data-ks-min"), 10);
+            if (!Number.isFinite(m)) return;
+            if (m >= nowMin) {
+                const d = m - nowMin;
+                if (d < bestDiff) {
+                    bestDiff = d;
+                    best = el;
+                }
+            }
+        });
+    }
+    if (!best) best = nodes[nodes.length - 1];
+
+    // lekki podgląd wcześniejszych: element ~22% od góry viewportu
+    try {
+        const rect = best.getBoundingClientRect();
+        const targetY = window.scrollY + rect.top - Math.max(80, window.innerHeight * 0.22);
+        window.scrollTo({ top: Math.max(0, targetY), behavior: "smooth" });
+        best.classList.add("ksiazka-time-focus");
+        setTimeout(() => best.classList.remove("ksiazka-time-focus"), 1800);
+    } catch (e) {
+        try { best.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e2) {}
+    }
+}
+
 
 /** Widok listy: 3 kolumny (Godzina | Informacje | Akcje) */
 function renderKsiazkaListView(entries) {
@@ -751,8 +821,9 @@ function renderKsiazkaColumnsView(filtered) {
                     extraClass = "ksiazka-overdue-box";
                 }
 
+                const minOfDay = (typeof timeToMinutes === "function") ? timeToMinutes(entry.godzinaStart || "00:00") : 0;
                 html += `
-                <div class="${extraClass}" style="${boxStyle} border-radius:10px; padding:12px; margin-bottom:10px; display:flex; flex-direction:column; min-height:0;">
+                <div class="${extraClass}" data-ks-entry="1" data-ks-min="${minOfDay}" data-ks-id="${escapeHtml(String(entry.id || ""))}" style="${boxStyle} border-radius:10px; padding:12px; margin-bottom:10px; display:flex; flex-direction:column; min-height:0;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; font-size:13px; position:relative; padding-right:8px; gap:8px;">
                         <span style="color:var(--text-dim);">${escapeHtml(entry.data)} · <strong style="color:var(--text);">${escapeHtml(entry.godzinaStart || "—")}</strong>
                             ${done ? " <span style='color:#16a34a;'>✅</span>" : (overdue ? " <span style='color:#dc2626;'>⚠</span>" : "")}
@@ -5886,6 +5957,7 @@ async function ksiazkaAddZapisz() {
 window.initKsiazka = initKsiazka;
 window.setupKsiazkaShortcuts = setupKsiazkaShortcuts;
 window.renderKsiazka = renderKsiazka;
+window.ksiazkaScrollToCurrentTime = ksiazkaScrollToCurrentTime;
 window.openKsiazkaSaveModal = openKsiazkaSaveModal;
 window.closeKsiazkaSaveModal = closeKsiazkaSaveModal;
 window.confirmSaveToKsiazka = confirmSaveToKsiazka;
