@@ -601,13 +601,13 @@ function renderKsiazka() {
     const noPatrolFilter = !ksiazkaFilterInne && ksiazkaFilterPatrole.length === 0;
 
     const patrolFilterPills = usedPatrole.map(idx => `
-                    <div class="line-pill ${ksiazkaFilterPatrole.includes(idx) ? "active" : ""}"
+                    <div class="line-pill ksiazka-filter-pill ${ksiazkaFilterPatrole.includes(idx) ? "active" : ""}"
                          onclick="toggleKsiazkaFilter(${idx})" style="cursor:pointer;">
                         ${escapeHtml(getPatrolName(idx))}
                     </div>`).join("");
 
     const innePill = hasInne ? `
-                    <div class="line-pill ${ksiazkaFilterInne ? "active" : ""}" onclick="toggleKsiazkaFilterInne()" style="cursor:pointer;">
+                    <div class="line-pill ksiazka-filter-pill ${ksiazkaFilterInne ? "active" : ""}" onclick="toggleKsiazkaFilterInne()" style="cursor:pointer;">
                         Inne
                     </div>` : "";
 
@@ -615,9 +615,9 @@ function renderKsiazka() {
     <div class="card ksiazka-card">
         <div class="ksiazka-sticky-bar">
             <div class="ksiazka-sticky-left">
-                <h2 style="margin:0; white-space:nowrap;">📖 Książka wydarzeń</h2>
+                <h2 class="ksiazka-title">📖 Książka wydarzeń</h2>
                 <div class="ksiazka-filters">
-                    <div class="line-pill ${noPatrolFilter ? "active" : ""}" onclick="clearKsiazkaFilter()" style="cursor:pointer;">
+                    <div class="line-pill ksiazka-filter-pill ${noPatrolFilter ? "active" : ""}" onclick="clearKsiazkaFilter()" style="cursor:pointer;">
                         Wszystkie
                     </div>
                     ${patrolFilterPills}
@@ -625,20 +625,18 @@ function renderKsiazka() {
                 </div>
             </div>
             <div class="ksiazka-sticky-right">
-                <button class="btn-success" onclick="openKsiazkaAddModal()">➕ Dodaj wpis <span style="opacity:.7;font-size:11px;">(D)</span></button>
-                <div style="display:inline-flex; border-radius:10px; overflow:hidden; vertical-align:middle;">
-                    <button class="btn-primary" style="border-radius:10px 0 0 10px; margin:0; flex:1; min-width:110px;" onclick="openPlanSluzbyModal()">📋 Planowanie</button>
-                    <button class="btn-danger" style="border-radius:0 10px 10px 0; margin:0; flex:1; min-width:90px; padding-left:10px; padding-right:10px;" onclick="openPlanUsunModal()" title="Usuń wstawione planowania">🗑 Usuń plan</button>
-                </div>
-                <button class="btn-primary" onclick="openZapiszKsiazkeJakoSzablon()">💾 Zapisz książkę jako szablon</button>
-                <button class="btn-primary" id="ksiazkaInterwencjeBtn"
+                <button type="button" class="btn-success ksiazka-bar-btn" onclick="openKsiazkaAddModal()">➕ Dodaj wpis <span class="ks-hotkey">(D)</span></button>
+                <button type="button" class="btn-primary ksiazka-bar-btn" onclick="openPlanSluzbyModal()">📋 Planowanie</button>
+                <button type="button" class="btn-danger ksiazka-bar-btn" onclick="openPlanUsunModal()" title="Usuń wstawione planowania">🗑 Usuń plan</button>
+                <button type="button" class="btn-primary ksiazka-bar-btn" onclick="openZapiszKsiazkeJakoSzablon()">💾 Zapisz książkę jako szablon</button>
+                <button type="button" class="btn-primary ksiazka-bar-btn" id="ksiazkaInterwencjeBtn"
                     style="${ksiazkaInterwencjeMode ? "background:#dc2626;border-color:#dc2626;" : ""}"
                     onclick="toggleKsiazkaInterwencjeMode()">
-                    ${ksiazkaInterwencjeMode ? "Interwencje ON" : "Interwencje"} <span style="opacity:.7;font-size:11px;">(I)</span>
+                    ${ksiazkaInterwencjeMode ? "Interwencje ON" : "Interwencje"} <span class="ks-hotkey">(I)</span>
                 </button>
-                <button class="btn-success" onclick="openKsiazkaSprawdzenieModal()">Sprawdzenie <span style="opacity:.7;font-size:11px;">(S)</span></button>
-                <button class="btn-primary" onclick="exportKsiazkaFiltered()">📋 Eksport (kopiuj) <span style="opacity:.7;font-size:11px;">(E)</span></button>
-                <button class="btn-danger" onclick="clearAllKsiazka()">Kasuj wszystkie</button>
+                <button type="button" class="btn-success ksiazka-bar-btn" onclick="openKsiazkaSprawdzenieModal()">Sprawdzenie <span class="ks-hotkey">(S)</span></button>
+                <button type="button" class="btn-primary ksiazka-bar-btn" onclick="exportKsiazkaFiltered()">📋 Eksport <span class="ks-hotkey">(E)</span></button>
+                <button type="button" class="btn-danger ksiazka-bar-btn" onclick="clearAllKsiazka()">Kasuj wszystkie</button>
             </div>
         </div>
     `;
