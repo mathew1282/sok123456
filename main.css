@@ -155,15 +155,19 @@ body{
     background:transparent;
     color:var(--text);
     text-align:left;
-    padding:14px 16px;
+    padding:12px 14px 12px 16px;
     border-radius:10px;
     cursor:pointer;
     transition:.2s;
+    position: relative;
+    border-left: 3px solid transparent;
 }
 .menu-btn:hover{ background:var(--sidebar-hover); }
 .menu-btn.active{
     background:var(--primary);
     color:#fff;
+    border-left-color: #93c5fd;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
 }
 
 .main-content{
@@ -190,12 +194,15 @@ body{
 button{
     border:none;
     border-radius:10px;
-    padding:10px 18px;
+    padding:8px 14px;
+    font-size:13px;
+    line-height:1.25;
     cursor:pointer;
-    transition:.2s;
+    transition: background .15s, border-color .15s, transform .15s, box-shadow .15s;
     color:white;
     font-weight:600;
 }
+button:active{ transform: translateY(1px); }
 #saveDataBtn{ background:var(--success); }
 #saveDataBtn:hover{ background:var(--success-hover); }
 #loadDataBtn{ background:var(--primary); }
@@ -204,8 +211,17 @@ button{
 #content{
     flex:1;
     overflow:auto;
-    padding:25px;
+    padding:18px 20px 24px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-mid) transparent;
 }
+#content::-webkit-scrollbar{ width: 8px; height: 8px; }
+#content::-webkit-scrollbar-track{ background: transparent; }
+#content::-webkit-scrollbar-thumb{
+    background: var(--border-mid);
+    border-radius: 8px;
+}
+#content::-webkit-scrollbar-thumb:hover{ background: var(--border-light); }
 .loading{
     background:var(--bg-light);
     border:1px solid var(--border);
@@ -219,9 +235,12 @@ button{
     background:var(--bg-light);
     border:1px solid var(--border);
     border-radius:12px;
-    padding:20px;
-    margin-bottom:15px;
+    padding:18px 20px;
+    margin-bottom:16px;
     box-shadow:var(--shadow);
+}
+[data-theme="light"] .card{
+    box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.06);
 }
 
 input,
@@ -237,7 +256,10 @@ textarea{
 }
 input:focus,
 select:focus,
-textarea:focus{ border-color:var(--primary-light); }
+textarea:focus{
+    border-color: var(--primary-soft);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.22);
+}
 textarea{ resize:vertical; }
 
 table{
@@ -251,13 +273,21 @@ th{
     background:var(--table-header);
     color:white;
     text-align:left;
-    padding:12px;
+    padding:10px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    box-shadow: 0 1px 0 var(--border);
 }
 td{
-    padding:12px;
+    padding:10px 12px;
     border-bottom:1px solid var(--border);
+    vertical-align: top;
 }
+tbody tr:nth-child(even){ background: rgba(148, 163, 184, 0.06); }
+[data-theme="light"] tbody tr:nth-child(even){ background: rgba(15, 23, 42, 0.03); }
 tr:hover{ background:var(--tr-hover); }
+tbody tr:nth-child(even):hover{ background:var(--tr-hover); }
 
 .btn-primary{ background:var(--primary); }
 .btn-primary:hover{ background:var(--primary-hover); }
@@ -302,8 +332,8 @@ tr:hover{ background:var(--tr-hover); }
 .select-card.active .select-card-sub{ color:rgba(255,255,255,.85); }
 
 .item-card{
-    padding:12px 16px;
-    min-height:60px;
+    padding:10px 14px;
+    min-height:52px;
     background:var(--tile);
     border:2px solid var(--border-mid);
     border-radius:12px;
@@ -314,8 +344,8 @@ tr:hover{ background:var(--tr-hover); }
     text-align:center;
     transition:.2s;
     user-select:none;
-    font-size:14px;
-    line-height:1.4;
+    font-size:13.5px;
+    line-height:1.35;
     color:var(--text);
 }
 .item-card:hover{ border-color:var(--primary-light); }
@@ -327,13 +357,15 @@ tr:hover{ background:var(--tr-hover); }
 }
 
 .line-pill{
-    padding:10px 18px;
+    padding:7px 14px;
     background:var(--tile);
     border:2px solid var(--border-mid);
     border-radius:999px;
     cursor:pointer;
     transition:.2s;
     color:var(--text);
+    font-size:13px;
+    line-height:1.25;
 }
 .line-pill:hover{ border-color:var(--primary-light); }
 .line-pill.active{
@@ -394,15 +426,16 @@ tr:hover{ background:var(--tr-hover); }
     z-index:9999;
 }
 .modal{
-    width:800px;
+    width: min(920px, 95vw);
     max-width:95%;
     max-height:90vh;
     overflow:auto;
     background:var(--bg-light);
     border:1px solid var(--border);
-    border-radius:12px;
-    padding:25px;
+    border-radius:14px;
+    padding:20px 22px;
     color:var(--text);
+    box-shadow: 0 20px 50px rgba(0,0,0,.35);
 }
 .modal h2{ margin-bottom:20px; }
 .modal-actions{
@@ -733,4 +766,68 @@ table.data-table-opis td.col-opis strong {
 }
 table.data-table-opis td.col-opis u {
     text-decoration: underline;
+}
+
+
+/* === UI POLISH (global) === */
+.empty-state {
+    text-align: center;
+    padding: 36px 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.5;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    background: rgba(148, 163, 184, 0.06);
+    margin: 8px 0;
+}
+.empty-state strong {
+    display: block;
+    color: var(--text-soft);
+    font-size: 15px;
+    margin-bottom: 4px;
+}
+
+/* Akcje w tabelach – w jednej linii */
+table td.col-meta:last-child,
+table td:last-child {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+table td:last-child button {
+    white-space: nowrap;
+}
+
+/* Sticky thead też w data-table-opis */
+table.data-table-opis thead th {
+    position: sticky;
+    top: 0;
+    z-index: 6;
+}
+
+/* Spójne przyciski w paskach narzędzi kart */
+.card > div[style*="display:flex"] > button,
+.card .btn-primary,
+.card .btn-success,
+.card .btn-danger,
+.card .btn-export,
+.card .btn-import {
+    padding: 8px 14px;
+    font-size: 13px;
+    line-height: 1.25;
+    border-radius: 10px;
+}
+
+/* Lepszy fokus contenteditable */
+.rich-opis-editor:focus,
+.generated-entry-editable:focus {
+    border-color: var(--primary-soft) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.22);
+    outline: none;
+}
+
+/* Scroll w modalach */
+.modal {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-mid) transparent;
 }
