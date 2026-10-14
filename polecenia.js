@@ -250,7 +250,7 @@ function renderPolecenia() {
     function thFilter(col, label) {
         const active = (polColFilters[col] || "").trim();
         const arrow = active ? "▼" : "▽";
-        return `<th style="position:relative; user-select:none; white-space:nowrap;" onclick="event.stopPropagation()">
+        return `<th class="col-meta" style="position:relative; user-select:none; white-space:nowrap;" onclick="event.stopPropagation()">
             <span data-pol-filter-btn="1" style="cursor:pointer; display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap; color:inherit;"
                   onclick="event.stopPropagation();polToggleColFilter('${col}', this)">
                 ${label} <span style="font-size:10px;opacity:0.85;">${arrow}</span>
@@ -265,20 +265,23 @@ function renderPolecenia() {
     } else {
         rows.forEach(row => {
             const index = row._index;
-            const krotki = (row.OpisKrotki || "").substring(0, 50);
-            const pom = (row.OpisPom || "").substring(0, 50);
-            const opis = (row.Opis || "").substring(0, 60);
+            const fmt = (typeof formatKsiazkaTekstHtml === "function")
+                ? formatKsiazkaTekstHtml
+                : (t => {
+                    const plain = String(t || "").replace(/<[^>]+>/g, " ");
+                    return escapeHtml(plain).replace(/\n/g, "<br>");
+                });
             const cb = delMode
-                ? `<td><input type="checkbox" class="pol-sel" data-index="${index}" onclick="event.stopPropagation()"></td>`
+                ? `<td class="col-meta"><input type="checkbox" class="pol-sel" data-index="${index}" onclick="event.stopPropagation()"></td>`
                 : "";
             body += `
             <tr>
                 ${cb}
-                <td>${escapeHtml(row.Linia || "")}</td>
-                <td>${escapeHtml(krotki)}</td>
-                <td>${escapeHtml(pom)}</td>
-                <td style="white-space: pre-wrap; max-width: 320px;">${escapeHtml(opis)}${(row.Opis || "").length > 60 ? "…" : ""}</td>
-                <td style="white-space:nowrap;">
+                <td class="col-meta">${escapeHtml(row.Linia || "")}</td>
+                <td class="col-meta">${escapeHtml(row.OpisKrotki || "")}</td>
+                <td class="col-meta">${escapeHtml(row.OpisPom || "")}</td>
+                <td class="col-opis">${fmt(row.Opis || "")}</td>
+                <td class="col-meta">
                     <button class="btn-primary" onclick="editPolecenie(${index})">Edytuj</button>
                 </td>
             </tr>`;
@@ -303,15 +306,15 @@ function renderPolecenia() {
                         onclick="event.stopPropagation();polUsunZaznaczoneClick()">Usuń zaznaczone</button>
             </div>
         </div>
-        <table>
+        <table class="data-table-opis">
             <thead>
                 <tr>
                     ${thCb}
                     ${thFilter("Linia", "Nr linii")}
                     ${thFilter("OpisKrotki", "Opis krótki")}
-                    <th>Opis pom</th>
-                    <th>Opis</th>
-                    <th>Akcje</th>
+                    <th class="col-meta">Opis pom</th>
+                    <th class="col-opis">Opis</th>
+                    <th class="col-meta">Akcje</th>
                 </tr>
             </thead>
             <tbody>${body}</tbody>
