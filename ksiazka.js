@@ -1147,6 +1147,92 @@ function planEnsureDraftShape(r) {
     return r;
 }
 
+/** Znajdź wiersz zgłoszenia/polecenia po id (aktualna wersja po edycji) */
+function planFindZglById(id) {
+    if (id == null || id === "") return null;
+    const rows = appState.zgloszenia?.rows || [];
+    return rows.find(r => r && String(r.id) === String(id)) || null;
+}
+function planFindPolById(id) {
+    if (id == null || id === "") return null;
+    const rows = appState.polecenia?.rows || [];
+    return rows.find(r => r && String(r.id) === String(id)) || null;
+}
+
+/** Zbuduj treść punktu z żywych źródeł (+ opcjonalny fragment ręczny) */
+function planBuildTekstFromSources(item) {
+    if (!item) return "";
+    const parts = [];
+    if (item.sourceManualHtml) parts.push(String(item.sourceManualHtml));
+    if (item.sourceZglId) {
+        const row = planFindZglById(item.sourceZglId);
+        if (row) {
+            const t = String(row.Opis || row.OpisKrotki || "").trim();
+            if (t) parts.push(t);
+        }
+    }
+    if (item.sourcePolId) {
+        const row = planFindPolById(item.sourcePolId);
+        if (row) {
+            const t = String(row.Opis || row.OpisKrotki || "").trim();
+            if (t) parts.push(t);
+        }
+    }
+    if (parts.length) return parts.join("<br><br>");
+    return item.tekst || "";
+}
+
+/**
+ * Odśwież treść punktów planu z aktualnych zgłoszeń/poleceń.
+ * Używane przy wczytaniu szablonu / nowym planowaniu.
+ */
+function planRefreshDraftFromSources() {
+    if (!Array.isArray(_planDraft)) return 0;
+    let n = 0;
+    _planDraft.forEach(r => {
+        planEnsureDraftShape(r);
+        if (!r.sourceZglId && !r.sourcePolId) return;
+        const neu = planBuildTekstFromSources(r);
+        if (neu && neu !== r.tekst) {
+            r.tekst = neu;
+            n++;
+        } else if (neu) {
+            r.tekst = neu;
+        }
+        // procedura z żywego zgłoszenia
+        if (r.sourceZglId) {
+            const row = planFindZglById(r.sourceZglId);
+            if (row && row.procedureId && (row.procedureRole === "start" || row.procedureRole === "end")) {
+                r.procedureId = row.procedureId;
+                r.procedureRole = row.procedureRole;
+            }
+        }
+    });
+    return n;
+}
+
+function planResolveAddSourceRefs() {
+    const refs = { sourceZglId: null, sourcePolId: null, sourceManualHtml: null };
+    const manual = (document.getElementById("planAddTekst")?.value || "").trim();
+    if (manual) refs.sourceManualHtml = escapeHtml(manual).replace(/\n/g, "<br>");
+    if (_planAddTiles.zglIndex != null) {
+        const row = appState.zgloszenia?.rows?.[_planAddTiles.zglIndex];
+        if (row) {
+            if (!row.id && typeof zglNewId === "function") row.id = zglNewId();
+            refs.sourceZglId = row.id || null;
+        }
+    }
+    if (_planAddTiles.polIndex != null) {
+        const row = appState.polecenia?.rows?.[_planAddTiles.polIndex];
+        if (row) {
+            if (!row.id) row.id = (typeof zglNewId === "function") ? zglNewId() : (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+            refs.sourcePolId = row.id || null;
+        }
+    }
+    return refs;
+}
+
+
 function ensurePlanSzablonyState() {
     if (!Array.isArray(appState.planSzablony)) {
         appState.planSzablony = [];
@@ -2046,6 +2132,7 @@ function planDraftDodaj() {
         return;
     }
     const proc = planResolveAddProcedureMeta();
+    const refs = planResolveAddSourceRefs();
     const item = {
         offsetMin: _planDraft.length === 0 ? 0 : offset,
         tekst,
@@ -2055,6 +2142,9 @@ function planDraftDodaj() {
         item.procedureId = proc.procedureId;
         item.procedureRole = proc.procedureRole;
     }
+    if (refs.sourceZglId) item.sourceZglId = refs.sourceZglId;
+    if (refs.sourcePolId) item.sourcePolId = refs.sourcePolId;
+    if (refs.sourceManualHtml) item.sourceManualHtml = refs.sourceManualHtml;
     _planDraft.push(item);
     resetPlanAddTiles();
     const ta = document.getElementById("planAddTekst");
@@ -2108,13 +2198,19 @@ function planWczytajSzablon() {
             item.procedureId = r.procedureId;
             item.procedureRole = r.procedureRole;
         }
+        if (r.sourceZglId) item.sourceZglId = r.sourceZglId;
+        if (r.sourcePolId) item.sourcePolId = r.sourcePolId;
+        if (r.sourceManualHtml) item.sourceManualHtml = r.sourceManualHtml;
         return item;
     });
     if (_planDraft.length) _planDraft[0].offsetMin = 0;
     _planSzablonyCollapsed = true;
     _planSelectedPointIdx = null;
+    const refreshed = planRefreshDraftFromSources();
     renderPlanSluzbyModal();
-    if (typeof showToast === "function") showToast("Wczytano: " + (s.nazwa || "szablon"));
+    if (typeof showToast === "function") {
+        showToast("Wczytano: " + (s.nazwa || "szablon") + (refreshed ? (" · odświeżono " + refreshed + " treść") : ""));
+    }
 }
 
 async function planZapiszJakoSzablon() {
@@ -2144,6 +2240,8 @@ async function planZapiszJakoSzablon() {
     if (nazwa == null) return; // anuluj
     nazwa = String(nazwa).trim() || defaultNazwa || ("Szablon " + new Date().toLocaleString("pl-PL"));
 
+    // odśwież treść ze źródeł przed zapisem szablonu
+    planRefreshDraftFromSources();
     const rekordy = _planDraft.map((r, idx) => {
         planEnsureDraftShape(r);
         const rec = {
@@ -2155,6 +2253,9 @@ async function planZapiszJakoSzablon() {
             rec.procedureId = r.procedureId;
             rec.procedureRole = r.procedureRole;
         }
+        if (r.sourceZglId) rec.sourceZglId = r.sourceZglId;
+        if (r.sourcePolId) rec.sourcePolId = r.sourcePolId;
+        if (r.sourceManualHtml) rec.sourceManualHtml = r.sourceManualHtml;
         return rec;
     });
 
@@ -2221,14 +2322,27 @@ function planWczytajSzablonPoIndex(i) {
             if (pi + 1 > _planNumPatroli) _planNumPatroli = pi + 1;
         });
     });
-    _planDraft = (s.rekordy || []).map(r => planEnsureDraftShape({
-        offsetMin: Number(r.offsetMin) || 0,
-        tekst: r.tekst || "",
-        patrolIndexes: planNormalizeIndexes(r.patrolIndexes != null ? r.patrolIndexes : r.patrolIndex)
-    }));
+        _planDraft = (s.rekordy || []).map(r => {
+        const item = planEnsureDraftShape({
+            offsetMin: Number(r.offsetMin) || 0,
+            tekst: r.tekst || "",
+            patrolIndexes: planNormalizeIndexes(r.patrolIndexes != null ? r.patrolIndexes : r.patrolIndex)
+        });
+        if (r.procedureId && (r.procedureRole === "start" || r.procedureRole === "end")) {
+            item.procedureId = r.procedureId;
+            item.procedureRole = r.procedureRole;
+        }
+        if (r.sourceZglId) item.sourceZglId = r.sourceZglId;
+        if (r.sourcePolId) item.sourcePolId = r.sourcePolId;
+        if (r.sourceManualHtml) item.sourceManualHtml = r.sourceManualHtml;
+        return item;
+    });
     if (_planDraft.length) _planDraft[0].offsetMin = 0;
+    const refreshed = planRefreshDraftFromSources();
     renderPlanSluzbyModal();
-    if (typeof showToast === "function") showToast("Wczytano: " + (s.nazwa || "szablon"));
+    if (typeof showToast === "function") {
+        showToast("Wczytano: " + (s.nazwa || "szablon") + (refreshed ? (" · odświeżono " + refreshed + " treść ze zgłoszeń") : ""));
+    }
 }
 
 async function planUsunSzablonPoIndex(i) {
@@ -2372,6 +2486,8 @@ function planApplyTagsWithMarkers(tekst, groupMap, absPatrolIndexesFallback) {
 
 
 function planBuildAbsoluteTimes(startHHMM) {
+    // świeża treść ze zgłoszeń/poleceń (jeśli punkt ma source*)
+    planRefreshDraftFromSources();
     const startMin = timeToMinutes(startHHMM);
     let acc = startMin;
     return _planDraft.map((r, idx) => {
@@ -5522,6 +5638,8 @@ window.replaceAllFromTile = replaceAllFromTile;
 window.closeKsiazkaEditModal = closeKsiazkaEditModal;
 window.confirmEditKsiazka = confirmEditKsiazka;
 window.openPlanSluzbyModal = openPlanSluzbyModal;
+window.planBuildTekstFromSources = planBuildTekstFromSources;
+window.planRefreshDraftFromSources = planRefreshDraftFromSources;
 window.planDraftDragEnd = planDraftDragEnd;
 window.planDraftDrop = planDraftDrop;
 window.planDraftDragOver = planDraftDragOver;
