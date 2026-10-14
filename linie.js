@@ -48,7 +48,7 @@ function renderLinie() {
 
     let html = `
     <div class="card">
-        <h2 style="margin-bottom:20px;">Linie</h2>
+        <h2 style="margin:0 0 16px 0;">📐 Linie</h2>
 
         <!-- Rząd 1: Szlak | Osobowa | Towarowa -->
         <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:12px;">
@@ -67,7 +67,7 @@ function renderLinie() {
     `;
 
     if (patrole.length === 0) {
-        html += `<p style="color:var(--text-dim); margin-bottom:24px;">Brak patroli – dodaj je w zakładce Patrole.</p>`;
+        html += `<div class="empty-state" style="margin-bottom:24px;"><strong>Brak patroli</strong>Dodaj je w zakładce Patrole.</div>`;
     } else {
         html += `<div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:28px;">`;
 
@@ -131,7 +131,7 @@ function renderLinie() {
 
     const tablesHtml = buildAllPersonTables(today);
     if (!tablesHtml) {
-        html += `<p style="color:var(--text-dim);">Wybierz tryb patrolu powyżej, aby wygenerować tabele.</p>`;
+        html += `<div class="empty-state"><strong>Brak tabel</strong>Wybierz tryb patrolu powyżej, aby wygenerować tabele.</div>`;
     } else {
         html += tablesHtml;
     }
