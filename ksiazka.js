@@ -466,15 +466,11 @@ function initKsiazka() {
     ensureKsiazkaState();
     ksiazkaFilterPatrole = [];
     ksiazkaFilterInne = false;
-    renderKsiazka();
-
-    if (window._ksiazkaInterval) clearInterval(window._ksiazkaInterval);
-    window._ksiazkaInterval = setInterval(() => {
-        if (document.getElementById("ksiazkaContainer")) {
-            renderKsiazka();
-        }
-    }, 20000);
-
+    if (window._ksiazkaInterval) {
+        clearInterval(window._ksiazkaInterval);
+        window._ksiazkaInterval = null;
+    }
+    renderKsiazka(); // raz przy wczytaniu – scroll do aktualnej godziny
     setupKsiazkaShortcuts();
 }
 
@@ -658,8 +654,7 @@ function renderKsiazka() {
     container.innerHTML = html;
     // przewiń do godziny „teraz” (kilka wpisów wcześniej widać nad środkiem)
     requestAnimationFrame(() => {
-        setTimeout(() => ksiazkaScrollToCurrentTime(), 80);
-        setTimeout(() => ksiazkaScrollToCurrentTime(), 300);
+        setTimeout(() => ksiazkaScrollToCurrentTime(), 100);
     });
 }
 
