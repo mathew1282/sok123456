@@ -748,7 +748,7 @@ function ksiazkaScrollToCurrentTime() {
 /** Widok listy: 3 kolumny (Godzina | Informacje | Akcje) */
 function renderKsiazkaListView(entries) {
     if (entries.length === 0) {
-        return `<div style="color:#64748b; padding:20px 0;">Brak wpisów</div>`;
+        return `<div class="empty-state"><strong>Brak wpisów</strong>Dodaj wpis lub wczytaj plan służby.</div>`;
     }
 
     let html = `
@@ -823,7 +823,7 @@ function renderKsiazkaColumnsView(filtered) {
         `;
 
         if (col.entries.length === 0) {
-            html += `<div style="color:var(--text-dim); font-size:13px; padding:10px 0;">Brak wpisów</div>`;
+            html += `<div class="empty-state"><strong>Brak wpisów</strong>Brak pozycji dla tego patrolu.</div>`;
         } else {
             col.entries.forEach(entry => {
                 const globalIdx = appState.ksiazkaWydarzen.findIndex(e => e.id === entry.id);
