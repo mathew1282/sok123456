@@ -325,7 +325,7 @@ function openInterwencjeSzczegoly(typFilter) {
 
     let body;
     if (!items.length) {
-        body = `<p style="color:var(--text-dim); padding:12px 0;">Brak zapisanych interwencji tego typu.</p>`;
+        body = `<div class="empty-state"><strong>Brak interwencji</strong>Brak zapisanych wpisów tego typu.</div>`;
     } else {
         body = items.map((i, n) => {
             const entry = findKsiazkaEntryById(i.entryId);
@@ -388,6 +388,31 @@ function closeInterwencjeSzczegoly() {
 function initStatystyki() {
     ensureStatystykiState();
     renderStatystyki();
+    setupStatystykiShortcuts();
+}
+
+function setupStatystykiShortcuts() {
+    if (window._statystykiKeyHandler) {
+        document.removeEventListener("keydown", window._statystykiKeyHandler);
+    }
+    window._statystykiKeyHandler = function (e) {
+        if (!document.getElementById("statystykiContainer")) return;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (e.target && e.target.isContentEditable) return;
+
+        const key = (e.key || "").toLowerCase();
+        if (key === "w") {
+            e.preventDefault();
+            if (typeof openWynikiModal === "function") openWynikiModal();
+        } else if (key === "r") {
+            e.preventDefault();
+            if (typeof refreshStatystykiFromKsiazka === "function") refreshStatystykiFromKsiazka();
+        }
+    };
+    document.addEventListener("keydown", window._statystykiKeyHandler);
 }
 
 function renderStatystyki() {
@@ -417,12 +442,12 @@ function renderStatystyki() {
 
     let html = `
     <div class="card">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
-            <h2 style="margin:0;">Statystyki</h2>
-            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <button class="btn-success" onclick="refreshStatystykiFromKsiazka()">Odśwież</button>
-                <button class="btn-primary" onclick="openWynikiModal()">📋 Wyniki</button>
-                <button class="btn-danger" onclick="clearAllStatystyki()">Kasuj wszystkie statystyki</button>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+            <h2 style="margin:0;">📊 Statystyki</h2>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                <button type="button" class="btn-success" onclick="refreshStatystykiFromKsiazka()" title="Skrót: R">Odśwież <span style="opacity:.7;font-size:11px;">(R)</span></button>
+                <button type="button" class="btn-primary" onclick="openWynikiModal()" title="Skrót: W">📋 Wyniki <span style="opacity:.7;font-size:11px;">(W)</span></button>
+                <button type="button" class="btn-danger" onclick="clearAllStatystyki()">Kasuj wszystkie</button>
             </div>
         </div>
         <p style="color:#94a3b8; font-size:14px; margin-bottom:16px;">
@@ -461,7 +486,7 @@ function renderStatystyki() {
         </div>
 
         <h3>Stacje towarowe (${towarowe.length})</h3>
-        <table>
+        <table class="data-table-opis">
             <thead>
                 <tr>
                     <th>Data</th>
@@ -475,7 +500,7 @@ function renderStatystyki() {
     `;
 
     if (towarowe.length === 0) {
-        html += `<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Brak</td></tr>`;
+        html += `<tr><td colspan="5"><div class="empty-state"><strong>Brak wpisów</strong>Brak sprawdzeń tego typu.</div></td></tr>`;
     } else {
         towarowe.forEach((s) => {
             const globalIdx = appState.statystyki.sprawdzenia.indexOf(s);
@@ -484,7 +509,7 @@ function renderStatystyki() {
                 <td>${escapeHtml(s.godzOd)}</td>
                 <td>${escapeHtml(s.godzDo)}</td>
                 <td>${escapeHtml(s.nazwa)}</td>
-                <td style="white-space:nowrap;">
+                <td class="col-meta" style="white-space:nowrap;">
                     <button class="btn-primary" onclick="editSprawdzenie(${globalIdx})">Edytuj</button>
                     <button class="btn-danger" onclick="removeSprawdzenie(${globalIdx})">Usuń</button>
                 </td>
@@ -498,7 +523,7 @@ function renderStatystyki() {
         <br>
 
         <h3>Stacje osobowe (${osobowe.length})</h3>
-        <table>
+        <table class="data-table-opis">
             <thead>
                 <tr>
                     <th>Data</th>
@@ -512,7 +537,7 @@ function renderStatystyki() {
     `;
 
     if (osobowe.length === 0) {
-        html += `<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Brak</td></tr>`;
+        html += `<tr><td colspan="5"><div class="empty-state"><strong>Brak wpisów</strong>Brak sprawdzeń tego typu.</div></td></tr>`;
     } else {
         osobowe.forEach((s) => {
             const globalIdx = appState.statystyki.sprawdzenia.indexOf(s);
@@ -521,7 +546,7 @@ function renderStatystyki() {
                 <td>${escapeHtml(s.godzOd)}</td>
                 <td>${escapeHtml(s.godzDo)}</td>
                 <td>${escapeHtml(s.nazwa)}</td>
-                <td style="white-space:nowrap;">
+                <td class="col-meta" style="white-space:nowrap;">
                     <button class="btn-primary" onclick="editSprawdzenie(${globalIdx})">Edytuj</button>
                     <button class="btn-danger" onclick="removeSprawdzenie(${globalIdx})">Usuń</button>
                 </td>
@@ -535,7 +560,7 @@ function renderStatystyki() {
         <br>
 
         <h3>Sprawdzenia szlaków (${szlaki.length})</h3>
-        <table>
+        <table class="data-table-opis">
             <thead>
                 <tr>
                     <th>Data</th>
@@ -552,7 +577,7 @@ function renderStatystyki() {
     `;
 
     if (szlaki.length === 0) {
-        html += `<tr><td colspan="8" style="text-align:center;color:#94a3b8;">Brak</td></tr>`;
+        html += `<tr><td colspan="8"><div class="empty-state"><strong>Brak szlaków</strong>Brak zapisanych sprawdzeń szlaku.</div></td></tr>`;
     } else {
         szlaki.forEach((s) => {
             const globalIdx = appState.statystyki.sprawdzenia.indexOf(s);
@@ -564,7 +589,7 @@ function renderStatystyki() {
                 <td>${escapeHtml(s.kmOd)}</td>
                 <td>${escapeHtml(s.kmDo)}</td>
                 <td>${escapeHtml(s.linia)}</td>
-                <td style="white-space:nowrap;">
+                <td class="col-meta" style="white-space:nowrap;">
                     <button class="btn-primary" onclick="editSprawdzenie(${globalIdx})">Edytuj</button>
                     <button class="btn-danger" onclick="removeSprawdzenie(${globalIdx})">Usuń</button>
                 </td>
@@ -1116,6 +1141,7 @@ async function saveWynikiFromModal() {
 
 
 window.initStatystyki = initStatystyki;
+window.setupStatystykiShortcuts = setupStatystykiShortcuts;
 window.logInterwencja = logInterwencja;
 window.logSprawdzenie = logSprawdzenie;
 window.editSprawdzenie = editSprawdzenie;
