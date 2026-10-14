@@ -120,7 +120,17 @@ function polUniqueValues(col) {
 
 function polCloseFilterPanel() {
     const panel = document.getElementById("polFilterPanel");
-    if (panel) panel.remove();
+    if (panel) {
+        if (panel._closer) {
+            document.removeEventListener("mousedown", panel._closer, true);
+            panel._closer = null;
+        }
+        panel.remove();
+    }
+    if (window._polFilterCloser) {
+        document.removeEventListener("mousedown", window._polFilterCloser, true);
+        window._polFilterCloser = null;
+    }
     polOpenFilterCol = null;
 }
 
@@ -215,15 +225,24 @@ function polShowFilterPanel(col, anchorEl) {
     panel.style.top = top + "px";
     panel.style.height = ph + "px";
 
-    setTimeout(() => {
-        const closer = (ev) => {
-            if (panel.contains(ev.target)) return;
-            if (ev.target.closest && ev.target.closest("[data-pol-filter-btn]")) return;
+    if (window._polFilterCloser) {
+        document.removeEventListener("mousedown", window._polFilterCloser, true);
+        window._polFilterCloser = null;
+    }
+    const closer = (ev) => {
+        const pan = document.getElementById("polFilterPanel");
+        if (!pan) {
             document.removeEventListener("mousedown", closer, true);
-            polCloseFilterPanel();
-        };
-        document.addEventListener("mousedown", closer, true);
-    }, 0);
+            window._polFilterCloser = null;
+            return;
+        }
+        if (pan.contains(ev.target)) return;
+        if (ev.target.closest && ev.target.closest("[data-pol-filter-btn]")) return;
+        polCloseFilterPanel();
+    };
+    window._polFilterCloser = closer;
+    panel._closer = closer;
+    setTimeout(() => document.addEventListener("mousedown", closer, true), 0);
 }
 
 
