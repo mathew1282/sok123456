@@ -443,7 +443,7 @@ function renderZgloszenia() {
     }
 
     const body = list.length === 0
-        ? `<tr><td colspan="${delMode ? 7 : 6}" style="text-align:center;color:var(--text-dim);padding:20px;">Brak zgłoszeń.</td></tr>`
+        ? `<tr><td colspan="${delMode ? 7 : 6}"><div class="empty-state"><strong>Brak zgłoszeń</strong>Dodaj zgłoszenie lub zmień filtr.</div></td></tr>`
         : list.map(item => {
             if (item.typ === "procedura") {
                 const krotki = item.start?.OpisKrotki || item.end?.OpisKrotki || item.tytul || "";
