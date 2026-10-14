@@ -173,7 +173,18 @@ function zglUniqueValues(col) {
 
 function zglCloseFilterPanel() {
     const p = document.getElementById("zglFilterPanel");
-    if (p) p.remove();
+    if (p) {
+        if (p._closer) {
+            document.removeEventListener("mousedown", p._closer, true);
+            p._closer = null;
+        }
+        p.remove();
+    }
+    // posprzątaj ewentualne "zombie" listenery
+    if (window._zglFilterCloser) {
+        document.removeEventListener("mousedown", window._zglFilterCloser, true);
+        window._zglFilterCloser = null;
+    }
     zglOpenFilterCol = null;
 }
 
@@ -270,16 +281,25 @@ function zglShowFilterPanel(col, anchorEl) {
     panel.style.height = ph + "px";
 
     // klik poza = zamknij (nie czyść filtra)
-    setTimeout(() => {
-        const closer = (ev) => {
-            if (panel.contains(ev.target)) return;
-            if (ev.target.closest && ev.target.closest("[data-zgl-filter-btn]")) return;
+    // jeden globalny closer – bez stackowania listenerów
+    if (window._zglFilterCloser) {
+        document.removeEventListener("mousedown", window._zglFilterCloser, true);
+        window._zglFilterCloser = null;
+    }
+    const closer = (ev) => {
+        const pan = document.getElementById("zglFilterPanel");
+        if (!pan) {
             document.removeEventListener("mousedown", closer, true);
-            zglCloseFilterPanel();
-        };
-        document.addEventListener("mousedown", closer, true);
-        panel._closer = closer;
-    }, 0);
+            window._zglFilterCloser = null;
+            return;
+        }
+        if (pan.contains(ev.target)) return;
+        if (ev.target.closest && ev.target.closest("[data-zgl-filter-btn]")) return;
+        zglCloseFilterPanel();
+    };
+    window._zglFilterCloser = closer;
+    panel._closer = closer;
+    setTimeout(() => document.addEventListener("mousedown", closer, true), 0);
 }
 
 
