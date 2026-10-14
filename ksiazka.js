@@ -922,6 +922,7 @@ async function kopiujWpisKsiazki(index) {
 // =====================================
 
 
+
 function ksiazkaEditFormat(cmd) {
     const el = document.getElementById("editTekst");
     if (!el) return;
@@ -929,6 +930,234 @@ function ksiazkaEditFormat(cmd) {
     try {
         document.execCommand(cmd, false, null);
     } catch (e) {}
+}
+
+/** Stan kafelków 3-poziomowych w oknie Edytuj (jak Dodaj wpis) */
+let ksEdit = {
+    zglLine: null, zglOpis: null, zglIndexes: [],
+    polLine: null, polOpis: null, polIndexes: [],
+    zglSearch: "", polSearch: "",
+    lastTileHtml: null
+};
+
+function ksEditResetTiles() {
+    ksEdit = {
+        zglLine: null, zglOpis: null, zglIndexes: [],
+        polLine: null, polOpis: null, polIndexes: [],
+        zglSearch: "", polSearch: "",
+        lastTileHtml: ksEdit?.lastTileHtml || null
+    };
+}
+
+function ksEditAppendToTekst(html) {
+    const ta = document.getElementById("editTekst");
+    if (!ta || !html) return;
+    const chunk = (typeof formatKsiazkaTekstHtml === "function") ? formatKsiazkaTekstHtml(html) : html;
+    ksEdit.lastTileHtml = chunk;
+    window._lastTileText = html;
+    if ((ta.innerText || "").trim()) {
+        ta.innerHTML = (ta.innerHTML || "").replace(/(<br\s*\/?>\s*)+$/i, "") + "<br><br>" + chunk;
+    } else {
+        ta.innerHTML = chunk;
+    }
+    ta.focus();
+}
+
+function ksEditToggleZgl(i) {
+    const pos = ksEdit.zglIndexes.indexOf(i);
+    if (pos > -1) {
+        ksEdit.zglIndexes.splice(pos, 1);
+    } else {
+        ksEdit.zglIndexes.push(i);
+        const row = appState.zgloszenia?.rows?.[i];
+        if (row) ksEditAppendToTekst(row.Opis || row.OpisKrotki || "");
+    }
+    ksEditRenderZgl();
+}
+
+function ksEditTogglePol(i) {
+    const pos = ksEdit.polIndexes.indexOf(i);
+    if (pos > -1) {
+        ksEdit.polIndexes.splice(pos, 1);
+    } else {
+        ksEdit.polIndexes.push(i);
+        const row = appState.polecenia?.rows?.[i];
+        if (row) ksEditAppendToTekst(row.Opis || row.OpisKrotki || "");
+    }
+    ksEditRenderPol();
+}
+
+function ksEditSelectZglLine(line) {
+    if (ksEdit.zglLine === line) {
+        ksEdit.zglLine = null;
+        ksEdit.zglOpis = null;
+    } else {
+        ksEdit.zglLine = line;
+        ksEdit.zglOpis = null;
+    }
+    ksEditRenderZgl();
+}
+function ksEditSelectZglOpis(opis) {
+    ksEdit.zglOpis = (ksEdit.zglOpis === opis) ? null : opis;
+    ksEditRenderZgl();
+}
+function ksEditSelectPolLine(line) {
+    if (ksEdit.polLine === line) {
+        ksEdit.polLine = null;
+        ksEdit.polOpis = null;
+    } else {
+        ksEdit.polLine = line;
+        ksEdit.polOpis = null;
+    }
+    ksEditRenderPol();
+}
+function ksEditSelectPolOpis(opis) {
+    ksEdit.polOpis = (ksEdit.polOpis === opis) ? null : opis;
+    ksEditRenderPol();
+}
+
+function ksEditRowMatches(row, search) {
+    if (!search) return true;
+    const t = `${row.Linia || ""} ${row.OpisKrotki || ""} ${row.OpisPom || ""} ${row.Opis || ""}`.toLowerCase();
+    return t.includes(String(search).toLowerCase().trim());
+}
+
+function ksEditRenderZgl() {
+    const linieEl = document.getElementById("ksEditZglLinie");
+    const itemsEl = document.getElementById("ksEditZglItems");
+    const lvl3El = document.getElementById("ksEditZglLevel3");
+    if (!linieEl || !itemsEl || !lvl3El) return;
+
+    const allRows = (appState.zgloszenia?.rows || []).map((r, i) => ({ ...r, _index: i }));
+    const search = ksEdit.zglSearch;
+    let rows = search ? allRows.filter(r => ksEditRowMatches(r, search)) : allRows;
+
+    const lines = [...new Set(rows.map(r => r.Linia || "(brak)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    linieEl.innerHTML = lines.map(line => {
+        const hasSel = rows.some(r => (r.Linia || "(brak)") === line && ksEdit.zglIndexes.includes(r._index));
+        let cls = "line-pill";
+        if (ksEdit.zglLine === line) cls += " active";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="ksEditSelectZglLine('${String(line).replace(/'/g, "\\'")}')">${escapeHtml(line)}</div>`;
+    }).join("") || "<span style='color:var(--text-dim);font-size:13px;'>Brak</span>";
+
+    const itemsFrame = document.getElementById("ksEditZglItemsFrame");
+    if (!ksEdit.zglLine && !search) {
+        itemsEl.innerHTML = "";
+        lvl3El.innerHTML = "";
+        if (itemsFrame) itemsFrame.style.display = "none";
+        return;
+    }
+    if (itemsFrame) itemsFrame.style.display = "";
+
+    let filtered = rows;
+    if (ksEdit.zglLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === ksEdit.zglLine);
+
+    let krotkie;
+    if (typeof zglSortedOpisKrotkiForLine === "function" && ksEdit.zglLine) {
+        krotkie = zglSortedOpisKrotkiForLine(ksEdit.zglLine, filtered);
+    } else {
+        krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    }
+    itemsEl.innerHTML = krotkie.map(k => {
+        const hasSel = filtered.some(r => (r.OpisKrotki || "(bez opisu)") === k && ksEdit.zglIndexes.includes(r._index));
+        let cls = "item-card";
+        if (ksEdit.zglOpis === k) cls += " selected";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="ksEditSelectZglOpis('${String(k).replace(/'/g, "\\'")}')">${escapeHtml(k)}</div>`;
+    }).join("") || "";
+
+    if (!ksEdit.zglOpis) {
+        lvl3El.innerHTML = "";
+        return;
+    }
+    let level3;
+    if (typeof zglSortedRowsForGroup === "function" && ksEdit.zglLine) {
+        level3 = zglSortedRowsForGroup(ksEdit.zglLine, ksEdit.zglOpis, appState.zgloszenia?.rows || [])
+            .map(x => ({ ...x.r, _index: x.i }));
+    } else {
+        level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === ksEdit.zglOpis);
+    }
+    const groups = (typeof zglGroupLevel3Rows === "function") ? zglGroupLevel3Rows(level3) : level3.map(r => ({ type: "single", row: r }));
+    lvl3El.innerHTML = groups.map(g => {
+        if (g.type === "pair") {
+            const sSel = ksEdit.zglIndexes.includes(g.start._index);
+            const eSel = ksEdit.zglIndexes.includes(g.end._index);
+            return (typeof zglLevel3PairHtml === "function")
+                ? zglLevel3PairHtml(g.start, g.end, sSel, eSel, `ksEditToggleZgl(${g.start._index})`, `ksEditToggleZgl(${g.end._index})`)
+                : "";
+        }
+        const r = g.row;
+        const sel = ksEdit.zglIndexes.includes(r._index) ? "selected" : "";
+        const role = r.procedureRole === "start" ? "▶ start · " : (r.procedureRole === "end" ? "■ koniec · " : "");
+        const label = role + (r.OpisPom || r.Opis || "(brak)").substring(0, 120);
+        return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="ksEditToggleZgl(${r._index})">${escapeHtml(label)}</div>`;
+    }).join("") || "";
+}
+
+function ksEditRenderPol() {
+    const linieEl = document.getElementById("ksEditPolLinie");
+    const itemsEl = document.getElementById("ksEditPolItems");
+    const lvl3El = document.getElementById("ksEditPolLevel3");
+    if (!linieEl || !itemsEl || !lvl3El) return;
+
+    const allRows = (appState.polecenia?.rows || []).map((r, i) => ({ ...r, _index: i }));
+    const search = ksEdit.polSearch;
+    let rows = search ? allRows.filter(r => ksEditRowMatches(r, search)) : allRows;
+
+    const lines = (typeof polSortedLines === "function")
+        ? polSortedLines(rows)
+        : [...new Set(rows.map(r => r.Linia || "(brak)"))].sort((a, b) => a.localeCompare(b, "pl", { numeric: true }));
+    linieEl.innerHTML = lines.map(line => {
+        const hasSel = rows.some(r => (r.Linia || "(brak)") === line && ksEdit.polIndexes.includes(r._index));
+        let cls = "line-pill";
+        if (ksEdit.polLine === line) cls += " active";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="ksEditSelectPolLine('${String(line).replace(/'/g, "\\'")}')">${escapeHtml(line)}</div>`;
+    }).join("") || "<span style='color:var(--text-dim);font-size:13px;'>Brak</span>";
+
+    const itemsFrame = document.getElementById("ksEditPolItemsFrame");
+    if (!ksEdit.polLine && !search) {
+        itemsEl.innerHTML = "";
+        lvl3El.innerHTML = "";
+        if (itemsFrame) itemsFrame.style.display = "none";
+        return;
+    }
+    if (itemsFrame) itemsFrame.style.display = "";
+
+    let filtered = rows;
+    if (ksEdit.polLine) filtered = filtered.filter(r => (r.Linia || "(brak)") === ksEdit.polLine);
+
+    let krotkie;
+    if (typeof polSortedOpisKrotkiForLine === "function" && ksEdit.polLine) {
+        krotkie = polSortedOpisKrotkiForLine(ksEdit.polLine, filtered);
+    } else {
+        krotkie = [...new Set(filtered.map(r => r.OpisKrotki || "(bez opisu)"))].sort((a, b) => a.localeCompare(b, "pl"));
+    }
+    itemsEl.innerHTML = krotkie.map(k => {
+        const hasSel = filtered.some(r => (r.OpisKrotki || "(bez opisu)") === k && ksEdit.polIndexes.includes(r._index));
+        let cls = "item-card";
+        if (ksEdit.polOpis === k) cls += " selected";
+        if (hasSel) cls += " has-selected";
+        return `<div class="${cls}" style="cursor:pointer;" onclick="ksEditSelectPolOpis('${String(k).replace(/'/g, "\\'")}')">${escapeHtml(k)}</div>`;
+    }).join("") || "";
+
+    if (!ksEdit.polOpis) {
+        lvl3El.innerHTML = "";
+        return;
+    }
+    let level3;
+    if (typeof polSortedRowsForGroup === "function" && ksEdit.polLine) {
+        level3 = polSortedRowsForGroup(ksEdit.polLine, ksEdit.polOpis, appState.polecenia?.rows || [])
+            .map(x => ({ ...x.r, _index: x.i }));
+    } else {
+        level3 = filtered.filter(r => (r.OpisKrotki || "(bez opisu)") === ksEdit.polOpis);
+    }
+    lvl3El.innerHTML = level3.map(r => {
+        const sel = ksEdit.polIndexes.includes(r._index) ? "selected" : "";
+        const label = (r.OpisPom || r.Opis || "(brak)").substring(0, 120);
+        return `<div class="item-card ${sel}" style="cursor:pointer;" onclick="ksEditTogglePol(${r._index})">${escapeHtml(label)}</div>`;
+    }).join("") || "";
 }
 
 function edytujWpisKsiazki(index) {
@@ -939,86 +1168,98 @@ function edytujWpisKsiazki(index) {
     const old = document.getElementById("ksiazkaEditModal");
     if (old) old.remove();
 
+    ksEditResetTiles();
+
     const overlay = document.createElement("div");
     overlay.id = "ksiazkaEditModal";
     overlay.className = "modal-overlay";
     overlay.style.display = "flex";
     overlay._editIndex = index;
 
-    const poleceniaPills = (appState.polecenia?.rows || []).map((r, i) => {
-        const label = (r.OpisKrotki || r.Opis || ("Polecenie " + (i + 1))).slice(0, 40);
-        return `<div class="line-pill" style="cursor:pointer; font-size:13px;" onclick="insertTileToEdit('pol', ${i})">${escapeHtml(label)}</div>`;
-    }).join("") || "<span style='color:#64748b; font-size:13px;'>Brak poleceń</span>";
-
-    const zgloszeniaPills = (appState.zgloszenia?.rows || []).map((r, i) => {
-        const label = (r.OpisKrotki || r.Opis || ("Zgłoszenie " + (i + 1))).slice(0, 40);
-        return `<div class="line-pill" style="cursor:pointer; font-size:13px;" onclick="insertTileToEdit('zgl', ${i})">${escapeHtml(label)}</div>`;
-    }).join("") || "<span style='color:#64748b; font-size:13px;'>Brak zgłoszeń</span>";
-
-    const szablonyPills = (appState.szablony || []).map((s, i) => {
-        const label = (s.nazwa || s.tekst || ("Szablon " + (i + 1))).slice(0, 40);
-        return `<div class="line-pill" style="cursor:pointer; font-size:13px;" onclick="insertTileToEdit('szab', ${i})">${escapeHtml(label)}</div>`;
-    }).join("");
+    const tekstHtml = (typeof formatKsiazkaTekstHtml === "function")
+        ? formatKsiazkaTekstHtml(entry.tekst || "")
+        : escapeHtml(entry.tekst || "");
 
     overlay.innerHTML = `
-        <div class="modal" style="max-width:720px;">
-            <h2 style="margin-top:0;">Edytuj wpis</h2>
-
-            <div style="margin-bottom:14px;">
-                <label>Godzina rozpoczęcia</label>
-                <input type="time" id="editGodzStart" value="${escapeHtml(entry.godzinaStart || "")}" style="width:160px;">
+        <div class="modal" style="width:80vw; max-width:80vw; height:min(90vh,900px); max-height:none; display:flex; flex-direction:column; padding:16px 18px;">
+            <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:10px;">
+                <h2 style="margin:0; white-space:nowrap;">Edytuj wpis</h2>
+                <label style="margin:0; font-size:13px; color:var(--text-dim);">Godzina</label>
+                <input type="time" id="editGodzStart" value="${escapeHtml(entry.godzinaStart || "")}" style="width:140px;">
             </div>
 
-            <div style="margin-bottom:12px;">
-                <label>Treść wpisu (możesz edytować ręcznie)</label>
-                <div style="display:flex; gap:6px; margin:6px 0; flex-wrap:wrap;">
-                    <button type="button" class="btn-primary" style="padding:4px 12px;" title="Pogrubienie"
-                        onclick="ksiazkaEditFormat('bold')"><b>B</b></button>
-                    <button type="button" class="btn-primary" style="padding:4px 12px;" title="Podkreślenie"
-                        onclick="ksiazkaEditFormat('underline')"><u>U</u></button>
+            <div style="flex:1; overflow:auto; min-height:0; display:flex; flex-direction:column; gap:12px;">
+                <div>
+                    <div style="display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap; align-items:center;">
+                        <button type="button" class="btn-primary" style="padding:4px 12px;" title="Pogrubienie"
+                            onclick="ksiazkaEditFormat('bold')"><b>B</b></button>
+                        <button type="button" class="btn-primary" style="padding:4px 12px;" title="Podkreślenie"
+                            onclick="ksiazkaEditFormat('underline')"><u>U</u></button>
+                        <button type="button" class="btn-primary" style="padding:4px 10px; font-size:12px;"
+                            onclick="replaceAllFromTile()" title="Zastąp całość ostatnim kaflem">Zastąp kafelkiem</button>
+                        <button type="button" class="btn-danger" style="padding:4px 10px; font-size:12px;"
+                            onclick="(function(){var e=document.getElementById('editTekst');if(e)e.innerHTML='';})()">Wyczyść treść</button>
+                    </div>
+                    <div id="editTekst" contenteditable="true" class="rich-opis-editor"
+                         style="width:100%; min-height:160px; font-size:14px; line-height:1.5; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); white-space:pre-wrap; outline:none;">${tekstHtml}</div>
                 </div>
-                <div id="editTekst" contenteditable="true" class="rich-opis-editor"
-                     style="width:100%; min-height:180px; font-size:14px; line-height:1.5; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); white-space:pre-wrap; outline:none;">${(typeof formatKsiazkaTekstHtml === "function" ? formatKsiazkaTekstHtml(entry.tekst || "") : escapeHtml(entry.tekst || ""))}</div>
-                <div style="font-size:12px; color:var(--text-dim); margin-top:4px;">Zaznacz tekst i kliknij B / U — kody HTML są ukryte.</div>
-            </div>
 
-            <div style="margin-bottom:10px;">
-                <div style="font-size:13px; color:#94a3b8; margin-bottom:6px;">Wstaw z Poleceń (klik = dopisz na końcu):</div>
-                <div style="display:flex; flex-wrap:wrap; gap:6px; max-height:90px; overflow:auto;">
-                    ${poleceniaPills}
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                    <div>
+                        <div style="font-weight:600; margin-bottom:6px; font-size:14px;">Zgłoszenia</div>
+                        <input type="text" id="ksEditZglSearch" placeholder="Szukaj…" style="width:100%; margin-bottom:8px;"
+                               oninput="ksEdit.zglSearch=this.value; ksEditRenderZgl();">
+                        <div class="ks-add-level-frame">
+                            <div id="ksEditZglLinie" class="card-grid" style="gap:6px;"></div>
+                        </div>
+                        <div id="ksEditZglItemsFrame" class="ks-add-level-frame" style="display:none;">
+                            <div id="ksEditZglItems" class="card-grid" style="gap:6px;"></div>
+                        </div>
+                        <div id="ksEditZglLevel3" class="card-grid" style="gap:6px;"></div>
+                    </div>
+                    <div>
+                        <div style="font-weight:600; margin-bottom:6px; font-size:14px;">Polecenia</div>
+                        <input type="text" id="ksEditPolSearch" placeholder="Szukaj…" style="width:100%; margin-bottom:8px;"
+                               oninput="ksEdit.polSearch=this.value; ksEditRenderPol();">
+                        <div class="ks-add-level-frame">
+                            <div id="ksEditPolLinie" class="card-grid" style="gap:6px;"></div>
+                        </div>
+                        <div id="ksEditPolItemsFrame" class="ks-add-level-frame" style="display:none;">
+                            <div id="ksEditPolItems" class="card-grid" style="gap:6px;"></div>
+                        </div>
+                        <div id="ksEditPolLevel3" class="card-grid" style="gap:6px;"></div>
+                    </div>
                 </div>
             </div>
 
-            <div style="margin-bottom:10px;">
-                <div style="font-size:13px; color:#94a3b8; margin-bottom:6px;">Wstaw ze Zgłoszeń (klik = dopisz na końcu):</div>
-                <div style="display:flex; flex-wrap:wrap; gap:6px; max-height:90px; overflow:auto;">
-                    ${zgloszeniaPills}
-                </div>
-            </div>
-
-            ${szablonyPills ? `
-            <div style="margin-bottom:14px;">
-                <div style="font-size:13px; color:#94a3b8; margin-bottom:6px;">Szablony:</div>
-                <div style="display:flex; flex-wrap:wrap; gap:6px; max-height:70px; overflow:auto;">
-                    ${szablonyPills}
-                </div>
-            </div>
-            ` : ""}
-
-            <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
-                <button class="btn-primary" style="font-size:13px;" onclick="replaceAllFromTile()">Zastąp całość ostatnim kaflem</button>
-                <button class="btn-danger" style="font-size:13px;" onclick="(function(){var e=document.getElementById('editTekst');if(e)e.innerHTML='';})()">Wyczyść treść</button>
-            </div>
-
-            <div class="modal-actions">
+            <div class="modal-actions" style="margin-top:12px; border-top:1px solid var(--border); padding-top:12px;">
                 <button class="btn-success" onclick="confirmEditKsiazka()">Zapisz zmiany</button>
                 <button class="btn-danger" onclick="closeKsiazkaEditModal()">Anuluj</button>
             </div>
         </div>
     `;
 
+    if (!document.getElementById("ksEditModalStyle")) {
+        const st = document.createElement("style");
+        st.id = "ksEditModalStyle";
+        st.textContent = `
+            #ksiazkaEditModal .ks-add-level-frame {
+                border: 1px solid var(--border, #334155);
+                border-radius: 12px;
+                padding: 10px;
+                margin-bottom: 8px;
+                background: var(--bg-light, rgba(15, 23, 42, 0.45));
+            }
+            @media (max-width:900px){
+                #ksiazkaEditModal .modal > div[style*="grid-template-columns"]{ grid-template-columns:1fr !important; }
+            }
+        `;
+        document.head.appendChild(st);
+    }
+
     document.body.appendChild(overlay);
-    window._lastTileText = null;
+    ksEditRenderZgl();
+    ksEditRenderPol();
 }
 
 function insertTileToEdit(typ, index) {
@@ -1034,23 +1275,14 @@ function insertTileToEdit(typ, index) {
         text = s?.tekst || s?.nazwa || "";
     }
     if (!text) return;
-
     window._lastTileText = text;
-    const ta = document.getElementById("editTekst");
-    if (!ta) return;
-
-    const chunk = (typeof formatKsiazkaTekstHtml === "function") ? formatKsiazkaTekstHtml(text) : escapeHtml(text);
-    if ((ta.innerText || "").trim()) {
-        ta.innerHTML = (ta.innerHTML || "").replace(/(<br\s*\/?>\s*)+$/i, "") + "<br><br>" + chunk;
-    } else {
-        ta.innerHTML = chunk;
-    }
-    ta.focus();
+    ksEditAppendToTekst(text);
 }
 
 function replaceAllFromTile() {
     if (!window._lastTileText) {
-        alert("Najpierw kliknij jakiś kafelek");
+        if (typeof showToast === "function") showToast("Najpierw wybierz kafelek (3. poziom)");
+        else alert("Najpierw wybierz kafelek");
         return;
     }
     const ta = document.getElementById("editTekst");
@@ -1063,6 +1295,7 @@ function replaceAllFromTile() {
 function closeKsiazkaEditModal() {
     const m = document.getElementById("ksiazkaEditModal");
     if (m) m.remove();
+    ksEditResetTiles();
 }
 
 async function confirmEditKsiazka() {
@@ -5666,6 +5899,14 @@ window.clearAllKsiazka = clearAllKsiazka;
 window.kopiujWpisKsiazki = kopiujWpisKsiazki;
 window.edytujWpisKsiazki = edytujWpisKsiazki;
 window.ksiazkaEditFormat = ksiazkaEditFormat;
+window.ksEditTogglePol = ksEditTogglePol;
+window.ksEditToggleZgl = ksEditToggleZgl;
+window.ksEditSelectPolOpis = ksEditSelectPolOpis;
+window.ksEditSelectPolLine = ksEditSelectPolLine;
+window.ksEditSelectZglOpis = ksEditSelectZglOpis;
+window.ksEditSelectZglLine = ksEditSelectZglLine;
+window.ksEditRenderPol = ksEditRenderPol;
+window.ksEditRenderZgl = ksEditRenderZgl;
 window.insertTileToEdit = insertTileToEdit;
 window.replaceAllFromTile = replaceAllFromTile;
 window.closeKsiazkaEditModal = closeKsiazkaEditModal;
