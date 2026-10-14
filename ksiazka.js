@@ -921,6 +921,16 @@ async function kopiujWpisKsiazki(index) {
 // EDYCJA WPISU (kafelki + ręcznie)
 // =====================================
 
+
+function ksiazkaEditFormat(cmd) {
+    const el = document.getElementById("editTekst");
+    if (!el) return;
+    el.focus();
+    try {
+        document.execCommand(cmd, false, null);
+    } catch (e) {}
+}
+
 function edytujWpisKsiazki(index) {
     ensureKsiazkaState();
     const entry = appState.ksiazkaWydarzen[index];
@@ -961,7 +971,15 @@ function edytujWpisKsiazki(index) {
 
             <div style="margin-bottom:12px;">
                 <label>Treść wpisu (możesz edytować ręcznie)</label>
-                <textarea id="editTekst" rows="8" style="width:100%; font-size:14px; line-height:1.5;">${escapeHtml(entry.tekst || "")}</textarea>
+                <div style="display:flex; gap:6px; margin:6px 0; flex-wrap:wrap;">
+                    <button type="button" class="btn-primary" style="padding:4px 12px;" title="Pogrubienie"
+                        onclick="ksiazkaEditFormat('bold')"><b>B</b></button>
+                    <button type="button" class="btn-primary" style="padding:4px 12px;" title="Podkreślenie"
+                        onclick="ksiazkaEditFormat('underline')"><u>U</u></button>
+                </div>
+                <div id="editTekst" contenteditable="true" class="rich-opis-editor"
+                     style="width:100%; min-height:180px; font-size:14px; line-height:1.5; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); white-space:pre-wrap; outline:none;">${(typeof formatKsiazkaTekstHtml === "function" ? formatKsiazkaTekstHtml(entry.tekst || "") : escapeHtml(entry.tekst || ""))}</div>
+                <div style="font-size:12px; color:var(--text-dim); margin-top:4px;">Zaznacz tekst i kliknij B / U — kody HTML są ukryte.</div>
             </div>
 
             <div style="margin-bottom:10px;">
@@ -989,7 +1007,7 @@ function edytujWpisKsiazki(index) {
 
             <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
                 <button class="btn-primary" style="font-size:13px;" onclick="replaceAllFromTile()">Zastąp całość ostatnim kaflem</button>
-                <button class="btn-danger" style="font-size:13px;" onclick="document.getElementById('editTekst').value=''">Wyczyść treść</button>
+                <button class="btn-danger" style="font-size:13px;" onclick="(function(){var e=document.getElementById('editTekst');if(e)e.innerHTML='';})()">Wyczyść treść</button>
             </div>
 
             <div class="modal-actions">
@@ -1021,11 +1039,11 @@ function insertTileToEdit(typ, index) {
     const ta = document.getElementById("editTekst");
     if (!ta) return;
 
-    const cur = ta.value || "";
-    if (cur.trim()) {
-        ta.value = cur.trimEnd() + "\n\n" + text;
+    const chunk = (typeof formatKsiazkaTekstHtml === "function") ? formatKsiazkaTekstHtml(text) : escapeHtml(text);
+    if ((ta.innerText || "").trim()) {
+        ta.innerHTML = (ta.innerHTML || "").replace(/(<br\s*\/?>\s*)+$/i, "") + "<br><br>" + chunk;
     } else {
-        ta.value = text;
+        ta.innerHTML = chunk;
     }
     ta.focus();
 }
@@ -1036,7 +1054,10 @@ function replaceAllFromTile() {
         return;
     }
     const ta = document.getElementById("editTekst");
-    if (ta) ta.value = window._lastTileText;
+    if (ta) {
+        const t = window._lastTileText;
+        ta.innerHTML = (typeof formatKsiazkaTekstHtml === "function") ? formatKsiazkaTekstHtml(t) : escapeHtml(t);
+    }
 }
 
 function closeKsiazkaEditModal() {
@@ -1051,7 +1072,18 @@ async function confirmEditKsiazka() {
     ensureKsiazkaState();
     if (!appState.ksiazkaWydarzen[index]) return;
 
-    const newTekst = document.getElementById("editTekst")?.value || "";
+    const el = document.getElementById("editTekst");
+    let newTekst = "";
+    if (el) {
+        newTekst = el.isContentEditable ? (el.innerHTML || "") : (el.value || "");
+        // posprzątaj puste bloki z contenteditable
+        newTekst = String(newTekst)
+            .replace(/<div><br\s*\/?><\/div>/gi, "<br>")
+            .replace(/<div>/gi, "<br>")
+            .replace(/<\/div>/gi, "")
+            .replace(/^(<br\s*\/?>)+/i, "")
+            .replace(/(<br\s*\/?>)+$/i, "");
+    }
     const newGodz = document.getElementById("editGodzStart")?.value || appState.ksiazkaWydarzen[index].godzinaStart;
 
     appState.ksiazkaWydarzen[index].tekst = capitalizeSentencesHtmlKs(newTekst);
@@ -5633,6 +5665,7 @@ window.usunWpisKsiazki = usunWpisKsiazki;
 window.clearAllKsiazka = clearAllKsiazka;
 window.kopiujWpisKsiazki = kopiujWpisKsiazki;
 window.edytujWpisKsiazki = edytujWpisKsiazki;
+window.ksiazkaEditFormat = ksiazkaEditFormat;
 window.insertTileToEdit = insertTileToEdit;
 window.replaceAllFromTile = replaceAllFromTile;
 window.closeKsiazkaEditModal = closeKsiazkaEditModal;
