@@ -280,7 +280,7 @@ function renderPolecenia() {
 
     let body = "";
     if (rows.length === 0) {
-        body = `<tr><td colspan="${delMode ? 6 : 5}" style="text-align:center; color:#94a3b8;">Brak poleceń</td></tr>`;
+        body = `<tr><td colspan="${delMode ? 6 : 5}"><div class="empty-state"><strong>Brak poleceń</strong>Dodaj polecenie lub zmień filtr.</div></td></tr>`;
     } else {
         rows.forEach(row => {
             const index = row._index;
