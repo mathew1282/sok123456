@@ -128,6 +128,9 @@ function loadPage(page) {
     if (!content) return;
 
     content.innerHTML = pages[page] || `<h2>Strona nie znaleziona</h2>`;
+    // zawsze od góry (poza książką, która sama przewinie do godziny)
+    content.scrollTop = 0;
+    try { window.scrollTo(0, 0); } catch (e) {}
 
     switch (page) {
         case "dane":       if (typeof initDane === "function") initDane(); break;
@@ -140,6 +143,13 @@ function loadPage(page) {
         case "ksiazka":    if (typeof initKsiazka === "function") initKsiazka(); break;
         case "porownania": if (typeof initPorownania === "function") initPorownania(); break;
         case "notatki":    if (typeof initNotatki === "function") initNotatki(); break;
+    }
+
+    // po renderze jeszcze raz (długie tabele / sticky th czasem „przeskakują”)
+    if (page !== "ksiazka") {
+        requestAnimationFrame(() => {
+            content.scrollTop = 0;
+        });
     }
 }
 
@@ -215,8 +225,8 @@ function importFromJSON(event) {
 
 // ======================================
 // Enter / ESC w modalach – cała aplikacja
-// Enter = zatwierdź (btn-success), ESC = zamknij
-// W textarea / contenteditable: Shift+Enter = nowa linia
+// Enter w input = zatwierdź; w textarea/contenteditable = nowa linia
+// Ctrl+Enter w edytorze = zapisz; ESC = zamknij
 // ======================================
 
 function getTopModalOverlay() {
@@ -278,13 +288,17 @@ function tryConfirmTopModal(e) {
 
     const target = e.target;
     const tag = target && target.tagName ? target.tagName.toUpperCase() : "";
+    const isMultiline = tag === "TEXTAREA" || !!(target && target.isContentEditable);
 
-    // Shift+Enter w wieloliniowych polach = nowa linia
-    if (e.shiftKey && (tag === "TEXTAREA" || (target && target.isContentEditable))) {
-        return false;
-    }
     // Enter w <select> zostaw domyślne
     if (tag === "SELECT") return false;
+
+    // W edytorze wieloliniowym (notatki, contenteditable, textarea):
+    //   Enter = nowa linia (jak zawsze)
+    //   Ctrl+Enter / Cmd+Enter = zapisz
+    if (isMultiline && !(e.ctrlKey || e.metaKey)) {
+        return false;
+    }
 
     const btn = findModalConfirmButton(overlay);
     if (!btn) return false;
@@ -324,11 +338,12 @@ function setupGlobalModalKeys() {
         document.removeEventListener("keydown", window._globalModalKeyHandler, true);
     }
     window._globalModalKeyHandler = function (e) {
-        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.altKey) return;
         if (e.isComposing) return;
 
         // ESC – zamknij najwyższe okno (cała aplikacja)
         if (e.key === "Escape" || e.key === "Esc") {
+            if (e.ctrlKey || e.metaKey) return;
             if (closeTopModalGeneric()) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -336,10 +351,17 @@ function setupGlobalModalKeys() {
             return;
         }
 
-        // Enter – zatwierdź
+        // Enter – zatwierdź (w textarea/contenteditable tylko Ctrl/Cmd+Enter)
         if (e.key === "Enter") {
+            // zwykły Enter bez Ctrl: nie blokuj przy skrótach D/S itd.
+            if (!(e.ctrlKey || e.metaKey)) {
+                // bez Ctrl – tryConfirmTopModal i tak przepuści multiline
+                if (tryConfirmTopModal(e)) return;
+                if (tryConfirmGeneratorPage(e)) return;
+                return;
+            }
+            // Ctrl+Enter – wymuś zapis modala
             if (tryConfirmTopModal(e)) return;
-            if (tryConfirmGeneratorPage(e)) return;
         }
     };
     // capture: działa też gdy fokus w input/textarea
