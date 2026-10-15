@@ -450,13 +450,6 @@ function renderStatystyki() {
                 <button type="button" class="btn-danger" onclick="clearAllStatystyki()">Kasuj wszystkie</button>
             </div>
         </div>
-        <p style="color:#94a3b8; font-size:14px; margin-bottom:16px;">
-            Pokazywane są <strong>wszystkie</strong> zapisane wpisy (ze wszystkich dni).
-            „Odśwież” skanuje książkę i dopisuje tylko nowe (po linii, dniu i godzinach).
-            Usuwają się po kliknięciu „Kasuj wszystkie” albo pojedynczego „Usuń”.
-        </p>
-
-        <p style="color:var(--text-dim,#94a3b8); font-size:13px; margin:0 0 10px 0;">Kliknij kafelkę MKK / P / L / Inne, aby zobaczyć powiązane wpisy z książki.</p>
         <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin-bottom:22px;">
             <div role="button" tabindex="0" onclick="openInterwencjeSzczegoly('MKK')"
                  style="cursor:pointer; background:rgba(96,165,250,.12); border:1px solid #60a5fa; border-radius:12px; padding:14px; text-align:center;">
