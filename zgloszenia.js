@@ -497,7 +497,6 @@ function renderZgloszenia() {
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
             <div>
                 <h2 style="margin:0 0 4px 0;">📋 Zgłoszenia</h2>
-                <div style="font-size:13px;color:var(--text-dim);">Zwykłe zgłoszenie albo <strong>procedura</strong> (start + koniec)</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn-primary" onclick="openZgloszenieModal()">+ Zgłoszenie</button>
