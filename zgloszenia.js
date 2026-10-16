@@ -505,6 +505,7 @@ function renderZgloszenia() {
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn-primary" onclick="openZgloszenieModal()">+ Zgłoszenie</button>
                 <button class="btn-success" onclick="openProceduraZglModal()">+ Procedura</button>
+                <button class="btn-primary" onclick="openSeriaZglModal()" title="Wiele zgłoszeń – wspólny opis, różne km">📚 Seria</button>
                 <button class="btn-primary" onclick="openZglSortowanieModal()">⇅ Sortowanie</button>
                 <button class="btn-export" onclick="exportZgloszeniaExcel()">📥 Eksport Excel</button>
                 <button class="btn-import" onclick="document.getElementById('zgloszeniaExcelLoader').click()">📤 Import Excel</button>
@@ -678,6 +679,224 @@ function zglInsertTag(id, tag) {
     catch (e) { el.innerHTML += tag; }
 }
 
+
+/** Seria: N procedur (start+koniec) – wspólne pola, różne km; [km] w opisach */
+function openSeriaZglModal() {
+    currentZgloszenieEdit = { mode: "seria" };
+    const body = `
+        <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px 0;">
+            Tworzy <strong>procedury</strong> (start + koniec), jak kafelki:
+            <strong>nr linii</strong> → <strong>nazwa szlaku</strong> → <strong>opis pom</strong> (Rozpoczęcie km / Zakończenie km).
+            <strong>Opis krótki</strong> ustawiasz sam (wspólny).
+            Dla każdego odcinka km powstaje <strong>osobna procedura</strong>.
+            W treściach wstaw <strong>[km]</strong> – podmiana przy zapisie.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;align-items:flex-end;">
+            <div style="min-width:120px;">
+                <label>Ile procedur</label>
+                <input type="number" id="seriaCount" min="1" max="50" value="2" style="width:100%;"
+                       onchange="zglSeriaRebuildKmRows()" oninput="zglSeriaRebuildKmRows()">
+            </div>
+            <div style="flex:1;min-width:100px;">
+                <label>Nr linii</label>
+                <input type="text" id="seriaLinia" value="${escapeHtml(zgloszeniaFilterLinia || "")}" style="width:100%;">
+            </div>
+            <div style="flex:1.4;min-width:140px;">
+                <label>Opis krótki</label>
+                <input type="text" id="seriaOpisKrotki" style="width:100%;" placeholder="np. Patrol szlaku">
+            </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;">
+            <div style="flex:1;min-width:140px;">
+                <label>Rodzaj</label>
+                <select id="seriaRodzaj" style="width:100%;padding:8px;border-radius:8px;">
+                    <option value="Inne">Inne</option>
+                    <option value="Szlak" selected>Szlak</option>
+                    <option value="Stacja towarowa">Stacja towarowa</option>
+                    <option value="Stacja osobowa">Stacja osobowa</option>
+                </select>
+            </div>
+            <div style="flex:1.5;min-width:160px;">
+                <label>Nazwa stacji / szlaku</label>
+                <input type="text" id="seriaNazwa" style="width:100%;" placeholder="Drugi poziom kafelków">
+            </div>
+        </div>
+        <div style="margin-bottom:8px;font-weight:600;">Kilometry (każdy wiersz = jedna procedura start + koniec)</div>
+        <div id="seriaKmRows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--bg);">
+                <div style="font-weight:700;margin-bottom:8px;">▶ Rozpoczęcie (start)</div>
+                <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+                    Opis pom automatycznie: <strong>Rozpoczęcie</strong> + km od
+                </div>
+                <label>Opis startu (wstaw <b>[km]</b>)</label>
+                <div style="display:flex;gap:6px;margin:4px 0 6px;flex-wrap:wrap;">
+                    <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisStart','bold')"><b>B</b></button>
+                    <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisStart','underline')"><u>U</u></button>
+                    <button type="button" class="btn-success" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisStart','[km]')"><b>[km]</b></button>
+                </div>
+                <div id="seriaOpisStart" contenteditable="true" class="rich-opis-editor"
+                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;">@dowodca zgłosił rozpoczęcie patrolu szlaku, km <b>[km]</b>.</div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                    ${["@patrol","@dowodca","@kierowca","@sklad","@wszyscy","@KZ","@MKK","@data","@godzina","@wot","@policjant","@wybrani"]
+                        .map(tag => `<button type="button" class="btn-primary" style="padding:2px 7px;font-size:11px;" onclick="zglInsertTag('seriaOpisStart','${tag}')">${tag}</button>`).join("")}
+                </div>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--bg);">
+                <div style="font-weight:700;margin-bottom:8px;">■ Zakończenie (koniec)</div>
+                <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+                    Opis pom automatycznie: <strong>Zakończenie</strong> + km do
+                </div>
+                <label>Opis końca (wstaw <b>[km]</b>)</label>
+                <div style="display:flex;gap:6px;margin:4px 0 6px;flex-wrap:wrap;">
+                    <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisEnd','bold')"><b>B</b></button>
+                    <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisEnd','underline')"><u>U</u></button>
+                    <button type="button" class="btn-success" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisEnd','[km]')"><b>[km]</b></button>
+                </div>
+                <div id="seriaOpisEnd" contenteditable="true" class="rich-opis-editor"
+                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;">@dowodca zgłosił zakończenie patrolu szlaku, km <b>[km]</b>.</div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px;">
+                    ${["@patrol","@dowodca","@kierowca","@sklad","@wszyscy","@KZ","@MKK","@data","@godzina","@wot","@policjant","@wybrani"]
+                        .map(tag => `<button type="button" class="btn-primary" style="padding:2px 7px;font-size:11px;" onclick="zglInsertTag('seriaOpisEnd','${tag}')">${tag}</button>`).join("")}
+                </div>
+            </div>
+        </div>
+    `;
+    showZglModal("Seria procedur", body, true);
+    zglSeriaRebuildKmRows();
+}
+
+function zglSeriaRebuildKmRows() {
+    const box = document.getElementById("seriaKmRows");
+    const countEl = document.getElementById("seriaCount");
+    if (!box || !countEl) return;
+    let n = parseInt(countEl.value, 10);
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    if (n > 50) n = 50;
+    countEl.value = String(n);
+
+    // zachowaj już wpisane wartości
+    const prev = [];
+    for (let i = 0; i < 50; i++) {
+        const od = document.getElementById("seriaKmOd" + i);
+        const d = document.getElementById("seriaKmDo" + i);
+        if (!od && !d) break;
+        prev.push({ od: od ? od.value : "", do: d ? d.value : "" });
+    }
+
+    let html = "";
+    for (let i = 0; i < n; i++) {
+        const od = prev[i]?.od || "";
+        const d = prev[i]?.do || "";
+        html += `
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+            <span style="font-weight:700;min-width:70px;color:var(--text-dim);">Procedura ${i + 1}</span>
+            <div style="flex:1;min-width:100px;">
+                <label style="font-size:12px;">Km od</label>
+                <input type="text" id="seriaKmOd${i}" value="${escapeHtml(od)}" style="width:100%;" placeholder="np. 28.500">
+            </div>
+            <div style="flex:1;min-width:100px;">
+                <label style="font-size:12px;">Km do</label>
+                <input type="text" id="seriaKmDo${i}" value="${escapeHtml(d)}" style="width:100%;" placeholder="np. 29.200">
+            </div>
+        </div>`;
+    }
+    box.innerHTML = html;
+}
+
+/** Podmiana [km] / <b>[km]</b> w HTML opisu */
+function zglReplaceKmPlaceholder(html, kmOd, kmDo) {
+    const od = String(kmOd || "").trim();
+    const d = String(kmDo || "").trim();
+    let val = "";
+    if (od && d) val = od + " – " + d;
+    else if (od) val = od;
+    else if (d) val = d;
+    else val = "—";
+    const safe = (typeof escapeHtml === "function") ? escapeHtml(val) : val;
+    // zachowaj pogrubienie jeśli [km] było w <b>
+    let out = String(html || "");
+    out = out.replace(/<b>\s*\[km\]\s*<\/b>/gi, "<b>" + safe + "</b>");
+    out = out.replace(/<strong>\s*\[km\]\s*<\/strong>/gi, "<strong>" + safe + "</strong>");
+    out = out.replace(/\[km\]/gi, safe);
+    return out;
+}
+
+async function saveSeriaZgloszen() {
+    const linia = (document.getElementById("seriaLinia")?.value || "").trim();
+    const krotki = (document.getElementById("seriaOpisKrotki")?.value || "").trim();
+    const rodzaj = document.getElementById("seriaRodzaj")?.value || "Inne";
+    const nazwa = (document.getElementById("seriaNazwa")?.value || "").trim();
+    const startEl = document.getElementById("seriaOpisStart");
+    const endEl = document.getElementById("seriaOpisEnd");
+    const opisStartTpl = startEl ? (startEl.innerHTML || "").trim() : "";
+    const opisEndTpl = endEl ? (endEl.innerHTML || "").trim() : "";
+    let n = parseInt(document.getElementById("seriaCount")?.value || "0", 10);
+
+    if (!linia) { alert("Podaj nr linii"); return; }
+    if (!krotki) { alert("Podaj opis krótki"); return; }
+    if (!zglPlain(opisStartTpl)) { alert("Podaj opis rozpoczęcia"); return; }
+    if (!zglPlain(opisEndTpl)) { alert("Podaj opis zakończenia"); return; }
+    if (!Number.isFinite(n) || n < 1) { alert("Podaj liczbę procedur (≥ 1)"); return; }
+    if (n > 50) n = 50;
+
+    const pairs = [];
+    for (let i = 0; i < n; i++) {
+        const od = (document.getElementById("seriaKmOd" + i)?.value || "").trim();
+        const d = (document.getElementById("seriaKmDo" + i)?.value || "").trim();
+        if (!od && !d) {
+            alert("Procedura " + (i + 1) + ": podaj km od lub km do");
+            return;
+        }
+        pairs.push({ od, do: d });
+    }
+
+    pairs.forEach(p => {
+        const procId = zglNewId();
+        const kmStartLabel = p.od || p.do || "—";
+        const kmEndLabel = p.do || p.od || "—";
+        // [km] w starcie → km od (lub do), w końcu → km do (lub od)
+        const start = {
+            id: zglNewId(),
+            Linia: linia,
+            OpisKrotki: krotki,
+            OpisPom: "Rozpoczęcie " + kmStartLabel,
+            Opis: zglReplaceKmPlaceholder(opisStartTpl, p.od, p.od ? "" : p.do),
+            Rodzaj: rodzaj,
+            Nazwa: nazwa,
+            KmOd: p.od,
+            KmDo: p.do,
+            procedureId: procId,
+            procedureRole: "start"
+        };
+        // dla końca [km] preferuj km do
+        const end = {
+            id: zglNewId(),
+            Linia: linia,
+            OpisKrotki: krotki,
+            OpisPom: "Zakończenie " + kmEndLabel,
+            Opis: zglReplaceKmPlaceholder(opisEndTpl, p.do ? p.do : p.od, ""),
+            Rodzaj: rodzaj,
+            Nazwa: nazwa,
+            KmOd: p.od,
+            KmDo: p.do,
+            procedureId: procId,
+            procedureRole: "end"
+        };
+        // poprawka: zglReplaceKmPlaceholder z jednym km – przekaż jako od
+        start.Opis = zglReplaceKmPlaceholder(opisStartTpl, kmStartLabel, "");
+        end.Opis = zglReplaceKmPlaceholder(opisEndTpl, kmEndLabel, "");
+        appState.zgloszenia.rows.push(start, end);
+    });
+
+    if (typeof saveState === "function") await saveState();
+    closeZgloszenieModal();
+    renderZgloszenia();
+    if (typeof showToast === "function") {
+        showToast("✅ Utworzono " + pairs.length + " procedur (seria: start + koniec)");
+    }
+}
+
 function openZgloszenieModal() {
     currentZgloszenieEdit = { mode: "single", index: null };
     showZglModal("Nowe zgłoszenie", zglSideEditor("zgl", {}, { showShared: false }), false);
@@ -775,6 +994,11 @@ function readZglPrefix(prefix, withMeta) {
 async function saveZgloszenie() {
     if (!currentZgloszenieEdit) return;
     const edit = currentZgloszenieEdit;
+
+    if (edit.mode === "seria") {
+        await saveSeriaZgloszen();
+        return;
+    }
 
     if (edit.mode === "single") {
         const item = readZglPrefix("zgl", false);
@@ -1324,6 +1548,9 @@ window.renderZgloszenia = renderZgloszenia;
 window.setZgloszeniaFilterLinia = setZgloszeniaFilterLinia;
 window.setZgloszeniaFilterTyp = setZgloszeniaFilterTyp;
 window.openZgloszenieModal = openZgloszenieModal;
+window.openSeriaZglModal = openSeriaZglModal;
+window.zglSeriaRebuildKmRows = zglSeriaRebuildKmRows;
+window.saveSeriaZgloszen = saveSeriaZgloszen;
 window.openProceduraZglModal = openProceduraZglModal;
 window.editZgloszenie = editZgloszenie;
 window.editProceduraZgl = editProceduraZgl;
