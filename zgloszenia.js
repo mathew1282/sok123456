@@ -734,9 +734,11 @@ function openSeriaZglModal() {
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisStart','bold')"><b>B</b></button>
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisStart','underline')"><u>U</u></button>
                     <button type="button" class="btn-success" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisStart','[km]')"><b>[km]</b></button>
+                    <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisStart','[linia]')">[linia]</button>
+                    <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisStart','[nazwa]')">[nazwa]</button>
                 </div>
                 <div id="seriaOpisStart" contenteditable="true" class="rich-opis-editor"
-                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;">@dowodca zgłosił rozpoczęcie patrolu szlaku, km <b>[km]</b>.</div>
+                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;"><b>@dowodca</b> zgłosił się z linii nr <b>[linia]</b> z km <b>[km]</b>, że rozpoczynają patrol szlaku <b>[nazwa]</b>.</div>
                 <div style="display:flex;flex-wrap:wrap;gap:5px;">
                     ${["@patrol","@dowodca","@kierowca","@sklad","@wszyscy","@KZ","@MKK","@data","@godzina","@wot","@policjant","@wybrani"]
                         .map(tag => `<button type="button" class="btn-primary" style="padding:2px 7px;font-size:11px;" onclick="zglInsertTag('seriaOpisStart','${tag}')">${tag}</button>`).join("")}
@@ -752,9 +754,11 @@ function openSeriaZglModal() {
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisEnd','bold')"><b>B</b></button>
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisEnd','underline')"><u>U</u></button>
                     <button type="button" class="btn-success" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisEnd','[km]')"><b>[km]</b></button>
+                    <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisEnd','[linia]')">[linia]</button>
+                    <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisEnd','[nazwa]')">[nazwa]</button>
                 </div>
                 <div id="seriaOpisEnd" contenteditable="true" class="rich-opis-editor"
-                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;">@dowodca zgłosił zakończenie patrolu szlaku, km <b>[km]</b>.</div>
+                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;"><b>@dowodca</b> zgłosił się z linii nr <b>[linia]</b> z km <b>[km]</b>, z zakończenia patrolu szlaku <b>[nazwa]</b>. Podczas patrolu sprawdzono stan elementów infrastruktury kolejowej – brak uwag.</div>
                 <div style="display:flex;flex-wrap:wrap;gap:5px;">
                     ${["@patrol","@dowodca","@kierowca","@sklad","@wszyscy","@KZ","@MKK","@data","@godzina","@wot","@policjant","@wybrani"]
                         .map(tag => `<button type="button" class="btn-primary" style="padding:2px 7px;font-size:11px;" onclick="zglInsertTag('seriaOpisEnd','${tag}')">${tag}</button>`).join("")}
@@ -804,7 +808,23 @@ function zglSeriaRebuildKmRows() {
     box.innerHTML = html;
 }
 
-/** Podmiana [km] / <b>[km]</b> w HTML opisu */
+/** Podmiana [km] / [linia] / [nazwa] (także w <b>…</b>) w HTML opisu */
+function zglReplaceSeriaPlaceholders(html, map) {
+    let out = String(html || "");
+    Object.keys(map || {}).forEach(key => {
+        const raw = String(map[key] == null ? "" : map[key]).trim() || "—";
+        const safe = (typeof escapeHtml === "function") ? escapeHtml(raw) : raw;
+        const reB = new RegExp("<b>\\s*\\[" + key + "\\]\\s*</b>", "gi");
+        const reS = new RegExp("<strong>\\s*\\[" + key + "\\]\\s*</strong>", "gi");
+        const re = new RegExp("\\[" + key + "\\]", "gi");
+        out = out.replace(reB, "<b>" + safe + "</b>");
+        out = out.replace(reS, "<strong>" + safe + "</strong>");
+        out = out.replace(re, safe);
+    });
+    return out;
+}
+
+/** Kompatybilność: stara nazwa */
 function zglReplaceKmPlaceholder(html, kmOd, kmDo) {
     const od = String(kmOd || "").trim();
     const d = String(kmDo || "").trim();
@@ -813,13 +833,7 @@ function zglReplaceKmPlaceholder(html, kmOd, kmDo) {
     else if (od) val = od;
     else if (d) val = d;
     else val = "—";
-    const safe = (typeof escapeHtml === "function") ? escapeHtml(val) : val;
-    // zachowaj pogrubienie jeśli [km] było w <b>
-    let out = String(html || "");
-    out = out.replace(/<b>\s*\[km\]\s*<\/b>/gi, "<b>" + safe + "</b>");
-    out = out.replace(/<strong>\s*\[km\]\s*<\/strong>/gi, "<strong>" + safe + "</strong>");
-    out = out.replace(/\[km\]/gi, safe);
-    return out;
+    return zglReplaceSeriaPlaceholders(html, { km: val });
 }
 
 async function saveSeriaZgloszen() {
@@ -855,13 +869,12 @@ async function saveSeriaZgloszen() {
         const procId = zglNewId();
         const kmStartLabel = p.od || p.do || "—";
         const kmEndLabel = p.do || p.od || "—";
-        // [km] w starcie → km od (lub do), w końcu → km do (lub od)
         const start = {
             id: zglNewId(),
             Linia: linia,
             OpisKrotki: krotki,
             OpisPom: "Rozpoczęcie " + kmStartLabel,
-            Opis: zglReplaceKmPlaceholder(opisStartTpl, p.od, p.od ? "" : p.do),
+            Opis: zglReplaceSeriaPlaceholders(opisStartTpl, { km: kmStartLabel, linia: linia, nazwa: nazwa }),
             Rodzaj: rodzaj,
             Nazwa: nazwa,
             KmOd: p.od,
@@ -869,13 +882,12 @@ async function saveSeriaZgloszen() {
             procedureId: procId,
             procedureRole: "start"
         };
-        // dla końca [km] preferuj km do
         const end = {
             id: zglNewId(),
             Linia: linia,
             OpisKrotki: krotki,
             OpisPom: "Zakończenie " + kmEndLabel,
-            Opis: zglReplaceKmPlaceholder(opisEndTpl, p.do ? p.do : p.od, ""),
+            Opis: zglReplaceSeriaPlaceholders(opisEndTpl, { km: kmEndLabel, linia: linia, nazwa: nazwa }),
             Rodzaj: rodzaj,
             Nazwa: nazwa,
             KmOd: p.od,
@@ -883,9 +895,6 @@ async function saveSeriaZgloszen() {
             procedureId: procId,
             procedureRole: "end"
         };
-        // poprawka: zglReplaceKmPlaceholder z jednym km – przekaż jako od
-        start.Opis = zglReplaceKmPlaceholder(opisStartTpl, kmStartLabel, "");
-        end.Opis = zglReplaceKmPlaceholder(opisEndTpl, kmEndLabel, "");
         appState.zgloszenia.rows.push(start, end);
     });
 
