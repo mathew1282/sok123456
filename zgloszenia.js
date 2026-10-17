@@ -697,7 +697,7 @@ function openSeriaZglModal() {
             </div>
             <div style="flex:1;min-width:140px;">
                 <label>Rodzaj</label>
-                <select id="seriaRodzaj" style="width:100%;padding:8px;border-radius:8px;" onchange="zglSeriaOnRodzajChange()">
+                <select id="seriaRodzaj" style="width:100%;padding:10px;border-radius:10px;height:auto;min-height:42px;box-sizing:border-box;background:var(--bg-input);color:var(--text);border:1px solid var(--border);" onchange="zglSeriaOnRodzajChange()">
                     <option value="Szlak" selected>Szlak</option>
                     <option value="Stacja osobowa">Stacja osobowa</option>
                     <option value="Stacja towarowa">Stacja towarowa</option>
@@ -787,7 +787,7 @@ function zglSeriaOnRodzajChange(isInit) {
     const rodzaj = zglSeriaGetRodzaj();
     if (rodzaj === "Inne") {
         closeZgloszenieModal();
-        if (typeof openZgloszenieModal === "function") openZgloszenieModal();
+        if (typeof openZgloszenieModal === "function") openZgloszenieModal({ fromSeria: true });
         return;
     }
 
@@ -941,7 +941,7 @@ async function saveSeriaZgloszen() {
     const rodzaj = zglSeriaGetRodzaj();
     if (rodzaj === "Inne") {
         closeZgloszenieModal();
-        if (typeof openZgloszenieModal === "function") openZgloszenieModal();
+        if (typeof openZgloszenieModal === "function") openZgloszenieModal({ fromSeria: true });
         return;
     }
 
@@ -1034,8 +1034,9 @@ async function saveSeriaZgloszen() {
     }
 }
 
-function openZgloszenieModal() {
-    currentZgloszenieEdit = { mode: "single", index: null };
+function openZgloszenieModal(opts) {
+    const fromSeria = !!(opts && opts.fromSeria);
+    currentZgloszenieEdit = { mode: "single", index: null, fromSeria: fromSeria };
     showZglModal("Nowe zgłoszenie", zglSideEditor("zgl", {}, { showShared: false }), false);
 }
 
@@ -1086,18 +1087,24 @@ function editProceduraZgl(startIndex, endIndex) {
 function showZglModal(title, bodyHtml, wide) {
     const root = document.getElementById("zglModalRoot");
     if (!root) return;
+    const fromSeria = !!(currentZgloszenieEdit && currentZgloszenieEdit.fromSeria);
+    const backBtn = fromSeria
+        ? `<button type="button" class="btn-primary" onclick="openSeriaZglModal()">← Wróć</button>`
+        : "";
     root.innerHTML = `
     <div class="modal-overlay" style="display:flex;z-index:10050;" onclick="if(event.target===this)closeZgloszenieModal()">
         <div class="modal" style="width:min(${wide ? "1100px" : "920px"},96vw);max-height:94vh;overflow:auto;" onclick="event.stopPropagation()">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
                 <h2 style="margin:0;">${escapeHtml(title)}</h2>
-                <div style="display:flex;gap:8px;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    ${backBtn}
                     <button class="btn-success" onclick="saveZgloszenie()">Zapisz</button>
                     <button class="btn-danger" onclick="closeZgloszenieModal()">Anuluj</button>
                 </div>
             </div>
             ${bodyHtml}
-            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap;">
+                ${backBtn}
                 <button class="btn-success" onclick="saveZgloszenie()">Zapisz</button>
                 <button class="btn-danger" onclick="closeZgloszenieModal()">Anuluj</button>
             </div>
