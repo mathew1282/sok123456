@@ -680,7 +680,7 @@ function zglInsertTag(id, tag) {
 }
 
 
-/** Seria procedur – zależnie od Rodzaj (Szlak / osobowa / towarowa); Inne → zwykłe zgłoszenie */
+/** Seria procedur – Szlak: km+nazwa+krotki per wiersz; stacje: nazwa+krotki; pom na dole */
 function openSeriaZglModal() {
     currentZgloszenieEdit = { mode: "seria" };
     const body = `
@@ -695,20 +695,6 @@ function openSeriaZglModal() {
                 <label>Nr linii</label>
                 <input type="text" id="seriaLinia" value="${escapeHtml(zgloszeniaFilterLinia || "")}" style="width:100%;">
             </div>
-            <div style="flex:1.2;min-width:130px;" id="seriaKrotkiWrap">
-                <label>Opis krótki</label>
-                <input type="text" id="seriaOpisKrotki" style="width:100%;" placeholder="np. Patrol szlaku">
-            </div>
-            <div style="flex:1.2;min-width:130px;" id="seriaPomStartWrap">
-                <label>Opis pom (start)</label>
-                <input type="text" id="seriaOpisPomStart" style="width:100%;" placeholder="Rozpoczęcie …" title="3. poziom kafelka – start; [km] lub [nazwa]">
-            </div>
-            <div style="flex:1.2;min-width:130px;" id="seriaPomEndWrap">
-                <label>Opis pom (koniec)</label>
-                <input type="text" id="seriaOpisPomEnd" style="width:100%;" placeholder="Zakończenie …" title="3. poziom kafelka – koniec; [km] lub [nazwa]">
-            </div>
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;">
             <div style="flex:1;min-width:140px;">
                 <label>Rodzaj</label>
                 <select id="seriaRodzaj" style="width:100%;padding:8px;border-radius:8px;" onchange="zglSeriaOnRodzajChange()">
@@ -718,14 +704,10 @@ function openSeriaZglModal() {
                     <option value="Inne">Inne</option>
                 </select>
             </div>
-            <div style="flex:1.5;min-width:160px;" id="seriaNazwaSharedWrap">
-                <label>Nazwa stacji / szlaku</label>
-                <input type="text" id="seriaNazwa" style="width:100%;" placeholder="Wspólna nazwa (szlak)">
-            </div>
         </div>
         <div id="seriaRowsTitle" style="margin-bottom:8px;font-weight:600;"></div>
         <div id="seriaKmRows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
-        <div id="seriaOpisyWrap" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div id="seriaOpisyWrap" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
             <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--bg);">
                 <div style="font-weight:700;margin-bottom:8px;">▶ Rozpoczęcie (start)</div>
                 <div id="seriaPomHintStart" style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"></div>
@@ -763,6 +745,16 @@ function openSeriaZglModal() {
                 </div>
             </div>
         </div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-top:8px;padding-top:12px;border-top:1px solid var(--border);">
+            <div style="flex:1;min-width:160px;">
+                <label>Opis pom (start) – 3. poziom kafelka</label>
+                <input type="text" id="seriaOpisPomStart" style="width:100%;" placeholder="Rozpoczęcie [km] / [nazwa]">
+            </div>
+            <div style="flex:1;min-width:160px;">
+                <label>Opis pom (koniec) – 3. poziom kafelka</label>
+                <input type="text" id="seriaOpisPomEnd" style="width:100%;" placeholder="Zakończenie [km] / [nazwa]">
+            </div>
+        </div>
     `;
     showZglModal("Seria procedur", body, true);
     zglSeriaOnRodzajChange(true);
@@ -785,7 +777,6 @@ function zglSeriaDefaultOpisy(rodzaj) {
             end: "<b>@dowodca</b> zgłosił zakończenie patrolu stacji towarowej <b>[nazwa]</b>. Podczas patrolu sprawdzono stan elementów infrastruktury kolejowej – brak wydarzeń."
         };
     }
-    // Szlak (domyślnie)
     return {
         start: "<b>@dowodca</b> zgłosił się z linii nr <b>[linia]</b> z km <b>[km]</b>, że rozpoczynają patrol szlaku <b>[nazwa]</b>.",
         end: "<b>@dowodca</b> zgłosił się z linii nr <b>[linia]</b> z km <b>[km]</b>, z zakończenia patrolu szlaku <b>[nazwa]</b>. Podczas patrolu sprawdzono stan elementów infrastruktury kolejowej – brak uwag."
@@ -802,31 +793,27 @@ function zglSeriaOnRodzajChange(isInit) {
 
     const hint = document.getElementById("seriaHint");
     const rowsTitle = document.getElementById("seriaRowsTitle");
-    const nazwaWrap = document.getElementById("seriaNazwaSharedWrap");
     const isSzlak = rodzaj === "Szlak";
 
     if (hint) {
         if (isSzlak) {
-            hint.innerHTML = "Szlak: wspólna nazwa + <strong>km od/do</strong> na każdą procedurę. Znaczniki <b>[km]</b>, <b>[linia]</b>, <b>[nazwa]</b>.";
+            hint.innerHTML = "Szlak: w każdej procedurze <strong>km od/do</strong>, <strong>nazwa szlaku</strong> oraz <strong>opis krótki</strong> (auto = nazwa, edytowalny).";
         } else {
-            hint.innerHTML = escapeHtml(rodzaj) + ": bez km – podajesz <strong>nazwę stacji</strong> tyle razy, ile procedur. Znacznik <b>[nazwa]</b>.";
+            hint.innerHTML = escapeHtml(rodzaj) + ": w każdej procedurze <strong>nazwa stacji</strong> i <strong>opis krótki</strong> (auto = nazwa, edytowalny).";
         }
     }
     if (rowsTitle) {
         rowsTitle.textContent = isSzlak
-            ? "Kilometry (każdy wiersz = jedna procedura start + koniec)"
-            : "Nazwy stacji (każdy wiersz = jedna procedura start + koniec)";
+            ? "Procedury szlaku (km + nazwa + opis krótki)"
+            : "Procedury stacji (nazwa + opis krótki)";
     }
-    if (nazwaWrap) nazwaWrap.style.display = isSzlak ? "" : "none";
 
     const defs = zglSeriaDefaultOpisy(rodzaj);
     const sEl = document.getElementById("seriaOpisStart");
     const eEl = document.getElementById("seriaOpisEnd");
-    // przy zmianie rodzaju zawsze wstaw domyślne szablony (przy init też)
     if (sEl) sEl.innerHTML = defs.start;
     if (eEl) eEl.innerHTML = defs.end;
 
-    // domyślne opisy pom (3. poziom kafelków) – edytowalne
     const pomS = document.getElementById("seriaOpisPomStart");
     const pomE = document.getElementById("seriaOpisPomEnd");
     if (pomS) pomS.value = isSzlak ? "Rozpoczęcie [km]" : "Rozpoczęcie [nazwa]";
@@ -834,18 +821,20 @@ function zglSeriaOnRodzajChange(isInit) {
 
     const hs = document.getElementById("seriaPomHintStart");
     const he = document.getElementById("seriaPomHintEnd");
-    if (hs) hs.innerHTML = isSzlak
-        ? "Opis pom (3. kafelek): szablon powyżej – <strong>[km]</strong> = km od"
-        : "Opis pom (3. kafelek): szablon powyżej – <strong>[nazwa]</strong> = nazwa stacji";
-    if (he) he.innerHTML = isSzlak
-        ? "Opis pom (3. kafelek): szablon powyżej – <strong>[km]</strong> = km do"
-        : "Opis pom (3. kafelek): szablon powyżej – <strong>[nazwa]</strong> = nazwa stacji";
+    if (hs) hs.innerHTML = "Szablony opisu pom ustawiasz na dole formularza (przed Zapisz).";
+    if (he) he.innerHTML = "Szablony opisu pom ustawiasz na dole formularza (przed Zapisz).";
 
     zglSeriaRebuildRows();
 }
 
-/** Alias – stara nazwa z oninput */
 function zglSeriaRebuildKmRows() { zglSeriaRebuildRows(); }
+
+/** Wpisywanie nazwy → automatycznie opis krótki (edytowalny) */
+function zglSeriaSyncKrotkiFromNazwa(i) {
+    const nz = document.getElementById("seriaNazwa" + i);
+    const kr = document.getElementById("seriaKrotki" + i);
+    if (nz && kr) kr.value = nz.value;
+}
 
 function zglSeriaRebuildRows() {
     const box = document.getElementById("seriaKmRows");
@@ -859,42 +848,62 @@ function zglSeriaRebuildRows() {
     const rodzaj = zglSeriaGetRodzaj();
     const isSzlak = rodzaj === "Szlak";
 
-    const prevKm = [];
-    const prevNazwa = [];
+    const prev = [];
     for (let i = 0; i < 50; i++) {
         const od = document.getElementById("seriaKmOd" + i);
         const d = document.getElementById("seriaKmDo" + i);
         const nz = document.getElementById("seriaNazwa" + i);
-        if (!od && !d && !nz) break;
-        prevKm.push({ od: od ? od.value : "", do: d ? d.value : "" });
-        prevNazwa.push(nz ? nz.value : "");
+        const kr = document.getElementById("seriaKrotki" + i);
+        if (!od && !d && !nz && !kr) break;
+        prev.push({
+            od: od ? od.value : "",
+            do: d ? d.value : "",
+            nazwa: nz ? nz.value : "",
+            krotki: kr ? kr.value : ""
+        });
     }
 
     let html = "";
     for (let i = 0; i < n; i++) {
+        const pr = prev[i] || {};
+        const od = pr.od || "";
+        const d = pr.do || "";
+        const nazwa = pr.nazwa || "";
+        const krotki = pr.krotki || nazwa || "";
         if (isSzlak) {
-            const od = prevKm[i]?.od || "";
-            const d = prevKm[i]?.do || "";
             html += `
-            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
-                <span style="font-weight:700;min-width:90px;color:var(--text-dim);">Procedura ${i + 1}</span>
-                <div style="flex:1;min-width:100px;">
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+                <span style="font-weight:700;min-width:88px;color:var(--text-dim);padding-bottom:8px;">Procedura ${i + 1}</span>
+                <div style="flex:0.8;min-width:90px;">
                     <label style="font-size:12px;">Km od</label>
-                    <input type="text" id="seriaKmOd${i}" value="${escapeHtml(od)}" style="width:100%;" placeholder="np. 28.500">
+                    <input type="text" id="seriaKmOd${i}" value="${escapeHtml(od)}" style="width:100%;" placeholder="28.500">
                 </div>
-                <div style="flex:1;min-width:100px;">
+                <div style="flex:0.8;min-width:90px;">
                     <label style="font-size:12px;">Km do</label>
-                    <input type="text" id="seriaKmDo${i}" value="${escapeHtml(d)}" style="width:100%;" placeholder="np. 29.200">
+                    <input type="text" id="seriaKmDo${i}" value="${escapeHtml(d)}" style="width:100%;" placeholder="29.200">
+                </div>
+                <div style="flex:1.2;min-width:120px;">
+                    <label style="font-size:12px;">Nazwa szlaku</label>
+                    <input type="text" id="seriaNazwa${i}" value="${escapeHtml(nazwa)}" style="width:100%;" placeholder="Nazwa szlaku"
+                           oninput="zglSeriaSyncKrotkiFromNazwa(${i})">
+                </div>
+                <div style="flex:1.2;min-width:120px;">
+                    <label style="font-size:12px;">Opis krótki</label>
+                    <input type="text" id="seriaKrotki${i}" value="${escapeHtml(krotki)}" style="width:100%;" placeholder="= nazwa (edytuj)">
                 </div>
             </div>`;
         } else {
-            const nz = prevNazwa[i] || "";
             html += `
-            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
-                <span style="font-weight:700;min-width:90px;color:var(--text-dim);">Procedura ${i + 1}</span>
-                <div style="flex:1;min-width:180px;">
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+                <span style="font-weight:700;min-width:88px;color:var(--text-dim);padding-bottom:8px;">Procedura ${i + 1}</span>
+                <div style="flex:1.4;min-width:140px;">
                     <label style="font-size:12px;">Nazwa stacji</label>
-                    <input type="text" id="seriaNazwa${i}" value="${escapeHtml(nz)}" style="width:100%;" placeholder="Nazwa stacji">
+                    <input type="text" id="seriaNazwa${i}" value="${escapeHtml(nazwa)}" style="width:100%;" placeholder="Nazwa stacji"
+                           oninput="zglSeriaSyncKrotkiFromNazwa(${i})">
+                </div>
+                <div style="flex:1.4;min-width:140px;">
+                    <label style="font-size:12px;">Opis krótki</label>
+                    <input type="text" id="seriaKrotki${i}" value="${escapeHtml(krotki)}" style="width:100%;" placeholder="= nazwa (edytuj)">
                 </div>
             </div>`;
         }
@@ -902,7 +911,6 @@ function zglSeriaRebuildRows() {
     box.innerHTML = html;
 }
 
-/** Podmiana [km] / [linia] / [nazwa] (także w <b>…</b>) w HTML opisu */
 function zglReplaceSeriaPlaceholders(html, map) {
     let out = String(html || "");
     Object.keys(map || {}).forEach(key => {
@@ -918,7 +926,6 @@ function zglReplaceSeriaPlaceholders(html, map) {
     return out;
 }
 
-/** Kompatybilność: stara nazwa */
 function zglReplaceKmPlaceholder(html, kmOd, kmDo) {
     const od = String(kmOd || "").trim();
     const d = String(kmDo || "").trim();
@@ -939,8 +946,6 @@ async function saveSeriaZgloszen() {
     }
 
     const linia = (document.getElementById("seriaLinia")?.value || "").trim();
-    const krotki = (document.getElementById("seriaOpisKrotki")?.value || "").trim();
-    const nazwaShared = (document.getElementById("seriaNazwa")?.value || "").trim();
     const startEl = document.getElementById("seriaOpisStart");
     const endEl = document.getElementById("seriaOpisEnd");
     const opisStartTpl = startEl ? (startEl.innerHTML || "").trim() : "";
@@ -949,7 +954,6 @@ async function saveSeriaZgloszen() {
     const isSzlak = rodzaj === "Szlak";
 
     if (!linia) { alert("Podaj nr linii"); return; }
-    if (!krotki) { alert("Podaj opis krótki"); return; }
     if (!zglPlain(opisStartTpl)) { alert("Podaj opis rozpoczęcia"); return; }
     if (!zglPlain(opisEndTpl)) { alert("Podaj opis zakończenia"); return; }
     if (!Number.isFinite(n) || n < 1) { alert("Podaj liczbę procedur (≥ 1)"); return; }
@@ -957,6 +961,9 @@ async function saveSeriaZgloszen() {
 
     const items = [];
     for (let i = 0; i < n; i++) {
+        const nazwa = (document.getElementById("seriaNazwa" + i)?.value || "").trim();
+        let krotki = (document.getElementById("seriaKrotki" + i)?.value || "").trim();
+        if (!krotki) krotki = nazwa;
         if (isSzlak) {
             const od = (document.getElementById("seriaKmOd" + i)?.value || "").trim();
             const d = (document.getElementById("seriaKmDo" + i)?.value || "").trim();
@@ -964,64 +971,59 @@ async function saveSeriaZgloszen() {
                 alert("Procedura " + (i + 1) + ": podaj km od lub km do");
                 return;
             }
-            items.push({ od, do: d, nazwa: nazwaShared });
+            if (!nazwa) {
+                alert("Procedura " + (i + 1) + ": podaj nazwę szlaku");
+                return;
+            }
+            items.push({ od, do: d, nazwa, krotki });
         } else {
-            const nz = (document.getElementById("seriaNazwa" + i)?.value || "").trim();
-            if (!nz) {
+            if (!nazwa) {
                 alert("Procedura " + (i + 1) + ": podaj nazwę stacji");
                 return;
             }
-            items.push({ od: "", do: "", nazwa: nz });
+            items.push({ od: "", do: "", nazwa, krotki });
         }
     }
+
+    const pomStartTpl = (document.getElementById("seriaOpisPomStart")?.value || (isSzlak ? "Rozpoczęcie [km]" : "Rozpoczęcie [nazwa]")).trim();
+    const pomEndTpl = (document.getElementById("seriaOpisPomEnd")?.value || (isSzlak ? "Zakończenie [km]" : "Zakończenie [nazwa]")).trim();
 
     items.forEach(it => {
         const procId = zglNewId();
         const kmStartLabel = it.od || it.do || "—";
         const kmEndLabel = it.do || it.od || "—";
-        const nazwa = it.nazwa || nazwaShared || "";
-        const pomStartTpl = (document.getElementById("seriaOpisPomStart")?.value || (isSzlak ? "Rozpoczęcie [km]" : "Rozpoczęcie [nazwa]")).trim();
-        const pomEndTpl = (document.getElementById("seriaOpisPomEnd")?.value || (isSzlak ? "Zakończenie [km]" : "Zakończenie [nazwa]")).trim();
-        const pomMapStart = { km: isSzlak ? kmStartLabel : nazwa, linia: linia, nazwa: nazwa };
-        const pomMapEnd = { km: isSzlak ? kmEndLabel : nazwa, linia: linia, nazwa: nazwa };
-        const pomStart = zglReplaceSeriaPlaceholders(pomStartTpl, pomMapStart).replace(/<[^>]+>/g, "");
-        const pomEnd = zglReplaceSeriaPlaceholders(pomEndTpl, pomMapEnd).replace(/<[^>]+>/g, "");
+        const nazwa = it.nazwa || "";
+        const krotki = it.krotki || nazwa;
+        const mapStart = { km: isSzlak ? kmStartLabel : nazwa, linia: linia, nazwa: nazwa };
+        const mapEnd = { km: isSzlak ? kmEndLabel : nazwa, linia: linia, nazwa: nazwa };
+        const pomStart = zglReplaceSeriaPlaceholders(pomStartTpl, mapStart).replace(/<[^>]+>/g, "");
+        const pomEnd = zglReplaceSeriaPlaceholders(pomEndTpl, mapEnd).replace(/<[^>]+>/g, "");
 
-        const start = {
+        appState.zgloszenia.rows.push({
             id: zglNewId(),
             Linia: linia,
             OpisKrotki: krotki,
             OpisPom: pomStart,
-            Opis: zglReplaceSeriaPlaceholders(opisStartTpl, {
-                km: isSzlak ? kmStartLabel : nazwa,
-                linia: linia,
-                nazwa: nazwa
-            }),
+            Opis: zglReplaceSeriaPlaceholders(opisStartTpl, mapStart),
             Rodzaj: rodzaj,
             Nazwa: nazwa,
             KmOd: it.od,
             KmDo: it.do,
             procedureId: procId,
             procedureRole: "start"
-        };
-        const end = {
+        }, {
             id: zglNewId(),
             Linia: linia,
             OpisKrotki: krotki,
             OpisPom: pomEnd,
-            Opis: zglReplaceSeriaPlaceholders(opisEndTpl, {
-                km: isSzlak ? kmEndLabel : nazwa,
-                linia: linia,
-                nazwa: nazwa
-            }),
+            Opis: zglReplaceSeriaPlaceholders(opisEndTpl, mapEnd),
             Rodzaj: rodzaj,
             Nazwa: nazwa,
             KmOd: it.od,
             KmDo: it.do,
             procedureId: procId,
             procedureRole: "end"
-        };
-        appState.zgloszenia.rows.push(start, end);
+        });
     });
 
     if (typeof saveState === "function") await saveState();
@@ -1687,6 +1689,7 @@ window.openSeriaZglModal = openSeriaZglModal;
 window.zglSeriaRebuildKmRows = zglSeriaRebuildKmRows;
 window.zglSeriaRebuildRows = zglSeriaRebuildRows;
 window.zglSeriaOnRodzajChange = zglSeriaOnRodzajChange;
+window.zglSeriaSyncKrotkiFromNazwa = zglSeriaSyncKrotkiFromNazwa;
 window.saveSeriaZgloszen = saveSeriaZgloszen;
 window.openProceduraZglModal = openProceduraZglModal;
 window.editZgloszenie = editZgloszenie;
