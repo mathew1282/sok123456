@@ -26,14 +26,24 @@ function isDaneNameColumn(name) {
     return false;
 }
 
-function isDaneHiddenColumn(name) {
-    const n = String(name || "").toLowerCase().trim()
+function daneNormalizeColName(name) {
+    return String(name || "").toLowerCase().trim()
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-        .replace(/[_\-]+/g, " ");
-    // nr służbowy / numer służbowy / nr. służb. itd.
+        // polskie znaki, które NFD nie rozbija (ł, ą, ę, ó, ż, ź, ć, ń, ś)
+        .replace(/ł/g, "l").replace(/ą/g, "a").replace(/ę/g, "e")
+        .replace(/ó/g, "o").replace(/ż/g, "z").replace(/ź/g, "z")
+        .replace(/ć/g, "c").replace(/ń/g, "n").replace(/ś/g, "s")
+        .replace(/[_\-./]+/g, " ")
+        .replace(/\s+/g, " ");
+}
+
+function isDaneHiddenColumn(name) {
+    const n = daneNormalizeColName(name);
+    // Nr służbowy, numer służbowy, nr. służb., NrSłużbowy...
     if (n.indexOf("sluzbow") >= 0) return true;
     if (n.indexOf("nr sluzb") >= 0 || n.indexOf("numer sluzb") >= 0) return true;
     if (/\bnr\.?\s*sl/.test(n)) return true;
+    if (n === "nr" || n === "numer") return false;
     return false;
 }
 
@@ -149,6 +159,12 @@ function initDane() {
     if (!container) return;
     ensureDaneSortState();
     daneDeleteMode = false;
+    const before = JSON.stringify((appState.dane && appState.dane.columns) || []);
+    stripDaneHiddenColumnsFromState();
+    const after = JSON.stringify((appState.dane && appState.dane.columns) || []);
+    if (before !== after && typeof saveState === "function") {
+        Promise.resolve(saveState()).catch(() => {});
+    }
     renderDane();
 }
 
