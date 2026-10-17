@@ -40,6 +40,50 @@ function getDaneVisibleColumns() {
 
 let daneDeleteMode = false;
 
+/** Zmiany służbowe: { id, dyzurny, osoby: [] } */
+function ensureDaneZmiany() {
+    if (!appState.dane) appState.dane = { columns: [], rows: [] };
+    if (!Array.isArray(appState.dane.zmiany)) appState.dane.zmiany = [];
+}
+
+function getDanePersonLabel(row) {
+    if (!row || typeof row !== "object") return "";
+    const cols = appState.dane?.columns || [];
+    const pick = (preds) => {
+        for (const c of cols) {
+            const n = String(c || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            if (preds.some(p => n.indexOf(p) >= 0 || n === p)) {
+                const v = String(row[c] || "").trim();
+                if (v) return v;
+            }
+        }
+        return "";
+    };
+    const stopien = pick(["stopien", "stopn"]);
+    const nazwisko = pick(["nazwisk", "surname", "last"]);
+    const imie = pick(["imie", "name", "first"]);
+    const parts = [stopien, nazwisko, imie].filter(Boolean);
+    if (parts.length) return parts.join(" ");
+    // fallback: pierwsza niepusta komórka
+    for (const c of cols) {
+        if (isDaneHiddenColumn(c)) continue;
+        const v = String(row[c] || "").trim();
+        if (v) return v;
+    }
+    return "(bez nazwy)";
+}
+
+function getDanePeopleList() {
+    const rows = appState.dane?.rows || [];
+    return rows.map((row, index) => ({
+        index,
+        label: getDanePersonLabel(row),
+        row
+    })).filter(p => p.label);
+}
+
+let _daneZmianaDraft = null; // { dyzurny, osoby: [] }
+
 
 function getDaneSortedRows() {
     ensureDaneSortState();
@@ -187,9 +231,178 @@ function renderDane() {
         });
     }
 
-    html += `</tbody></table></div>`;
+    html += `</tbody></table>`;
+
+    // --- Zmiany ---
+    ensureDaneZmiany();
+    const zmiany = appState.dane.zmiany || [];
+    html += `
+        <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+                <h3 style="margin:0;">Zmiany</h3>
+                <button type="button" class="btn-success" onclick="openDaneStworzZmianeModal()">➕ Stwórz zmianę</button>
+            </div>
+    `;
+    if (!zmiany.length) {
+        html += `<div class="empty-state"><strong>Brak zmian</strong>Utwórz zmianę: wybierz dyżurnego, potem skład.</div>`;
+    } else {
+        html += `<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:stretch;">`;
+        zmiany.forEach((z, zi) => {
+            const osoby = (z.osoby || []).map(o => `<div style="font-size:13px;line-height:1.35;color:var(--text-soft);">${escapeHtml(o)}</div>`).join("")
+                || `<div style="font-size:12px;color:var(--text-dim);">Brak składu</div>`;
+            html += `
+            <div style="flex:1;min-width:180px;max-width:280px;background:var(--bg-input);border:1px solid var(--border);border-radius:12px;padding:12px 14px;">
+                <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;">Zmiana ${zi + 1}</div>
+                <div style="font-weight:800;font-size:14px;margin-bottom:8px;color:var(--text);">Dyżurny: ${escapeHtml(z.dyzurny || "—")}</div>
+                <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Skład</div>
+                ${osoby}
+                <div style="margin-top:10px;">
+                    <button type="button" class="btn-danger" style="padding:4px 10px;font-size:12px;" onclick="usunDaneZmiane(${zi})">Usuń zmianę</button>
+                </div>
+            </div>`;
+        });
+        html += `</div>`;
+    }
+    html += `</div></div>`;
     container.innerHTML = html;
 }
+
+function openDaneStworzZmianeModal() {
+    ensureDaneZmiany();
+    const people = getDanePeopleList();
+    if (!people.length) {
+        alert("Brak funkcjonariuszy w tabeli – najpierw dodaj osoby.");
+        return;
+    }
+    _daneZmianaDraft = { step: "dyzurny", dyzurny: "", osoby: [] };
+
+    const rootId = "daneZmianaModalRoot";
+    let root = document.getElementById(rootId);
+    if (!root) {
+        root = document.createElement("div");
+        root.id = rootId;
+        document.body.appendChild(root);
+    }
+    renderDaneZmianaModal();
+}
+
+function renderDaneZmianaModal() {
+    const root = document.getElementById("daneZmianaModalRoot");
+    if (!root || !_daneZmianaDraft) return;
+    const draft = _daneZmianaDraft;
+    const people = getDanePeopleList();
+    const step = draft.step || "dyzurny";
+
+    let body = "";
+    if (step === "dyzurny") {
+        body = `
+            <p style="color:var(--text-dim);font-size:13px;margin:0 0 12px 0;">Wybierz <strong>dyżurnego</strong> zmiany (jedna osoba).</p>
+            <div class="card-grid" style="max-height:50vh;overflow:auto;">
+                ${people.map(p => {
+                    const on = draft.dyzurny === p.label;
+                    const lab = escapeHtml(p.label).replace(/"/g, "&quot;");
+                    return `<div class="item-card ${on ? "selected" : ""}" style="min-width:140px;" data-lab="${lab}"
+                        onclick="daneZmianaPickDyzurny(this.getAttribute('data-lab'))">${escapeHtml(p.label)}</div>`;
+                }).join("")}
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+                <button type="button" class="btn-primary" onclick="daneZmianaGoOsoby()" ${draft.dyzurny ? "" : "disabled style='opacity:.5;'"}>Dalej – skład →</button>
+                <button type="button" class="btn-danger" onclick="closeDaneZmianaModal()">Anuluj</button>
+            </div>`;
+    } else {
+        const rest = people.filter(p => p.label !== draft.dyzurny);
+        body = `
+            <p style="color:var(--text-dim);font-size:13px;margin:0 0 8px 0;">
+                Dyżurny: <strong>${escapeHtml(draft.dyzurny)}</strong> – zaznacz osoby w zmianie (kafelki).
+            </p>
+            <div class="card-grid" style="max-height:50vh;overflow:auto;">
+                ${rest.map(p => {
+                    const on = (draft.osoby || []).includes(p.label);
+                    const lab = escapeHtml(p.label).replace(/"/g, "&quot;");
+                    return `<div class="item-card ${on ? "selected" : ""}" style="min-width:140px;" data-lab="${lab}"
+                        onclick="daneZmianaToggleOsoba(this.getAttribute('data-lab'))">${escapeHtml(p.label)}</div>`;
+                }).join("") || "<div class='empty-state'>Brak innych osób</div>"}
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap;">
+                <button type="button" class="btn-primary" onclick="daneZmianaBackDyzurny()">← Wróć</button>
+                <button type="button" class="btn-success" onclick="saveDaneZmiana()">💾 Zapisz zmianę</button>
+                <button type="button" class="btn-danger" onclick="closeDaneZmianaModal()">Anuluj</button>
+            </div>`;
+    }
+
+    root.innerHTML = `
+    <div class="modal-overlay" style="display:flex;z-index:10050;" onclick="if(event.target===this)closeDaneZmianaModal()">
+        <div class="modal" style="width:min(720px,96vw);max-height:92vh;overflow:auto;" onclick="event.stopPropagation()">
+            <h2 style="margin:0 0 12px 0;">Stwórz zmianę</h2>
+            ${body}
+        </div>
+    </div>`;
+}
+
+function daneZmianaPickDyzurny(label) {
+    if (!_daneZmianaDraft) return;
+    _daneZmianaDraft.dyzurny = label;
+    // nie może być jednocześnie w składzie
+    _daneZmianaDraft.osoby = (_daneZmianaDraft.osoby || []).filter(o => o !== label);
+    renderDaneZmianaModal();
+}
+
+function daneZmianaGoOsoby() {
+    if (!_daneZmianaDraft || !_daneZmianaDraft.dyzurny) {
+        alert("Wybierz dyżurnego");
+        return;
+    }
+    _daneZmianaDraft.step = "osoby";
+    renderDaneZmianaModal();
+}
+
+function daneZmianaBackDyzurny() {
+    if (!_daneZmianaDraft) return;
+    _daneZmianaDraft.step = "dyzurny";
+    renderDaneZmianaModal();
+}
+
+function daneZmianaToggleOsoba(label) {
+    if (!_daneZmianaDraft) return;
+    const arr = _daneZmianaDraft.osoby || [];
+    const i = arr.indexOf(label);
+    if (i >= 0) arr.splice(i, 1);
+    else arr.push(label);
+    _daneZmianaDraft.osoby = arr;
+    renderDaneZmianaModal();
+}
+
+async function saveDaneZmiana() {
+    ensureDaneZmiany();
+    if (!_daneZmianaDraft || !_daneZmianaDraft.dyzurny) {
+        alert("Wybierz dyżurnego");
+        return;
+    }
+    appState.dane.zmiany.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        dyzurny: _daneZmianaDraft.dyzurny,
+        osoby: [...(_daneZmianaDraft.osoby || [])]
+    });
+    if (typeof saveState === "function") await saveState();
+    closeDaneZmianaModal();
+    renderDane();
+    if (typeof showToast === "function") showToast("✅ Zapisano zmianę");
+}
+
+function closeDaneZmianaModal() {
+    _daneZmianaDraft = null;
+    const root = document.getElementById("daneZmianaModalRoot");
+    if (root) root.innerHTML = "";
+}
+
+async function usunDaneZmiane(index) {
+    ensureDaneZmiany();
+    if (!confirm("Usunąć tę zmianę?")) return;
+    appState.dane.zmiany.splice(index, 1);
+    if (typeof saveState === "function") await saveState();
+    renderDane();
+}
+
 
 function daneToggleSelectAll(checked) {
     document.querySelectorAll(".dane-sel").forEach(cb => { cb.checked = !!checked; });
