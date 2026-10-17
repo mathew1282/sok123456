@@ -695,9 +695,17 @@ function openSeriaZglModal() {
                 <label>Nr linii</label>
                 <input type="text" id="seriaLinia" value="${escapeHtml(zgloszeniaFilterLinia || "")}" style="width:100%;">
             </div>
-            <div style="flex:1.4;min-width:140px;" id="seriaKrotkiWrap">
+            <div style="flex:1.2;min-width:130px;" id="seriaKrotkiWrap">
                 <label>Opis krótki</label>
                 <input type="text" id="seriaOpisKrotki" style="width:100%;" placeholder="np. Patrol szlaku">
+            </div>
+            <div style="flex:1.2;min-width:130px;" id="seriaPomStartWrap">
+                <label>Opis pom (start)</label>
+                <input type="text" id="seriaOpisPomStart" style="width:100%;" placeholder="Rozpoczęcie …" title="3. poziom kafelka – start; [km] lub [nazwa]">
+            </div>
+            <div style="flex:1.2;min-width:130px;" id="seriaPomEndWrap">
+                <label>Opis pom (koniec)</label>
+                <input type="text" id="seriaOpisPomEnd" style="width:100%;" placeholder="Zakończenie …" title="3. poziom kafelka – koniec; [km] lub [nazwa]">
             </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;">
@@ -818,14 +826,20 @@ function zglSeriaOnRodzajChange(isInit) {
     if (sEl) sEl.innerHTML = defs.start;
     if (eEl) eEl.innerHTML = defs.end;
 
+    // domyślne opisy pom (3. poziom kafelków) – edytowalne
+    const pomS = document.getElementById("seriaOpisPomStart");
+    const pomE = document.getElementById("seriaOpisPomEnd");
+    if (pomS) pomS.value = isSzlak ? "Rozpoczęcie [km]" : "Rozpoczęcie [nazwa]";
+    if (pomE) pomE.value = isSzlak ? "Zakończenie [km]" : "Zakończenie [nazwa]";
+
     const hs = document.getElementById("seriaPomHintStart");
     const he = document.getElementById("seriaPomHintEnd");
     if (hs) hs.innerHTML = isSzlak
-        ? "Opis pom automatycznie: <strong>Rozpoczęcie</strong> + km od"
-        : "Opis pom automatycznie: <strong>Rozpoczęcie</strong> + nazwa stacji";
+        ? "Opis pom (3. kafelek): szablon powyżej – <strong>[km]</strong> = km od"
+        : "Opis pom (3. kafelek): szablon powyżej – <strong>[nazwa]</strong> = nazwa stacji";
     if (he) he.innerHTML = isSzlak
-        ? "Opis pom automatycznie: <strong>Zakończenie</strong> + km do"
-        : "Opis pom automatycznie: <strong>Zakończenie</strong> + nazwa stacji";
+        ? "Opis pom (3. kafelek): szablon powyżej – <strong>[km]</strong> = km do"
+        : "Opis pom (3. kafelek): szablon powyżej – <strong>[nazwa]</strong> = nazwa stacji";
 
     zglSeriaRebuildRows();
 }
@@ -966,8 +980,12 @@ async function saveSeriaZgloszen() {
         const kmStartLabel = it.od || it.do || "—";
         const kmEndLabel = it.do || it.od || "—";
         const nazwa = it.nazwa || nazwaShared || "";
-        const pomStart = isSzlak ? ("Rozpoczęcie " + kmStartLabel) : ("Rozpoczęcie " + nazwa);
-        const pomEnd = isSzlak ? ("Zakończenie " + kmEndLabel) : ("Zakończenie " + nazwa);
+        const pomStartTpl = (document.getElementById("seriaOpisPomStart")?.value || (isSzlak ? "Rozpoczęcie [km]" : "Rozpoczęcie [nazwa]")).trim();
+        const pomEndTpl = (document.getElementById("seriaOpisPomEnd")?.value || (isSzlak ? "Zakończenie [km]" : "Zakończenie [nazwa]")).trim();
+        const pomMapStart = { km: isSzlak ? kmStartLabel : nazwa, linia: linia, nazwa: nazwa };
+        const pomMapEnd = { km: isSzlak ? kmEndLabel : nazwa, linia: linia, nazwa: nazwa };
+        const pomStart = zglReplaceSeriaPlaceholders(pomStartTpl, pomMapStart).replace(/<[^>]+>/g, "");
+        const pomEnd = zglReplaceSeriaPlaceholders(pomEndTpl, pomMapEnd).replace(/<[^>]+>/g, "");
 
         const start = {
             id: zglNewId(),
