@@ -28,17 +28,39 @@ function isDaneNameColumn(name) {
 
 function isDaneHiddenColumn(name) {
     const n = String(name || "").toLowerCase().trim()
-        .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    if (n.indexOf("sluzbow") >= 0 || n.indexOf("nr sluzb") >= 0) return true;
-    if (n === "nr sluzbowy" || n === "numer sluzbowy") return true;
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[_\-]+/g, " ");
+    // nr służbowy / numer służbowy / nr. służb. itd.
+    if (n.indexOf("sluzbow") >= 0) return true;
+    if (n.indexOf("nr sluzb") >= 0 || n.indexOf("numer sluzb") >= 0) return true;
+    if (/\bnr\.?\s*sl/.test(n)) return true;
     return false;
 }
+
+function stripDaneHiddenColumnsFromState() {
+    if (!appState.dane) return;
+    if (!Array.isArray(appState.dane.columns)) appState.dane.columns = [];
+    if (!Array.isArray(appState.dane.rows)) appState.dane.rows = [];
+    appState.dane.columns = appState.dane.columns.filter(c => !isDaneHiddenColumn(c));
+    appState.dane.rows.forEach(row => {
+        if (!row || typeof row !== "object") return;
+        Object.keys(row).forEach(k => {
+            if (isDaneHiddenColumn(k)) delete row[k];
+        });
+    });
+}
+
 
 function getDaneVisibleColumns() {
     return (appState.dane?.columns || []).filter(c => !isDaneHiddenColumn(c));
 }
 
 let daneDeleteMode = false;
+let danePeopleCollapsed = false;
+try {
+    danePeopleCollapsed = localStorage.getItem("sok-dane-people-collapsed") === "1";
+} catch (e) {}
+
 
 /** Zmiany służbowe: { id, dyzurny, osoby: [] } */
 function ensureDaneZmiany() {
@@ -142,16 +164,7 @@ function renderDane() {
     if (!Array.isArray(appState.dane.columns)) appState.dane.columns = [];
     if (!Array.isArray(appState.dane.rows)) appState.dane.rows = [];
 
-    // usuń kolumnę nr służbowy z modelu (jeśli była)
-    const before = appState.dane.columns.length;
-    appState.dane.columns = appState.dane.columns.filter(c => !isDaneHiddenColumn(c));
-    if (appState.dane.columns.length !== before) {
-        appState.dane.rows.forEach(row => {
-            Object.keys(row || {}).forEach(k => {
-                if (isDaneHiddenColumn(k)) delete row[k];
-            });
-        });
-    }
+    stripDaneHiddenColumnsFromState();
 
     const columns = getDaneVisibleColumns();
     const rows = appState.dane.rows;
@@ -178,6 +191,12 @@ function renderDane() {
                         onclick="event.stopPropagation();daneUsunZaznaczoneClick()">Usuń zaznaczone</button>
             </div>
         </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:8px 0 10px 0;">
+            <div style="font-weight:600;font-size:14px;">Lista funkcjonariuszy (${rows.length})</div>
+            <button type="button" class="btn-primary" style="padding:6px 12px;font-size:12px;"
+                    onclick="toggleDanePeopleList()">${danePeopleCollapsed ? "▼ Rozwiń listę" : "▲ Zminimalizuj listę"}</button>
+        </div>
+        <div id="danePeopleListWrap" style="${danePeopleCollapsed ? "display:none;" : ""}">
         <table class="data-table-opis">
             <thead>
                 <tr>
@@ -231,7 +250,7 @@ function renderDane() {
         });
     }
 
-    html += `</tbody></table>`;
+    html += `</tbody></table></div>`;
 
     // --- Zmiany ---
     ensureDaneZmiany();
@@ -404,6 +423,12 @@ async function usunDaneZmiane(index) {
 }
 
 
+function toggleDanePeopleList() {
+    danePeopleCollapsed = !danePeopleCollapsed;
+    try { localStorage.setItem("sok-dane-people-collapsed", danePeopleCollapsed ? "1" : "0"); } catch (e) {}
+    renderDane();
+}
+
 function daneToggleSelectAll(checked) {
     document.querySelectorAll(".dane-sel").forEach(cb => { cb.checked = !!checked; });
 }
@@ -511,7 +536,7 @@ function ensureXlsxLibDane() {
 function exportDaneExcel() {
     if (!ensureXlsxLibDane()) return;
 
-    const columns = appState.dane?.columns || [];
+    const columns = (appState.dane?.columns || []).filter(c => !isDaneHiddenColumn(c));
     const rows = appState.dane?.rows || [];
 
     if (!rows.length) {
@@ -576,26 +601,30 @@ async function importDaneExcel(event) {
         }
 
         if (mode) {
-            // Zastąp – weź kolumny z Excela
-            appState.dane.columns = excelColumns.slice();
-            appState.dane.rows = mapped;
+            // Zastąp – weź kolumny z Excela (bez nr służbowego)
+            appState.dane.columns = excelColumns.filter(c => !isDaneHiddenColumn(c));
+            appState.dane.rows = mapped.map(row => {
+                const o = {};
+                appState.dane.columns.forEach(c => { o[c] = row[c] != null ? row[c] : ""; });
+                return o;
+            });
         } else {
-            // Dodaj – zachowaj istniejące kolumny + dodaj nowe z Excela
-            excelColumns.forEach(col => {
+            // Dodaj – zachowaj istniejące kolumny + dodaj nowe z Excela (bez nr służbowego)
+            excelColumns.filter(c => !isDaneHiddenColumn(c)).forEach(col => {
                 if (!appState.dane.columns.includes(col)) {
                     appState.dane.columns.push(col);
                     appState.dane.rows.forEach(r => r[col] = "");
                 }
             });
-            // Uzupełnij brakujące kolumny w nowych wierszach
             mapped.forEach(row => {
+                const o = {};
                 appState.dane.columns.forEach(col => {
-                    if (row[col] === undefined) row[col] = "";
+                    o[col] = row[col] !== undefined ? row[col] : "";
                 });
+                appState.dane.rows.push(o);
             });
-            if (!Array.isArray(appState.dane.rows)) appState.dane.rows = [];
-            appState.dane.rows.push(...mapped);
         }
+        stripDaneHiddenColumnsFromState();
 
         await saveState();
         renderDane();
@@ -623,3 +652,4 @@ window.initDane = initDane;
 window.renderDane = renderDane;
 window.daneUsunZaznaczoneClick = daneUsunZaznaczoneClick;
 window.daneToggleSelectAll = daneToggleSelectAll;
+window.toggleDanePeopleList = toggleDanePeopleList;
