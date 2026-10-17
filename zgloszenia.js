@@ -688,16 +688,16 @@ function openSeriaZglModal() {
         <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;align-items:flex-end;">
             <div style="min-width:120px;" id="seriaCountWrap">
                 <label>Ile procedur</label>
-                <input type="number" id="seriaCount" min="1" max="50" value="2" style="width:100%;"
+                <input type="number" id="seriaCount" min="1" max="50" value="2" style="width:100%;height:42px;padding:0 12px;box-sizing:border-box;border-radius:10px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);font-size:14px;line-height:42px;"
                        onchange="zglSeriaRebuildRows()" oninput="zglSeriaRebuildRows()">
             </div>
             <div style="flex:1;min-width:100px;" id="seriaLiniaWrap">
                 <label>Nr linii</label>
-                <input type="text" id="seriaLinia" value="${escapeHtml(zgloszeniaFilterLinia || "")}" style="width:100%;">
+                <input type="text" id="seriaLinia" value="${escapeHtml(zgloszeniaFilterLinia || "")}" style="width:100%;height:42px;padding:0 12px;box-sizing:border-box;border-radius:10px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);font-size:14px;line-height:42px;">
             </div>
             <div style="flex:1;min-width:140px;">
                 <label>Rodzaj</label>
-                <select id="seriaRodzaj" style="width:100%;padding:10px;border-radius:10px;height:auto;min-height:42px;box-sizing:border-box;background:var(--bg-input);color:var(--text);border:1px solid var(--border);" onchange="zglSeriaOnRodzajChange()">
+                <select id="seriaRodzaj" style="width:100%;height:42px;padding:0 12px;box-sizing:border-box;border-radius:10px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);font-size:14px;line-height:42px;appearance:auto;-webkit-appearance:menulist;" onchange="zglSeriaOnRodzajChange()">
                     <option value="Szlak" selected>Szlak</option>
                     <option value="Stacja osobowa">Stacja osobowa</option>
                     <option value="Stacja towarowa">Stacja towarowa</option>
