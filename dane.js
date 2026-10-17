@@ -18,12 +18,28 @@ function ensureDaneSortState() {
 function isDaneNameColumn(name) {
     const n = String(name || "").toLowerCase().trim()
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    // imie, imię, nazwisko, name...
+    // sortowalne: nazwisko, imię, stopień
     if (n === "imie" || n === "nazwisko" || n === "name" || n === "surname") return true;
     if (n.indexOf("imie") >= 0 || n.indexOf("nazwisk") >= 0) return true;
     if (n === "first name" || n === "last name") return true;
+    if (n === "stopien" || n.indexOf("stopien") >= 0 || n.indexOf("stopn") >= 0) return true;
     return false;
 }
+
+function isDaneHiddenColumn(name) {
+    const n = String(name || "").toLowerCase().trim()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (n.indexOf("sluzbow") >= 0 || n.indexOf("nr sluzb") >= 0) return true;
+    if (n === "nr sluzbowy" || n === "numer sluzbowy") return true;
+    return false;
+}
+
+function getDaneVisibleColumns() {
+    return (appState.dane?.columns || []).filter(c => !isDaneHiddenColumn(c));
+}
+
+let daneDeleteMode = false;
+
 
 function getDaneSortedRows() {
     ensureDaneSortState();
@@ -66,6 +82,7 @@ function initDane() {
     const container = document.getElementById("daneContainer");
     if (!container) return;
     ensureDaneSortState();
+    daneDeleteMode = false;
     renderDane();
 }
 
@@ -77,30 +94,56 @@ function renderDane() {
     const container = document.getElementById("daneContainer");
     if (!container) return;
     ensureDaneSortState();
+    if (!appState.dane) appState.dane = { columns: [], rows: [] };
+    if (!Array.isArray(appState.dane.columns)) appState.dane.columns = [];
+    if (!Array.isArray(appState.dane.rows)) appState.dane.rows = [];
 
-    const columns = appState.dane.columns;
+    // usuń kolumnę nr służbowy z modelu (jeśli była)
+    const before = appState.dane.columns.length;
+    appState.dane.columns = appState.dane.columns.filter(c => !isDaneHiddenColumn(c));
+    if (appState.dane.columns.length !== before) {
+        appState.dane.rows.forEach(row => {
+            Object.keys(row || {}).forEach(k => {
+                if (isDaneHiddenColumn(k)) delete row[k];
+            });
+        });
+    }
+
+    const columns = getDaneVisibleColumns();
     const rows = appState.dane.rows;
     const order = getDaneSortedRows();
     const sort = appState.daneSort || {};
+    const delMode = !!daneDeleteMode;
+    const usunStyle = delMode
+        ? "background:#dc2626;border-color:#dc2626;color:#fff;"
+        : "background:#16a34a;border-color:#16a34a;color:#fff;";
 
     let html = `
     <div class="card">
-        <h2>Dane funkcjonariuszy</h2>
-        <br>
-        <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-            <button class="btn-success" onclick="addDaneColumn()">Dodaj kolumnę</button>
-            <button class="btn-primary" onclick="addDaneRow()">Dodaj funkcjonariusza</button>
-            <button class="btn-export" onclick="exportDaneExcel()">📥 Eksport Excel</button>
-            <button class="btn-import" onclick="document.getElementById('daneExcelLoader').click()">📤 Import Excel</button>
-            <input type="file" id="daneExcelLoader" accept=".xlsx,.xls,.csv" hidden onchange="importDaneExcel(event)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+            <div>
+                <h2 style="margin:0 0 4px 0;">👤 Dane funkcjonariuszy</h2>
+                <div style="font-size:13px;color:var(--text-dim);">Sortowanie: kliknij <strong>Nazwisko</strong> / <strong>Stopień</strong> (A→Z → Z→A → kolejność wpisu)</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <button type="button" class="btn-primary" onclick="addDaneRow()">Dodaj funkcjonariusza</button>
+                <button type="button" class="btn-export" onclick="exportDaneExcel()">📥 Eksport Excel</button>
+                <button type="button" class="btn-import" onclick="document.getElementById('daneExcelLoader').click()">📤 Import Excel</button>
+                <input type="file" id="daneExcelLoader" accept=".xlsx,.xls,.csv" hidden onchange="importDaneExcel(event)">
+                <button type="button" style="padding:8px 14px;border-radius:8px;border:1px solid transparent;cursor:pointer;font-weight:600;${usunStyle}"
+                        onclick="event.stopPropagation();daneUsunZaznaczoneClick()">Usuń zaznaczone</button>
+            </div>
         </div>
-        <br><br>
-        <table>
+        <table class="data-table-opis">
             <thead>
                 <tr>
     `;
 
-    columns.forEach((column, index) => {
+    if (delMode) {
+        html += `<th class="col-meta" style="width:36px;"><input type="checkbox" title="Zaznacz widoczne" onclick="daneToggleSelectAll(this.checked)"></th>`;
+    }
+
+    columns.forEach(column => {
         const canSort = isDaneNameColumn(column);
         let sortMark = "";
         if (canSort && sort.col === column) {
@@ -111,44 +154,74 @@ function renderDane() {
         const titleAttrs = canSort
             ? `style="cursor:pointer;user-select:none;" data-dane-sort-col="${String(column).replace(/"/g, "&quot;")}" onclick="cycleDaneSort(this.getAttribute('data-dane-sort-col'))" title="Sortuj: A→Z / Z→A / kolejność wpisu"`
             : "";
-        html += `
-            <th>
-                <span ${titleAttrs}>${column}${sortMark}</span>
-                <br><br>
-                <button class="btn-primary" onclick="event.stopPropagation();renameDaneColumn(${index})">Zmień</button>
-                <button class="btn-danger" onclick="event.stopPropagation();removeDaneColumn(${index})">Usuń</button>
-            </th>
-        `;
+        html += `<th class="col-meta"><span ${titleAttrs}>${escapeHtml(String(column))}${sortMark}</span></th>`;
     });
 
     html += `
-            <th>Akcje</th>
-        </tr>
-    </thead>
-    <tbody>
+                </tr>
+            </thead>
+            <tbody>
     `;
 
-    order.forEach(rowIndex => {
-        const row = rows[rowIndex];
-        html += `<tr>`;
-        columns.forEach(column => {
-            const val = (row[column] || "").replace(/"/g, "&quot;");
-            html += `
-            <td>
-                <input type="text" value="${val}" 
-                       onchange="updateDaneCell(${rowIndex}, '${String(column).replace(/'/g, "\\'")}', this.value)">
-            </td>`;
+    if (order.length === 0) {
+        const cols = columns.length + (delMode ? 1 : 0);
+        html += `<tr><td colspan="${Math.max(cols, 1)}"><div class="empty-state"><strong>Brak funkcjonariuszy</strong>Dodaj osobę lub zaimportuj Excel.</div></td></tr>`;
+    } else {
+        order.forEach(rowIndex => {
+            const row = rows[rowIndex] || {};
+            html += `<tr>`;
+            if (delMode) {
+                html += `<td class="col-meta"><input type="checkbox" class="dane-sel" data-index="${rowIndex}" onclick="event.stopPropagation()"></td>`;
+            }
+            columns.forEach(column => {
+                const raw = row[column] == null ? "" : String(row[column]);
+                const val = raw.replace(/"/g, "&quot;");
+                const colEsc = String(column).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+                html += `
+                <td>
+                    <input type="text" value="${val}"
+                           onchange="updateDaneCell(${rowIndex}, '${colEsc}', this.value)">
+                </td>`;
+            });
+            html += `</tr>`;
         });
-        html += `
-            <td>
-                <button class="btn-danger" onclick="removeDaneRow(${rowIndex})">Usuń</button>
-            </td>
-        </tr>`;
-    });
+    }
 
     html += `</tbody></table></div>`;
     container.innerHTML = html;
 }
+
+function daneToggleSelectAll(checked) {
+    document.querySelectorAll(".dane-sel").forEach(cb => { cb.checked = !!checked; });
+}
+
+function daneUsunZaznaczoneClick() {
+    if (!daneDeleteMode) {
+        daneDeleteMode = true;
+        renderDane();
+        if (typeof showToast === "function") showToast("Zaznacz pozycje do usunięcia");
+        return;
+    }
+    const idxs = [...document.querySelectorAll(".dane-sel:checked")]
+        .map(cb => parseInt(cb.getAttribute("data-index"), 10))
+        .filter(n => Number.isFinite(n));
+    if (!idxs.length) {
+        daneDeleteMode = false;
+        renderDane();
+        return;
+    }
+    if (!confirm("Usunąć zaznaczonych funkcjonariuszy (" + idxs.length + ")?")) return;
+    // od największego indeksu, żeby splice nie psuł kolejności
+    idxs.sort((a, b) => b - a).forEach(i => {
+        if (i >= 0 && i < appState.dane.rows.length) appState.dane.rows.splice(i, 1);
+    });
+    daneDeleteMode = false;
+    Promise.resolve(typeof saveState === "function" ? saveState() : null).then(() => {
+        renderDane();
+        if (typeof showToast === "function") showToast("🗑️ Usunięto " + idxs.length);
+    });
+}
+
 
 // =====================================
 // FUNKCJE Z ZAPISEM NA SERWERZE
@@ -335,3 +408,5 @@ window.importDaneExcel = importDaneExcel;
 window.cycleDaneSort = cycleDaneSort;
 window.initDane = initDane;
 window.renderDane = renderDane;
+window.daneUsunZaznaczoneClick = daneUsunZaznaczoneClick;
+window.daneToggleSelectAll = daneToggleSelectAll;
