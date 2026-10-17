@@ -680,28 +680,22 @@ function zglInsertTag(id, tag) {
 }
 
 
-/** Seria: N procedur (start+koniec) – wspólne pola, różne km; [km] w opisach */
+/** Seria procedur – zależnie od Rodzaj (Szlak / osobowa / towarowa); Inne → zwykłe zgłoszenie */
 function openSeriaZglModal() {
     currentZgloszenieEdit = { mode: "seria" };
     const body = `
-        <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px 0;">
-            Tworzy <strong>procedury</strong> (start + koniec), jak kafelki:
-            <strong>nr linii</strong> → <strong>nazwa szlaku</strong> → <strong>opis pom</strong> (Rozpoczęcie km / Zakończenie km).
-            <strong>Opis krótki</strong> ustawiasz sam (wspólny).
-            Dla każdego odcinka km powstaje <strong>osobna procedura</strong>.
-            W treściach wstaw <strong>[km]</strong> – podmiana przy zapisie.
-        </p>
+        <p id="seriaHint" style="font-size:13px;color:var(--text-dim);margin:0 0 12px 0;"></p>
         <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;align-items:flex-end;">
-            <div style="min-width:120px;">
+            <div style="min-width:120px;" id="seriaCountWrap">
                 <label>Ile procedur</label>
                 <input type="number" id="seriaCount" min="1" max="50" value="2" style="width:100%;"
-                       onchange="zglSeriaRebuildKmRows()" oninput="zglSeriaRebuildKmRows()">
+                       onchange="zglSeriaRebuildRows()" oninput="zglSeriaRebuildRows()">
             </div>
-            <div style="flex:1;min-width:100px;">
+            <div style="flex:1;min-width:100px;" id="seriaLiniaWrap">
                 <label>Nr linii</label>
                 <input type="text" id="seriaLinia" value="${escapeHtml(zgloszeniaFilterLinia || "")}" style="width:100%;">
             </div>
-            <div style="flex:1.4;min-width:140px;">
+            <div style="flex:1.4;min-width:140px;" id="seriaKrotkiWrap">
                 <label>Opis krótki</label>
                 <input type="text" id="seriaOpisKrotki" style="width:100%;" placeholder="np. Patrol szlaku">
             </div>
@@ -709,27 +703,25 @@ function openSeriaZglModal() {
         <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;">
             <div style="flex:1;min-width:140px;">
                 <label>Rodzaj</label>
-                <select id="seriaRodzaj" style="width:100%;padding:8px;border-radius:8px;">
-                    <option value="Inne">Inne</option>
+                <select id="seriaRodzaj" style="width:100%;padding:8px;border-radius:8px;" onchange="zglSeriaOnRodzajChange()">
                     <option value="Szlak" selected>Szlak</option>
-                    <option value="Stacja towarowa">Stacja towarowa</option>
                     <option value="Stacja osobowa">Stacja osobowa</option>
+                    <option value="Stacja towarowa">Stacja towarowa</option>
+                    <option value="Inne">Inne</option>
                 </select>
             </div>
-            <div style="flex:1.5;min-width:160px;">
+            <div style="flex:1.5;min-width:160px;" id="seriaNazwaSharedWrap">
                 <label>Nazwa stacji / szlaku</label>
-                <input type="text" id="seriaNazwa" style="width:100%;" placeholder="Drugi poziom kafelków">
+                <input type="text" id="seriaNazwa" style="width:100%;" placeholder="Wspólna nazwa (szlak)">
             </div>
         </div>
-        <div style="margin-bottom:8px;font-weight:600;">Kilometry (każdy wiersz = jedna procedura start + koniec)</div>
+        <div id="seriaRowsTitle" style="margin-bottom:8px;font-weight:600;"></div>
         <div id="seriaKmRows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div id="seriaOpisyWrap" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
             <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--bg);">
                 <div style="font-weight:700;margin-bottom:8px;">▶ Rozpoczęcie (start)</div>
-                <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
-                    Opis pom automatycznie: <strong>Rozpoczęcie</strong> + km od
-                </div>
-                <label>Opis startu (wstaw <b>[km]</b>)</label>
+                <div id="seriaPomHintStart" style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"></div>
+                <label>Opis startu</label>
                 <div style="display:flex;gap:6px;margin:4px 0 6px;flex-wrap:wrap;">
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisStart','bold')"><b>B</b></button>
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisStart','underline')"><u>U</u></button>
@@ -738,7 +730,7 @@ function openSeriaZglModal() {
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisStart','[nazwa]')">[nazwa]</button>
                 </div>
                 <div id="seriaOpisStart" contenteditable="true" class="rich-opis-editor"
-                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;"><b>@dowodca</b> zgłosił się z linii nr <b>[linia]</b> z km <b>[km]</b>, że rozpoczynają patrol szlaku <b>[nazwa]</b>.</div>
+                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;"></div>
                 <div style="display:flex;flex-wrap:wrap;gap:5px;">
                     ${["@patrol","@dowodca","@kierowca","@sklad","@wszyscy","@KZ","@MKK","@data","@godzina","@wot","@policjant","@wybrani"]
                         .map(tag => `<button type="button" class="btn-primary" style="padding:2px 7px;font-size:11px;" onclick="zglInsertTag('seriaOpisStart','${tag}')">${tag}</button>`).join("")}
@@ -746,10 +738,8 @@ function openSeriaZglModal() {
             </div>
             <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--bg);">
                 <div style="font-weight:700;margin-bottom:8px;">■ Zakończenie (koniec)</div>
-                <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
-                    Opis pom automatycznie: <strong>Zakończenie</strong> + km do
-                </div>
-                <label>Opis końca (wstaw <b>[km]</b>)</label>
+                <div id="seriaPomHintEnd" style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"></div>
+                <label>Opis końca</label>
                 <div style="display:flex;gap:6px;margin:4px 0 6px;flex-wrap:wrap;">
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisEnd','bold')"><b>B</b></button>
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglFormat('seriaOpisEnd','underline')"><u>U</u></button>
@@ -758,7 +748,7 @@ function openSeriaZglModal() {
                     <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="zglInsertTag('seriaOpisEnd','[nazwa]')">[nazwa]</button>
                 </div>
                 <div id="seriaOpisEnd" contenteditable="true" class="rich-opis-editor"
-                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;"><b>@dowodca</b> zgłosił się z linii nr <b>[linia]</b> z km <b>[km]</b>, z zakończenia patrolu szlaku <b>[nazwa]</b>. Podczas patrolu sprawdzono stan elementów infrastruktury kolejowej – brak uwag.</div>
+                     style="width:100%;min-height:120px;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;"></div>
                 <div style="display:flex;flex-wrap:wrap;gap:5px;">
                     ${["@patrol","@dowodca","@kierowca","@sklad","@wszyscy","@KZ","@MKK","@data","@godzina","@wot","@policjant","@wybrani"]
                         .map(tag => `<button type="button" class="btn-primary" style="padding:2px 7px;font-size:11px;" onclick="zglInsertTag('seriaOpisEnd','${tag}')">${tag}</button>`).join("")}
@@ -767,10 +757,83 @@ function openSeriaZglModal() {
         </div>
     `;
     showZglModal("Seria procedur", body, true);
-    zglSeriaRebuildKmRows();
+    zglSeriaOnRodzajChange(true);
 }
 
-function zglSeriaRebuildKmRows() {
+function zglSeriaGetRodzaj() {
+    return (document.getElementById("seriaRodzaj")?.value || "Szlak").trim();
+}
+
+function zglSeriaDefaultOpisy(rodzaj) {
+    if (rodzaj === "Stacja osobowa") {
+        return {
+            start: "<b>@dowodca</b> zgłosił rozpoczęcie patrolu stacji osobowej <b>[nazwa]</b>. Patrol bez wydarzeń.",
+            end: "<b>@dowodca</b> zgłosił zakończenie patrolu stacji osobowej <b>[nazwa]</b>. Patrol bez wydarzeń."
+        };
+    }
+    if (rodzaj === "Stacja towarowa") {
+        return {
+            start: "<b>@dowodca</b> zgłosił rozpoczęcie patrolu stacji towarowej <b>[nazwa]</b>.",
+            end: "<b>@dowodca</b> zgłosił zakończenie patrolu stacji towarowej <b>[nazwa]</b>. Podczas patrolu sprawdzono stan elementów infrastruktury kolejowej – brak wydarzeń."
+        };
+    }
+    // Szlak (domyślnie)
+    return {
+        start: "<b>@dowodca</b> zgłosił się z linii nr <b>[linia]</b> z km <b>[km]</b>, że rozpoczynają patrol szlaku <b>[nazwa]</b>.",
+        end: "<b>@dowodca</b> zgłosił się z linii nr <b>[linia]</b> z km <b>[km]</b>, z zakończenia patrolu szlaku <b>[nazwa]</b>. Podczas patrolu sprawdzono stan elementów infrastruktury kolejowej – brak uwag."
+    };
+}
+
+function zglSeriaOnRodzajChange(isInit) {
+    const rodzaj = zglSeriaGetRodzaj();
+    if (rodzaj === "Inne") {
+        closeZgloszenieModal();
+        if (typeof openZgloszenieModal === "function") openZgloszenieModal();
+        return;
+    }
+
+    const hint = document.getElementById("seriaHint");
+    const rowsTitle = document.getElementById("seriaRowsTitle");
+    const nazwaWrap = document.getElementById("seriaNazwaSharedWrap");
+    const isSzlak = rodzaj === "Szlak";
+
+    if (hint) {
+        if (isSzlak) {
+            hint.innerHTML = "Szlak: wspólna nazwa + <strong>km od/do</strong> na każdą procedurę. Znaczniki <b>[km]</b>, <b>[linia]</b>, <b>[nazwa]</b>.";
+        } else {
+            hint.innerHTML = escapeHtml(rodzaj) + ": bez km – podajesz <strong>nazwę stacji</strong> tyle razy, ile procedur. Znacznik <b>[nazwa]</b>.";
+        }
+    }
+    if (rowsTitle) {
+        rowsTitle.textContent = isSzlak
+            ? "Kilometry (każdy wiersz = jedna procedura start + koniec)"
+            : "Nazwy stacji (każdy wiersz = jedna procedura start + koniec)";
+    }
+    if (nazwaWrap) nazwaWrap.style.display = isSzlak ? "" : "none";
+
+    const defs = zglSeriaDefaultOpisy(rodzaj);
+    const sEl = document.getElementById("seriaOpisStart");
+    const eEl = document.getElementById("seriaOpisEnd");
+    // przy zmianie rodzaju zawsze wstaw domyślne szablony (przy init też)
+    if (sEl) sEl.innerHTML = defs.start;
+    if (eEl) eEl.innerHTML = defs.end;
+
+    const hs = document.getElementById("seriaPomHintStart");
+    const he = document.getElementById("seriaPomHintEnd");
+    if (hs) hs.innerHTML = isSzlak
+        ? "Opis pom automatycznie: <strong>Rozpoczęcie</strong> + km od"
+        : "Opis pom automatycznie: <strong>Rozpoczęcie</strong> + nazwa stacji";
+    if (he) he.innerHTML = isSzlak
+        ? "Opis pom automatycznie: <strong>Zakończenie</strong> + km do"
+        : "Opis pom automatycznie: <strong>Zakończenie</strong> + nazwa stacji";
+
+    zglSeriaRebuildRows();
+}
+
+/** Alias – stara nazwa z oninput */
+function zglSeriaRebuildKmRows() { zglSeriaRebuildRows(); }
+
+function zglSeriaRebuildRows() {
     const box = document.getElementById("seriaKmRows");
     const countEl = document.getElementById("seriaCount");
     if (!box || !countEl) return;
@@ -779,31 +842,48 @@ function zglSeriaRebuildKmRows() {
     if (n > 50) n = 50;
     countEl.value = String(n);
 
-    // zachowaj już wpisane wartości
-    const prev = [];
+    const rodzaj = zglSeriaGetRodzaj();
+    const isSzlak = rodzaj === "Szlak";
+
+    const prevKm = [];
+    const prevNazwa = [];
     for (let i = 0; i < 50; i++) {
         const od = document.getElementById("seriaKmOd" + i);
         const d = document.getElementById("seriaKmDo" + i);
-        if (!od && !d) break;
-        prev.push({ od: od ? od.value : "", do: d ? d.value : "" });
+        const nz = document.getElementById("seriaNazwa" + i);
+        if (!od && !d && !nz) break;
+        prevKm.push({ od: od ? od.value : "", do: d ? d.value : "" });
+        prevNazwa.push(nz ? nz.value : "");
     }
 
     let html = "";
     for (let i = 0; i < n; i++) {
-        const od = prev[i]?.od || "";
-        const d = prev[i]?.do || "";
-        html += `
-        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
-            <span style="font-weight:700;min-width:70px;color:var(--text-dim);">Procedura ${i + 1}</span>
-            <div style="flex:1;min-width:100px;">
-                <label style="font-size:12px;">Km od</label>
-                <input type="text" id="seriaKmOd${i}" value="${escapeHtml(od)}" style="width:100%;" placeholder="np. 28.500">
-            </div>
-            <div style="flex:1;min-width:100px;">
-                <label style="font-size:12px;">Km do</label>
-                <input type="text" id="seriaKmDo${i}" value="${escapeHtml(d)}" style="width:100%;" placeholder="np. 29.200">
-            </div>
-        </div>`;
+        if (isSzlak) {
+            const od = prevKm[i]?.od || "";
+            const d = prevKm[i]?.do || "";
+            html += `
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+                <span style="font-weight:700;min-width:90px;color:var(--text-dim);">Procedura ${i + 1}</span>
+                <div style="flex:1;min-width:100px;">
+                    <label style="font-size:12px;">Km od</label>
+                    <input type="text" id="seriaKmOd${i}" value="${escapeHtml(od)}" style="width:100%;" placeholder="np. 28.500">
+                </div>
+                <div style="flex:1;min-width:100px;">
+                    <label style="font-size:12px;">Km do</label>
+                    <input type="text" id="seriaKmDo${i}" value="${escapeHtml(d)}" style="width:100%;" placeholder="np. 29.200">
+                </div>
+            </div>`;
+        } else {
+            const nz = prevNazwa[i] || "";
+            html += `
+            <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+                <span style="font-weight:700;min-width:90px;color:var(--text-dim);">Procedura ${i + 1}</span>
+                <div style="flex:1;min-width:180px;">
+                    <label style="font-size:12px;">Nazwa stacji</label>
+                    <input type="text" id="seriaNazwa${i}" value="${escapeHtml(nz)}" style="width:100%;" placeholder="Nazwa stacji">
+                </div>
+            </div>`;
+        }
     }
     box.innerHTML = html;
 }
@@ -837,15 +917,22 @@ function zglReplaceKmPlaceholder(html, kmOd, kmDo) {
 }
 
 async function saveSeriaZgloszen() {
+    const rodzaj = zglSeriaGetRodzaj();
+    if (rodzaj === "Inne") {
+        closeZgloszenieModal();
+        if (typeof openZgloszenieModal === "function") openZgloszenieModal();
+        return;
+    }
+
     const linia = (document.getElementById("seriaLinia")?.value || "").trim();
     const krotki = (document.getElementById("seriaOpisKrotki")?.value || "").trim();
-    const rodzaj = document.getElementById("seriaRodzaj")?.value || "Inne";
-    const nazwa = (document.getElementById("seriaNazwa")?.value || "").trim();
+    const nazwaShared = (document.getElementById("seriaNazwa")?.value || "").trim();
     const startEl = document.getElementById("seriaOpisStart");
     const endEl = document.getElementById("seriaOpisEnd");
     const opisStartTpl = startEl ? (startEl.innerHTML || "").trim() : "";
     const opisEndTpl = endEl ? (endEl.innerHTML || "").trim() : "";
     let n = parseInt(document.getElementById("seriaCount")?.value || "0", 10);
+    const isSzlak = rodzaj === "Szlak";
 
     if (!linia) { alert("Podaj nr linii"); return; }
     if (!krotki) { alert("Podaj opis krótki"); return; }
@@ -854,31 +941,48 @@ async function saveSeriaZgloszen() {
     if (!Number.isFinite(n) || n < 1) { alert("Podaj liczbę procedur (≥ 1)"); return; }
     if (n > 50) n = 50;
 
-    const pairs = [];
+    const items = [];
     for (let i = 0; i < n; i++) {
-        const od = (document.getElementById("seriaKmOd" + i)?.value || "").trim();
-        const d = (document.getElementById("seriaKmDo" + i)?.value || "").trim();
-        if (!od && !d) {
-            alert("Procedura " + (i + 1) + ": podaj km od lub km do");
-            return;
+        if (isSzlak) {
+            const od = (document.getElementById("seriaKmOd" + i)?.value || "").trim();
+            const d = (document.getElementById("seriaKmDo" + i)?.value || "").trim();
+            if (!od && !d) {
+                alert("Procedura " + (i + 1) + ": podaj km od lub km do");
+                return;
+            }
+            items.push({ od, do: d, nazwa: nazwaShared });
+        } else {
+            const nz = (document.getElementById("seriaNazwa" + i)?.value || "").trim();
+            if (!nz) {
+                alert("Procedura " + (i + 1) + ": podaj nazwę stacji");
+                return;
+            }
+            items.push({ od: "", do: "", nazwa: nz });
         }
-        pairs.push({ od, do: d });
     }
 
-    pairs.forEach(p => {
+    items.forEach(it => {
         const procId = zglNewId();
-        const kmStartLabel = p.od || p.do || "—";
-        const kmEndLabel = p.do || p.od || "—";
+        const kmStartLabel = it.od || it.do || "—";
+        const kmEndLabel = it.do || it.od || "—";
+        const nazwa = it.nazwa || nazwaShared || "";
+        const pomStart = isSzlak ? ("Rozpoczęcie " + kmStartLabel) : ("Rozpoczęcie " + nazwa);
+        const pomEnd = isSzlak ? ("Zakończenie " + kmEndLabel) : ("Zakończenie " + nazwa);
+
         const start = {
             id: zglNewId(),
             Linia: linia,
             OpisKrotki: krotki,
-            OpisPom: "Rozpoczęcie " + kmStartLabel,
-            Opis: zglReplaceSeriaPlaceholders(opisStartTpl, { km: kmStartLabel, linia: linia, nazwa: nazwa }),
+            OpisPom: pomStart,
+            Opis: zglReplaceSeriaPlaceholders(opisStartTpl, {
+                km: isSzlak ? kmStartLabel : nazwa,
+                linia: linia,
+                nazwa: nazwa
+            }),
             Rodzaj: rodzaj,
             Nazwa: nazwa,
-            KmOd: p.od,
-            KmDo: p.do,
+            KmOd: it.od,
+            KmDo: it.do,
             procedureId: procId,
             procedureRole: "start"
         };
@@ -886,12 +990,16 @@ async function saveSeriaZgloszen() {
             id: zglNewId(),
             Linia: linia,
             OpisKrotki: krotki,
-            OpisPom: "Zakończenie " + kmEndLabel,
-            Opis: zglReplaceSeriaPlaceholders(opisEndTpl, { km: kmEndLabel, linia: linia, nazwa: nazwa }),
+            OpisPom: pomEnd,
+            Opis: zglReplaceSeriaPlaceholders(opisEndTpl, {
+                km: isSzlak ? kmEndLabel : nazwa,
+                linia: linia,
+                nazwa: nazwa
+            }),
             Rodzaj: rodzaj,
             Nazwa: nazwa,
-            KmOd: p.od,
-            KmDo: p.do,
+            KmOd: it.od,
+            KmDo: it.do,
             procedureId: procId,
             procedureRole: "end"
         };
@@ -902,7 +1010,7 @@ async function saveSeriaZgloszen() {
     closeZgloszenieModal();
     renderZgloszenia();
     if (typeof showToast === "function") {
-        showToast("✅ Utworzono " + pairs.length + " procedur (seria: start + koniec)");
+        showToast("✅ Utworzono " + items.length + " procedur (" + rodzaj + ")");
     }
 }
 
@@ -1559,6 +1667,8 @@ window.setZgloszeniaFilterTyp = setZgloszeniaFilterTyp;
 window.openZgloszenieModal = openZgloszenieModal;
 window.openSeriaZglModal = openSeriaZglModal;
 window.zglSeriaRebuildKmRows = zglSeriaRebuildKmRows;
+window.zglSeriaRebuildRows = zglSeriaRebuildRows;
+window.zglSeriaOnRodzajChange = zglSeriaOnRodzajChange;
 window.saveSeriaZgloszen = saveSeriaZgloszen;
 window.openProceduraZglModal = openProceduraZglModal;
 window.editZgloszenie = editZgloszenie;
