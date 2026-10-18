@@ -191,6 +191,27 @@ function getNrPLK(fullName) {
     return "";
 }
 
+function getNazwiskoFromPerson(fullName) {
+    if (!fullName) return "";
+    if (appState.dane && Array.isArray(appState.dane.rows)) {
+        for (let row of appState.dane.rows) {
+            const rowName = `${row["Stopień"] || ""} ${row["Nazwisko"] || ""} ${row["Imię"] || ""}`.trim();
+            const shortName = `${row["Nazwisko"] || ""} ${row["Imię"] || ""}`.trim();
+            if (rowName === fullName || shortName === fullName) {
+                if (row["Nazwisko"]) return String(row["Nazwisko"]).trim();
+                if (typeof daneGetField === "function") {
+                    const n = daneGetField(row, "nazwisko");
+                    if (n) return n;
+                }
+            }
+        }
+    }
+    // fallback: ostatnie lub przedostatnie słowo (stopień nazwisko imię)
+    const parts = String(fullName).trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return parts[parts.length - 2];
+    return parts[0] || "";
+}
+
 function setLiniePatrolMode(index, mode) {
     if (mode) liniePatrolModes[index] = mode;
     else delete liniePatrolModes[index];
@@ -210,6 +231,10 @@ function buildAllPersonTables(today) {
     const komendantParts = [];
     const dyzurnyParts = [];
     const terenParts = [];
+    // jedna tabela na osobę (nawet gdy jest w 2+ patrolach)
+    const seenTeren = new Set();
+    const seenKomendant = new Set();
+    const seenDyzurny = new Set();
 
     patrole.forEach((patrol, index) => {
         const mode = liniePatrolModes[index];
@@ -221,18 +246,25 @@ function buildAllPersonTables(today) {
         people.forEach(personName => {
             const person = {
                 fullName: personName,
-                nrPLK: getNrPLK(personName)
+                nrPLK: getNrPLK(personName),
+                nazwisko: getNazwiskoFromPerson(personName)
             };
 
             if (mode === "teren") {
+                if (seenTeren.has(personName)) return;
+                seenTeren.add(personName);
                 terenParts.push(createPersonTableTeren(person, today));
             } else if (mode === "stacjonarny") {
                 const key = personRoleKey(index, personName);
                 const role = liniePersonRoles[key];
                 if (!role) return;
                 if (role === "komendant") {
+                    if (seenKomendant.has(personName)) return;
+                    seenKomendant.add(personName);
                     komendantParts.push(createPersonTableStacjonarny(person, today, role));
                 } else if (role === "dyzurny") {
+                    if (seenDyzurny.has(personName)) return;
+                    seenDyzurny.add(personName);
                     dyzurnyParts.push(createPersonTableStacjonarny(person, today, role));
                 }
             }
@@ -244,18 +276,19 @@ function buildAllPersonTables(today) {
 }
 
 function createPersonTableTeren(person, today) {
-    // Soft Pastel – mocniejsze odcienie pod biały tekst w Excelu
+    // Wyświetlanie: nazwa rodzaju; kopiowanie: nr linii (data-copy)
     const rows = [
-        { bg: "#3b82f6", line: appState.linie?.szlak || "" },   // Szlak
-        { bg: "#10b981", line: appState.linie?.osobowa || "" }, // Osobowa
-        { bg: "#f97316", line: appState.linie?.towarowa || "" } // Towarowa
+        { bg: "#3b82f6", label: "Szlak", line: appState.linie?.szlak || "" },
+        { bg: "#10b981", label: "Osobowa", line: appState.linie?.osobowa || "" },
+        { bg: "#f97316", label: "Towarowa", line: appState.linie?.towarowa || "" }
     ];
+    const nazwisko = person.nazwisko || getNazwiskoFromPerson(person.fullName) || "";
 
-    let body = rows.map(r => `
+    let body = rows.map((r, ri) => `
         <tr style="background:${r.bg}; color:#ffffff;">
             <td style="padding:12px; border:1px solid #475569; font-weight:bold; text-align:center; width:15%; color:#ffffff;">${escapeHtml(person.nrPLK)}</td>
-            <td style="padding:12px; border:1px solid #475569; color:#ffffff;">${escapeHtml(r.line)}</td>
-            <td style="padding:12px; border:0 solid #475569; color:#ffffff;"></td>
+            <td style="padding:12px; border:1px solid #475569; color:#ffffff;" data-copy="${escapeAttr(r.line)}">${escapeHtml(r.label)}</td>
+            <td style="padding:12px; border:1px solid #475569; color:#ffffff;">${ri === 0 ? escapeHtml(nazwisko) : ""}</td>
             <td style="padding:12px; border:0 solid #475569; color:#ffffff;"></td>
             <td style="padding:12px; border:0 solid #475569; color:#ffffff;"></td>
             <td style="padding:12px; border:0 solid #475569; color:#ffffff;"></td>
@@ -280,6 +313,7 @@ function createPersonTableStacjonarny(person, today, role) {
     const lineNum = isDyzurny ? (appState.linie?.dyzurny || "") : (appState.linie?.komendant || "");
     const roleLabel = isDyzurny ? "Dyżurny zmiany" : "Komendant";
     const bg = isDyzurny ? "#8b5cf6" : "#ec4899";
+    const nazwisko = person.nazwisko || getNazwiskoFromPerson(person.fullName) || "";
 
     return `
     <div style="margin-bottom:20px;">
@@ -290,8 +324,8 @@ function createPersonTableStacjonarny(person, today, role) {
             <tbody>
                 <tr style="background:${bg}; color:#ffffff;">
                     <td style="padding:12px; border:1px solid #475569; font-weight:bold; text-align:center; width:15%; color:#ffffff;">${escapeHtml(person.nrPLK)}</td>
-                    <td style="padding:12px; border:1px solid #475569; color:#ffffff;">${escapeHtml(lineNum)}</td>
-                    <td style="padding:12px; border:0 solid #475569; color:#ffffff;"></td>
+                    <td style="padding:12px; border:1px solid #475569; color:#ffffff;" data-copy="${escapeAttr(lineNum)}">${escapeHtml(roleLabel)}</td>
+                    <td style="padding:12px; border:1px solid #475569; color:#ffffff;">${escapeHtml(nazwisko)}</td>
                     <td style="padding:12px; border:0 solid #475569; color:#ffffff;"></td>
                     <td style="padding:12px; border:0 solid #475569; color:#ffffff;"></td>
                     <td style="padding:12px; border:0 solid #475569; color:#ffffff;"></td>
@@ -595,7 +629,10 @@ function copyAllTables() {
         const rows = table.querySelectorAll("tr");
         rows.forEach(row => {
             const cells = row.querySelectorAll("td");
-            const rowData = Array.from(cells).map(cell => cell.innerText.trim());
+            const rowData = Array.from(cells).map(cell => {
+                if (cell.hasAttribute("data-copy")) return (cell.getAttribute("data-copy") || "").trim();
+                return cell.innerText.trim();
+            });
             combinedText += rowData.join("\t") + "\n";
         });
     });
