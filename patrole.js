@@ -38,6 +38,26 @@ function getPersonName(osoba) {
     return `${osoba["Stopień"] || ""} ${osoba["Nazwisko"] || ""} ${osoba["Imię"] || ""}`.trim() || "(bez nazwy)";
 }
 
+/** W kolumnach rankingu – tylko nazwisko + imię (stopień jest w nagłówku) */
+function getPersonShortName(osoba) {
+    if (!osoba) return "(bez nazwy)";
+    let nazwisko = osoba["Nazwisko"] || "";
+    let imie = osoba["Imię"] || "";
+    if (typeof daneGetField === "function") {
+        if (!nazwisko) nazwisko = daneGetField(osoba, "nazwisko") || "";
+        if (!imie) imie = daneGetField(osoba, "imie") || "";
+    }
+    const s = `${nazwisko} ${imie}`.trim();
+    return s || getPersonName(osoba) || "(bez nazwy)";
+}
+
+function getPersonNazwisko(osoba) {
+    if (!osoba) return "";
+    if (osoba["Nazwisko"]) return String(osoba["Nazwisko"]);
+    if (typeof daneGetField === "function") return daneGetField(osoba, "nazwisko") || "";
+    return "";
+}
+
 function patrolNormalizeRank(s) {
     return String(s || "").toLowerCase().trim()
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -75,9 +95,20 @@ function groupPeopleByRank() {
     const rows = appState.dane.rows || [];
     rows.forEach((osoba, index) => {
         const gi = getPatrolRankColumnIndex(osoba);
-        groups[gi].push({ index, osoba, label: getPersonName(osoba) });
+        groups[gi].push({
+            index,
+            osoba,
+            label: getPersonName(osoba),
+            short: getPersonShortName(osoba)
+        });
     });
-    groups.forEach(g => g.sort((a, b) => a.label.localeCompare(b.label, "pl")));
+    groups.forEach(g => g.sort((a, b) => {
+        const na = getPersonNazwisko(a.osoba) || a.short || a.label || "";
+        const nb = getPersonNazwisko(b.osoba) || b.short || b.label || "";
+        const c = na.localeCompare(nb, "pl", { sensitivity: "base" });
+        if (c !== 0) return c;
+        return (a.short || a.label || "").localeCompare(b.short || b.label || "", "pl");
+    }));
     return groups;
 }
 
@@ -258,7 +289,7 @@ function renderPatrolRankColumns() {
                 ${list.length ? list.map(p => {
                     const on = selectedPatrolMembers.includes(p.index);
                     return `<div class="item-card ${on ? "selected" : ""}" style="min-height:0;padding:8px 6px;font-size:12px;"
-                        onclick="togglePatrolPerson(${p.index})">${escapeHtml(p.label)}</div>`;
+                        onclick="togglePatrolPerson(${p.index})">${escapeHtml(p.short || p.label)}</div>`;
                 }).join("") : `<div style="font-size:11px;color:var(--text-dim);text-align:center;padding:8px;">—</div>`}
             </div>
         </div>`;
