@@ -163,7 +163,7 @@ function renderPatrole() {
             <button type="button" class="btn-primary" onclick="togglePatrolPeoplePicker()">
                 ${patrolePickOpen ? "▲ Ukryj wybór ludzi" : "👥 Wybierz ludzi"}
             </button>
-            ${selectedPatrolMembers.length ? `<button type="button" class="btn-danger" style="padding:8px 12px;" onclick="clearPatrolPeopleSelection()">Wyczyść skład</button>` : ""}
+            <button type="button" id="patrolClearSkladBtn" class="btn-danger" style="padding:8px 12px;${selectedPatrolMembers.length ? "" : "display:none;"}" onclick="clearPatrolPeopleSelection()">Wyczyść skład</button>
         </div>
 
         <div id="patrolPeoplePicker" style="display:${patrolePickOpen ? "block" : "none"};margin-bottom:16px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);">
@@ -171,12 +171,14 @@ function renderPatrole() {
         </div>
 
         <div style="margin-bottom:16px;">
-            <div style="font-weight:600;margin-bottom:8px;">Wybrany skład (${selectedLabels.length})</div>
+            <div style="font-weight:600;margin-bottom:8px;">Wybrany skład (<span id="patrolSelectedCount">${selectedLabels.length}</span>)</div>
+            <div id="patrolSelectedComposition">
             ${selectedLabels.length
                 ? `<div style="display:flex;flex-wrap:wrap;gap:8px;">${selectedLabels.map(l =>
                     `<span class="line-pill" style="cursor:default;padding:6px 12px;font-size:13px;">${escapeHtml(l)}</span>`
                   ).join("")}</div>`
                 : `<div class="empty-state" style="padding:16px;"><strong>Brak osób</strong>Wczytaj zmianę lub kliknij „Wybierz ludzi”.</div>`}
+            </div>
         </div>
 
         <div style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end; margin-bottom:15px;">
@@ -279,7 +281,7 @@ function renderPatrole() {
 
 function renderPatrolRankColumns() {
     const groups = groupPeopleByRank();
-    let html = `<div style="display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;overflow-x:auto;">`;
+    let html = `<div id="patrolRankGrid" style="display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;overflow-x:auto;">`;
     PATROL_RANK_COLS.forEach((col, ci) => {
         const list = groups[ci] || [];
         html += `
@@ -289,6 +291,7 @@ function renderPatrolRankColumns() {
                 ${list.length ? list.map(p => {
                     const on = selectedPatrolMembers.includes(p.index);
                     return `<div class="item-card ${on ? "selected" : ""}" style="min-height:0;padding:8px 6px;font-size:12px;"
+                        data-patrol-idx="${p.index}"
                         onclick="togglePatrolPerson(${p.index})">${escapeHtml(p.short || p.label)}</div>`;
                 }).join("") : `<div style="font-size:11px;color:var(--text-dim);text-align:center;padding:8px;">—</div>`}
             </div>
@@ -376,7 +379,44 @@ function togglePatrolPerson(index) {
     } else {
         selectedPatrolMembers.push(index);
     }
-    renderPatrole();
+    // Bez pełnego renderPatrole – nie resetuje scrolla kolumn
+    refreshPatrolSelectionUI();
+}
+
+/** Aktualizuje tylko zaznaczenia kafelek, pigułki składu i listy dowódca/kierowca */
+function refreshPatrolSelectionUI() {
+    // kafelki w kolumnach
+    document.querySelectorAll("#patrolPeoplePicker .item-card[data-patrol-idx]").forEach(el => {
+        const idx = parseInt(el.getAttribute("data-patrol-idx"), 10);
+        if (selectedPatrolMembers.includes(idx)) el.classList.add("selected");
+        else el.classList.remove("selected");
+    });
+
+    // pigułki „Wybrany skład”
+    const box = document.getElementById("patrolSelectedComposition");
+    if (box) {
+        const labels = selectedPatrolMembers
+            .map(i => appState.dane.rows[i] ? getPersonName(appState.dane.rows[i]) : "")
+            .filter(Boolean);
+        const countEl = document.getElementById("patrolSelectedCount");
+        if (countEl) countEl.textContent = String(labels.length);
+        if (!labels.length) {
+            box.innerHTML = `<div class="empty-state" style="padding:16px;"><strong>Brak osób</strong>Wczytaj zmianę lub kliknij „Wybierz ludzi”.</div>`;
+        } else {
+            box.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;">${labels.map(l =>
+                `<span class="line-pill" style="cursor:default;padding:6px 12px;font-size:13px;">${escapeHtml(l)}</span>`
+            ).join("")}</div>`;
+        }
+    }
+
+    // zachowaj wybrane wartości selectów
+    const dVal = document.getElementById("dowodcaSelect")?.value || "";
+    const kVal = document.getElementById("kierowcaSelect")?.value || "";
+    updatePatrolLists(dVal, kVal);
+
+    // przycisk „Wyczyść skład” – pokaż/ukryj przez lekki update paska (opcjonalnie)
+    const clearBtn = document.getElementById("patrolClearSkladBtn");
+    if (clearBtn) clearBtn.style.display = selectedPatrolMembers.length ? "" : "none";
 }
 
 function updatePatrolLists(keepDowodca, keepKierowca) {
