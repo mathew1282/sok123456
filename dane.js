@@ -65,6 +65,67 @@ function getDaneVisibleColumns() {
     return (appState.dane?.columns || []).filter(c => !isDaneHiddenColumn(c));
 }
 
+const DANE_STD_COLS = ["Stopień", "Nazwisko", "Imię", "Nr PLK"];
+
+function ensureDaneStandardColumns() {
+    if (!appState.dane) appState.dane = { columns: [], rows: [] };
+    if (!Array.isArray(appState.dane.columns)) appState.dane.columns = [];
+    if (!Array.isArray(appState.dane.rows)) appState.dane.rows = [];
+    stripDaneHiddenColumnsFromState();
+    DANE_STD_COLS.forEach(col => {
+        if (!appState.dane.columns.includes(col)) {
+            appState.dane.columns.push(col);
+            appState.dane.rows.forEach(r => {
+                if (r && r[col] === undefined) r[col] = "";
+            });
+        }
+    });
+}
+
+function daneFindCol(preds) {
+    const cols = appState.dane?.columns || [];
+    for (const c of cols) {
+        const n = daneNormalizeColName(c);
+        if (preds.some(p => n === p || n.indexOf(p) >= 0)) return c;
+    }
+    return null;
+}
+
+function daneGetField(row, kind) {
+    if (!row) return "";
+    const map = {
+        stopien: ["stopien", "stopn"],
+        nazwisko: ["nazwisk", "surname", "last"],
+        imie: ["imie", "first"],
+        nrplk: ["nr plk", "nrplk", "plk"]
+    };
+    const preds = map[kind] || [];
+    const col = daneFindCol(preds);
+    if (col) return String(row[col] || "").trim();
+    // fallback exact std names
+    const std = { stopien: "Stopień", nazwisko: "Nazwisko", imie: "Imię", nrplk: "Nr PLK" }[kind];
+    return std && row[std] != null ? String(row[std]).trim() : "";
+}
+
+function daneSetField(row, kind, value) {
+    ensureDaneStandardColumns();
+    const map = {
+        stopien: ["stopien", "stopn"],
+        nazwisko: ["nazwisk", "surname", "last"],
+        imie: ["imie", "first"],
+        nrplk: ["nr plk", "nrplk", "plk"]
+    };
+    let col = daneFindCol(map[kind] || []);
+    if (!col) {
+        col = { stopien: "Stopień", nazwisko: "Nazwisko", imie: "Imię", nrplk: "Nr PLK" }[kind];
+        if (col && !appState.dane.columns.includes(col)) appState.dane.columns.push(col);
+    }
+    if (col) row[col] = value;
+}
+
+let currentDaneEdit = null; // { index: null|number }
+
+
 let daneDeleteMode = false;
 let danePeopleCollapsed = false;
 try {
@@ -165,6 +226,7 @@ function initDane() {
     if (before !== after && typeof saveState === "function") {
         Promise.resolve(saveState()).catch(() => {});
     }
+    ensureDaneStandardColumns();
     renderDane();
 }
 
@@ -199,7 +261,7 @@ function renderDane() {
                 <div style="font-size:13px;color:var(--text-dim);">Sortowanie: kliknij <strong>Nazwisko</strong> / <strong>Stopień</strong> (A→Z → Z→A → kolejność wpisu)</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                <button type="button" class="btn-primary" onclick="addDaneRow()">Dodaj funkcjonariusza</button>
+                <button type="button" class="btn-primary" onclick="openDanePersonModal()">+ Dodaj funkcjonariusza</button>
                 <button type="button" class="btn-export" onclick="exportDaneExcel()">📥 Eksport Excel</button>
                 <button type="button" class="btn-import" onclick="document.getElementById('daneExcelLoader').click()">📤 Import Excel</button>
                 <input type="file" id="daneExcelLoader" accept=".xlsx,.xls,.csv" hidden onchange="importDaneExcel(event)">
@@ -236,6 +298,10 @@ function renderDane() {
         html += `<th class="col-meta"><span ${titleAttrs}>${escapeHtml(String(column))}${sortMark}</span></th>`;
     });
 
+    if (!delMode) {
+        html += `<th class="col-meta">Akcje</th>`;
+    }
+
     html += `
                 </tr>
             </thead>
@@ -243,7 +309,7 @@ function renderDane() {
     `;
 
     if (order.length === 0) {
-        const cols = columns.length + (delMode ? 1 : 0);
+        const cols = columns.length + (delMode ? 1 : 1);
         html += `<tr><td colspan="${Math.max(cols, 1)}"><div class="empty-state"><strong>Brak funkcjonariuszy</strong>Dodaj osobę lub zaimportuj Excel.</div></td></tr>`;
     } else {
         order.forEach(rowIndex => {
@@ -254,14 +320,13 @@ function renderDane() {
             }
             columns.forEach(column => {
                 const raw = row[column] == null ? "" : String(row[column]);
-                const val = raw.replace(/"/g, "&quot;");
-                const colEsc = String(column).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-                html += `
-                <td>
-                    <input type="text" value="${val}"
-                           onchange="updateDaneCell(${rowIndex}, '${colEsc}', this.value)">
-                </td>`;
+                html += `<td class="col-meta" style="vertical-align:middle;">${escapeHtml(raw) || "—"}</td>`;
             });
+            if (!delMode) {
+                html += `<td class="col-meta" style="white-space:nowrap;vertical-align:middle;">
+                    <button type="button" class="btn-primary" onclick="openDanePersonModal(${rowIndex})">Edytuj</button>
+                </td>`;
+            }
             html += `</tr>`;
         });
     }
@@ -518,13 +583,102 @@ async function removeDaneColumn(index) {
     renderDane();
 }
 
-async function addDaneRow() {
-    const newRow = {};
-    appState.dane.columns.forEach(col => newRow[col] = "");
-    appState.dane.rows.push(newRow);
+function openDanePersonModal(index) {
+    ensureDaneStandardColumns();
+    currentDaneEdit = { index: (index == null || index === "" ? null : Number(index)) };
+    const row = currentDaneEdit.index != null ? (appState.dane.rows[currentDaneEdit.index] || {}) : {};
+    const isEdit = currentDaneEdit.index != null && !Number.isNaN(currentDaneEdit.index);
+    const title = isEdit ? "Edytuj funkcjonariusza" : "Nowy funkcjonariusz";
 
-    await saveState();
+    const imie = daneGetField(row, "imie");
+    const nazwisko = daneGetField(row, "nazwisko");
+    const stopien = daneGetField(row, "stopien");
+    const nrplk = daneGetField(row, "nrplk");
+
+    let root = document.getElementById("danePersonModalRoot");
+    if (!root) {
+        root = document.createElement("div");
+        root.id = "danePersonModalRoot";
+        document.body.appendChild(root);
+    }
+    root.innerHTML = `
+    <div class="modal-overlay" style="display:flex;z-index:10050;" onclick="if(event.target===this)closeDanePersonModal()">
+        <div class="modal" style="width:min(520px,96vw);max-height:94vh;overflow:auto;" onclick="event.stopPropagation()">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+                <h2 style="margin:0;">${escapeHtml(title)}</h2>
+                <div style="display:flex;gap:8px;">
+                    <button type="button" class="btn-success" onclick="saveDanePerson()">Zapisz</button>
+                    <button type="button" class="btn-danger" onclick="closeDanePersonModal()">Anuluj</button>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+                <div>
+                    <label>Stopień</label>
+                    <input type="text" id="daneFieldStopien" value="${escapeHtml(stopien).replace(/"/g, "&quot;")}" style="width:100%;" placeholder="np. st. aspirant">
+                </div>
+                <div>
+                    <label>Nazwisko</label>
+                    <input type="text" id="daneFieldNazwisko" value="${escapeHtml(nazwisko).replace(/"/g, "&quot;")}" style="width:100%;" placeholder="Nazwisko">
+                </div>
+                <div>
+                    <label>Imię</label>
+                    <input type="text" id="daneFieldImie" value="${escapeHtml(imie).replace(/"/g, "&quot;")}" style="width:100%;" placeholder="Imię">
+                </div>
+                <div>
+                    <label>Nr PLK</label>
+                    <input type="text" id="daneFieldNrPlk" value="${escapeHtml(nrplk).replace(/"/g, "&quot;")}" style="width:100%;" placeholder="Nr PLK">
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+                <button type="button" class="btn-success" onclick="saveDanePerson()">Zapisz</button>
+                <button type="button" class="btn-danger" onclick="closeDanePersonModal()">Anuluj</button>
+            </div>
+        </div>
+    </div>`;
+    setTimeout(() => document.getElementById("daneFieldNazwisko")?.focus(), 50);
+}
+
+function closeDanePersonModal() {
+    currentDaneEdit = null;
+    const root = document.getElementById("danePersonModalRoot");
+    if (root) root.innerHTML = "";
+}
+
+async function saveDanePerson() {
+    ensureDaneStandardColumns();
+    const stopien = (document.getElementById("daneFieldStopien")?.value || "").trim();
+    const nazwisko = (document.getElementById("daneFieldNazwisko")?.value || "").trim();
+    const imie = (document.getElementById("daneFieldImie")?.value || "").trim();
+    const nrplk = (document.getElementById("daneFieldNrPlk")?.value || "").trim();
+
+    if (!nazwisko && !imie) {
+        alert("Podaj nazwisko lub imię");
+        return;
+    }
+
+    const isEdit = currentDaneEdit && currentDaneEdit.index != null && !Number.isNaN(currentDaneEdit.index);
+    let row;
+    if (isEdit) {
+        row = appState.dane.rows[currentDaneEdit.index] || {};
+        appState.dane.rows[currentDaneEdit.index] = row;
+    } else {
+        row = {};
+        appState.dane.columns.forEach(c => { row[c] = ""; });
+        appState.dane.rows.push(row);
+    }
+    daneSetField(row, "stopien", stopien);
+    daneSetField(row, "nazwisko", nazwisko);
+    daneSetField(row, "imie", imie);
+    daneSetField(row, "nrplk", nrplk);
+
+    if (typeof saveState === "function") await saveState();
+    closeDanePersonModal();
     renderDane();
+    if (typeof showToast === "function") showToast(isEdit ? "✅ Zapisano" : "✅ Dodano funkcjonariusza");
+}
+
+async function addDaneRow() {
+    openDanePersonModal();
 }
 
 async function removeDaneRow(index) {
@@ -658,6 +812,9 @@ window.addDaneColumn = addDaneColumn;
 window.renameDaneColumn = renameDaneColumn;
 window.removeDaneColumn = removeDaneColumn;
 window.addDaneRow = addDaneRow;
+window.openDanePersonModal = openDanePersonModal;
+window.closeDanePersonModal = closeDanePersonModal;
+window.saveDanePerson = saveDanePerson;
 window.removeDaneRow = removeDaneRow;
 window.updateDaneCell = updateDaneCell;
 window.exportDaneExcel = exportDaneExcel;
