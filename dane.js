@@ -175,6 +175,26 @@ function getDanePeopleList() {
     })).filter(p => p.label);
 }
 
+/** Etykiety osób już przypisanych do którejkolwiek zmiany (dyżurny + skład) */
+function getDanePeopleAssignedLabels() {
+    ensureDaneZmiany();
+    const set = new Set();
+    (appState.dane.zmiany || []).forEach(z => {
+        if (!z) return;
+        if (z.dyzurny) set.add(String(z.dyzurny).trim());
+        (z.osoby || []).forEach(o => {
+            if (o) set.add(String(o).trim());
+        });
+    });
+    return set;
+}
+
+/** Osoby wolne (nie są w żadnej zmianie) – do wyboru przy tworzeniu nowej */
+function getDanePeopleAvailableForZmiana() {
+    const assigned = getDanePeopleAssignedLabels();
+    return getDanePeopleList().filter(p => !assigned.has(p.label));
+}
+
 let _daneZmianaDraft = null; // { dyzurny, osoby: [] }
 
 
@@ -369,9 +389,14 @@ function renderDane() {
 
 function openDaneStworzZmianeModal() {
     ensureDaneZmiany();
-    const people = getDanePeopleList();
-    if (!people.length) {
+    const all = getDanePeopleList();
+    if (!all.length) {
         alert("Brak funkcjonariuszy w tabeli – najpierw dodaj osoby.");
+        return;
+    }
+    const people = getDanePeopleAvailableForZmiana();
+    if (!people.length) {
+        alert("Wszystkie osoby są już przypisane do zmian.\nUsuń zmianę albo dodaj nowych funkcjonariuszy.");
         return;
     }
     _daneZmianaDraft = { step: "dyzurny", dyzurny: "", osoby: [] };
@@ -390,20 +415,24 @@ function renderDaneZmianaModal() {
     const root = document.getElementById("daneZmianaModalRoot");
     if (!root || !_daneZmianaDraft) return;
     const draft = _daneZmianaDraft;
-    const people = getDanePeopleList();
+    const people = getDanePeopleAvailableForZmiana();
     const step = draft.step || "dyzurny";
+    const assignedCount = getDanePeopleAssignedLabels().size;
 
     let body = "";
     if (step === "dyzurny") {
         body = `
-            <p style="color:var(--text-dim);font-size:13px;margin:0 0 12px 0;">Wybierz <strong>dyżurnego</strong> zmiany (jedna osoba).</p>
+            <p style="color:var(--text-dim);font-size:13px;margin:0 0 12px 0;">
+                Wybierz <strong>dyżurnego</strong> zmiany (jedna osoba).
+                Osoby już w innych zmianach są ukryte${assignedCount ? " (" + assignedCount + ")" : ""}.
+            </p>
             <div class="card-grid" style="max-height:50vh;overflow:auto;">
                 ${people.map(p => {
                     const on = draft.dyzurny === p.label;
                     const lab = escapeHtml(p.label).replace(/"/g, "&quot;");
                     return `<div class="item-card ${on ? "selected" : ""}" style="min-width:140px;" data-lab="${lab}"
                         onclick="daneZmianaPickDyzurny(this.getAttribute('data-lab'))">${escapeHtml(p.label)}</div>`;
-                }).join("")}
+                }).join("") || "<div class='empty-state'>Brak wolnych osób</div>"}
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
                 <button type="button" class="btn-primary" onclick="daneZmianaGoOsoby()" ${draft.dyzurny ? "" : "disabled style='opacity:.5;'"}>Dalej – skład →</button>
