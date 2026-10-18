@@ -130,6 +130,10 @@ function renderNotatki() {
             const kat = n.kategoria || "Ogólne";
             const meta = notatkiMetaBits(n);
             const hasAtt = Array.isArray(n.zalaczniki) && n.zalaczniki.length > 0;
+            const plain = String(n.tresc || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+            const snippet = plain.length > 100 ? plain.slice(0, 100) + "…" : plain;
+            const important = /fde047|background-color:\s*rgb\(253,\s*224,\s*71\)|★|ważne/i.test(String(n.tresc || ""));
+            const pages = (String(n.tresc || "").match(/not-page-break/gi) || []).length + 1;
             return `
             <div class="notatka-row" onclick="openNotatkaView('${n.id}')"
                  style="display:flex; align-items:center; gap:14px; padding:14px 16px; border-bottom:1px solid var(--border);
@@ -141,9 +145,12 @@ function renderNotatki() {
                         ${escapeHtmlNot(n.tytul || "(bez tytułu)")}
                     </div>
                     ${meta.length ? `<div style="font-size:12px; color:var(--text-dim); margin-top:3px;">${escapeHtmlNot(meta.join(" · "))}</div>` : ""}
+                    ${snippet ? `<div style="font-size:12px; color:var(--text-dim); margin-top:4px; opacity:.9; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtmlNot(snippet)}</div>` : ""}
                 </div>
                 <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
                     ${hasAtt ? `<span title="Załączniki (${n.zalaczniki.length})" style="font-size:13px;">📎${n.zalaczniki.length > 1 ? n.zalaczniki.length : ""}</span>` : ""}
+                    ${important ? `<span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;background:#fde047;color:#713f12;white-space:nowrap;">★ Ważne</span>` : ""}
+                    ${pages > 1 ? `<span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;background:var(--bg-input);color:var(--text-dim);white-space:nowrap;">${pages} str.</span>` : ""}
                     <span style="font-size:11px; font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; ${notatkiKatStyle(kat)}">${escapeHtmlNot(kat)}</span>
                     <button type="button" class="btn-danger" style="padding:3px 8px; font-size:12px;"
                             onclick="event.stopPropagation(); deleteNotatka('${n.id}')">Usuń</button>
@@ -327,187 +334,221 @@ function notatkiOnFileSelected(event) {
 // PODGLĄD
 // =====================================
 
+
+let _notatkiViewPage = 0;
+let _notatkiViewPages = [];
+let _notatkiViewNoteId = null;
+
+function notatkiSplitPages(html) {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = String(html || "");
+    const marked = [...wrap.querySelectorAll(".not-page")];
+    if (marked.length) {
+        return marked.map(el => el.innerHTML.trim() || "<p><br></p>");
+    }
+    // page breaks: <hr class="not-page-break">
+    const raw = String(html || "");
+    if (/not-page-break|page-break-after/i.test(raw)) {
+        const parts = raw.split(/<hr[^>]*class=["'][^"']*not-page-break[^"']*["'][^>]*>/i);
+        return parts.map(s => s.trim() || "<p><br></p>").filter(Boolean);
+    }
+    return [raw.trim() || "<p><br></p>"];
+}
+
+function notatkiWrapPagesFromEditor(editor) {
+    if (!editor) return "";
+    // jeśli użytkownik dodał page-break, zostaw; inaczej całość
+    return editor.innerHTML;
+}
+
 function openNotatkaView(id) {
     ensureNotatkiState();
     const n = appState.notatki.find(x => x.id === id);
-    if (!n) {
-        if (typeof showToast === "function") showToast("Nie znaleziono notatki");
-        return;
-    }
+    if (!n) return;
 
-    const old = document.getElementById("notatkaModal");
-    if (old) old.remove();
+    const existing = document.getElementById("notatkaModal");
+    if (existing) existing.remove();
 
     const kat = n.kategoria || "Ogólne";
     const meta = notatkiMetaBits(n);
-    const bodyHtml = n.tresc && /<[^>]+>/.test(n.tresc)
-        ? n.tresc
-        : escapeHtmlNot(n.tresc || "").replace(/\n/g, "<br>");
-
     const attHtml = notatkiRenderAttachments(n.zalaczniki || [], { editable: false });
+    _notatkiViewNoteId = id;
+    _notatkiViewPages = notatkiSplitPages(n.tresc || "");
+    _notatkiViewPage = 0;
 
     const overlay = document.createElement("div");
     overlay.id = "notatkaModal";
     overlay.className = "modal-overlay";
-    overlay.style.cssText = "display:flex; align-items:center; justify-content:center; padding:12px; z-index:10040;";
-    overlay._viewId = id;
+    overlay.style.cssText = "display:flex;z-index:10050;align-items:center;justify-content:center;padding:12px;";
     overlay.onclick = (e) => { if (e.target === overlay) closeNotatkaModal(); };
-
     overlay.innerHTML = `
-        <div class="modal" style="width:min(780px,96vw); max-height:92vh; overflow:auto; padding:0;" onclick="event.stopPropagation()">
-            <div style="position:sticky; top:0; z-index:2; background:var(--bg-light); border-bottom:1px solid var(--border); padding:16px 20px; display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">
-                <div style="min-width:0; flex:1;">
-                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-                        <span style="font-size:11px; font-weight:600; padding:3px 10px; border-radius:999px; ${notatkiKatStyle(kat)}">${escapeHtmlNot(kat)}</span>
-                        ${meta.map(m => `<span style="font-size:12px; color:var(--text-dim);">${escapeHtmlNot(m)}</span>`).join("")}
+        <div class="modal notatki-viewer-modal" style="width:min(860px,96vw);max-height:94vh;overflow:auto;padding:0;" onclick="event.stopPropagation()">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--bg-input);position:sticky;top:0;z-index:5;">
+                <div style="min-width:0;flex:1;">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+                        <span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;${notatkiKatStyle(kat)}">${escapeHtmlNot(kat)}</span>
+                        ${meta.map(m => `<span style="font-size:12px;color:var(--text-dim);">${escapeHtmlNot(m)}</span>`).join("")}
                     </div>
-                    <h2 style="margin:0; font-size:20px; line-height:1.3; word-break:break-word;">${escapeHtmlNot(n.tytul || "(bez tytułu)")}</h2>
-                    <div style="font-size:11px; color:var(--text-dim); margin-top:6px;">${escapeHtmlNot(notatkiFormatDate(n.updatedAt || n.createdAt))}</div>
+                    <h2 style="margin:0;font-size:18px;line-height:1.3;word-break:break-word;">${escapeHtmlNot(n.tytul || "(bez tytułu)")}</h2>
+                    <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">${escapeHtmlNot(notatkiFormatDate(n.updatedAt || n.createdAt))}</div>
                 </div>
-                <div style="display:flex; gap:8px; flex-shrink:0;">
-                    <button class="btn-primary" onclick="openNotatkaEdit('${n.id}')">Edytuj</button>
-                    <button class="btn-danger" onclick="closeNotatkaModal()">Zamknij</button>
+                <div style="display:flex;gap:8px;flex-shrink:0;flex-wrap:wrap;">
+                    <button type="button" class="btn-primary" onclick="openNotatkaEdit('${n.id}')">Edytuj</button>
+                    <button type="button" class="btn-danger" onclick="closeNotatkaModal()">Zamknij</button>
                 </div>
             </div>
-            <div class="notatka-body" style="padding:20px 22px 16px; font-size:15px; line-height:1.6; color:var(--text-soft); word-break:break-word;">
-                ${bodyHtml || "<span style='color:var(--text-dim);'>Brak treści</span>"}
+            <div class="notatki-pdf-stage" style="background:var(--bg);padding:20px 16px 28px;min-height:420px;">
+                <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+                    <button type="button" class="btn-primary" id="notViewPrev" onclick="notatkiViewNav(-1)" style="padding:6px 14px;">← Poprzednia</button>
+                    <span id="notViewPageLabel" style="font-size:13px;font-weight:600;color:var(--text-dim);min-width:100px;text-align:center;"></span>
+                    <button type="button" class="btn-primary" id="notViewNext" onclick="notatkiViewNav(1)" style="padding:6px 14px;">Następna →</button>
+                </div>
+                <div id="notViewPaper" class="notatki-paper"></div>
             </div>
             ${attHtml ? `
-            <div style="padding:0 22px 24px;">
-                <div style="font-size:13px; font-weight:600; color:var(--text-dim); margin-bottom:8px;">Załączniki</div>
+            <div style="padding:12px 18px 20px;border-top:1px solid var(--border);">
+                <div style="font-size:13px;font-weight:600;color:var(--text-dim);margin-bottom:8px;">Załączniki</div>
                 ${attHtml}
             </div>` : ""}
-        </div>
-    `;
+        </div>`;
     document.body.appendChild(overlay);
-    notatkiStyleBody(overlay.querySelector(".notatka-body"));
+    notatkiRenderViewPage();
 }
 
-function notatkiStyleBody(el) {
-    if (!el) return;
-    el.querySelectorAll("table").forEach(t => {
-        t.style.cssText = "border-collapse:collapse; width:100%; margin:12px 0; font-size:14px;";
-        t.querySelectorAll("td,th").forEach(c => {
-            c.style.cssText = "border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top;";
-        });
-        t.querySelectorAll("th").forEach(c => {
-            c.style.background = "var(--bg-input)";
-            c.style.fontWeight = "700";
-        });
-    });
-    el.querySelectorAll("ul,ol").forEach(l => {
-        l.style.margin = "8px 0 8px 1.2em";
-        l.style.paddingLeft = "1em";
-    });
-    el.querySelectorAll("li").forEach(li => {
-        li.style.margin = "4px 0";
-    });
+function notatkiViewNav(delta) {
+    if (!_notatkiViewPages.length) return;
+    _notatkiViewPage = Math.max(0, Math.min(_notatkiViewPages.length - 1, _notatkiViewPage + delta));
+    notatkiRenderViewPage();
 }
 
-// =====================================
-// EDYCJA
-// =====================================
+function notatkiRenderViewPage() {
+    const paper = document.getElementById("notViewPaper");
+    const label = document.getElementById("notViewPageLabel");
+    const prev = document.getElementById("notViewPrev");
+    const next = document.getElementById("notViewNext");
+    if (!paper) return;
+    const total = Math.max(1, _notatkiViewPages.length);
+    const idx = Math.min(_notatkiViewPage, total - 1);
+    const html = _notatkiViewPages[idx] || "<p style='color:var(--text-dim)'>Brak treści</p>";
+    paper.innerHTML = `<div class="notatki-paper-inner notatka-body">${html}</div>`;
+    notatkiStyleBody(paper.querySelector(".notatka-body"));
+    if (label) label.textContent = "Strona " + (idx + 1) + " / " + total;
+    if (prev) prev.disabled = idx <= 0;
+    if (next) next.disabled = idx >= total - 1;
+    if (prev) prev.style.opacity = idx <= 0 ? "0.45" : "1";
+    if (next) next.style.opacity = idx >= total - 1 ? "0.45" : "1";
+}
 
 function openNotatkaEdit(id) {
     ensureNotatkiState();
-    const isNew = !id;
-    const n = isNew
-        ? { id: null, tytul: "", linia: "", kmOd: "", kmDo: "", kategoria: "Ogólne", tresc: "", zalaczniki: [] }
-        : appState.notatki.find(x => x.id === id);
+    const existing = document.getElementById("notatkaModal");
+    if (existing) existing.remove();
 
-    if (!isNew && !n) {
-        if (typeof showToast === "function") showToast("Nie znaleziono notatki");
-        return;
-    }
-
-    _notatkiDraftAtt = Array.isArray(n.zalaczniki)
+    const n = id ? appState.notatki.find(x => x.id === id) : null;
+    _notatkiDraftAtt = n && Array.isArray(n.zalaczniki)
         ? n.zalaczniki.map(z => ({ ...z }))
         : [];
 
-    const old = document.getElementById("notatkaModal");
-    if (old) old.remove();
-
+    const initialHtml = n ? (n.tresc || "") : "<p><br></p>";
     const katOpts = NOTATKI_KAT_EDIT.map(k =>
-        `<option value="${escapeHtmlNot(k)}"${(n.kategoria || "Ogólne") === k ? " selected" : ""}>${escapeHtmlNot(k)}</option>`
+        `<option value="${escapeHtmlNot(k)}" ${(n?.kategoria || "Ogólne") === k ? "selected" : ""}>${escapeHtmlNot(k)}</option>`
     ).join("");
-
-    const initialHtml = (() => {
-        const t = n.tresc || "";
-        if (!t) return "";
-        if (/<[^>]+>/.test(t)) return t;
-        return escapeHtmlNot(t).replace(/\n/g, "<br>");
-    })();
 
     const overlay = document.createElement("div");
     overlay.id = "notatkaModal";
     overlay.className = "modal-overlay";
-    overlay.style.cssText = "display:flex; align-items:center; justify-content:center; padding:12px; z-index:10040;";
-    overlay._editId = id || null;
+    overlay.style.cssText = "display:flex;z-index:10050;align-items:stretch;justify-content:center;padding:8px;";
+    overlay.onclick = (e) => { if (e.target === overlay) closeNotatkaModal(); };
+    overlay._editId = n ? n.id : null;
 
     overlay.innerHTML = `
-        <div class="modal" style="width:min(860px,96vw); max-height:94vh; overflow:auto; padding:18px 20px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
-                <h2 style="margin:0;">${isNew ? "Nowa notatka" : "Edytuj notatkę"}</h2>
-                <div style="display:flex; gap:8px;">
-                    <button class="btn-success" onclick="saveNotatkaFromModal()">Zapisz</button>
-                    <button class="btn-danger" onclick="closeNotatkaModal()">Anuluj</button>
+        <div class="modal" style="width:min(960px,98vw);max-height:96vh;overflow:auto;padding:0;" onclick="event.stopPropagation()">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg-input);position:sticky;top:0;z-index:6;">
+                <h2 style="margin:0;font-size:18px;">${n ? "Edytuj notatkę" : "Nowa notatka"}</h2>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="btn-success" onclick="saveNotatkaFromModal()">Zapisz</button>
+                    <button type="button" class="btn-danger" onclick="closeNotatkaModal()">Anuluj</button>
                 </div>
             </div>
 
-            <label style="font-size:12px; color:var(--text-dim);">Tytuł</label>
-            <input type="text" id="notTytul" value="${escapeHtmlNot(n.tytul)}" placeholder="np. Linia 275 – przejazd / Pismo nr …"
-                   style="width:100%; margin:4px 0 12px 0; font-size:16px; font-weight:600;">
-
-            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:12px;">
-                <div>
-                    <label style="font-size:12px; color:var(--text-dim);">Kategoria</label>
-                    <select id="notKategoria" style="width:100%; margin-top:4px;">${katOpts}</select>
-                </div>
-                <div>
-                    <label style="font-size:12px; color:var(--text-dim);">Linia</label>
-                    <input type="text" id="notLinia" value="${escapeHtmlNot(n.linia)}" placeholder="275" style="width:100%; margin-top:4px;">
-                </div>
-                <div>
-                    <label style="font-size:12px; color:var(--text-dim);">Km od</label>
-                    <input type="text" id="notKmOd" value="${escapeHtmlNot(n.kmOd)}" placeholder="0,000" style="width:100%; margin-top:4px;">
-                </div>
-                <div>
-                    <label style="font-size:12px; color:var(--text-dim);">Km do</label>
-                    <input type="text" id="notKmDo" value="${escapeHtmlNot(n.kmDo)}" placeholder="0,000" style="width:100%; margin-top:4px;">
+            <div style="padding:14px 16px 8px;">
+                <label style="font-size:12px;color:var(--text-dim);">Tytuł</label>
+                <input type="text" id="notTytul" value="${escapeHtmlNot(n?.tytul || "").replace(/"/g, "&quot;")}"
+                       style="width:100%;margin-bottom:10px;font-size:16px;font-weight:600;" placeholder="Tytuł notatki">
+                <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:12px;color:var(--text-dim);">Kategoria</label>
+                        <select id="notKategoria" style="width:100%;padding:8px;border-radius:8px;">${katOpts}</select>
+                    </div>
+                    <div style="flex:0.7;min-width:90px;">
+                        <label style="font-size:12px;color:var(--text-dim);">Linia</label>
+                        <input type="text" id="notLinia" value="${escapeHtmlNot(n?.linia || "").replace(/"/g, "&quot;")}" style="width:100%;">
+                    </div>
+                    <div style="flex:0.7;min-width:80px;">
+                        <label style="font-size:12px;color:var(--text-dim);">Km od</label>
+                        <input type="text" id="notKmOd" value="${escapeHtmlNot(n?.kmOd || "").replace(/"/g, "&quot;")}" style="width:100%;">
+                    </div>
+                    <div style="flex:0.7;min-width:80px;">
+                        <label style="font-size:12px;color:var(--text-dim);">Km do</label>
+                        <input type="text" id="notKmDo" value="${escapeHtmlNot(n?.kmDo || "").replace(/"/g, "&quot;")}" style="width:100%;">
+                    </div>
                 </div>
             </div>
 
-            <label style="font-size:12px; color:var(--text-dim);">Treść</label>
-            <div id="notEditorToolbar" style="display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 0 0; padding:8px; border:1px solid var(--border); border-bottom:none; border-radius:10px 10px 0 0; background:var(--bg-input);">
-                <button type="button" class="btn-primary" style="padding:4px 10px; font-size:13px; font-weight:700;" onclick="notatkiCmd('bold')" title="Pogrubienie"><b>B</b></button>
-                <button type="button" class="btn-primary" style="padding:4px 10px; font-size:13px;" onclick="notatkiCmd('underline')" title="Podkreślenie"><u>U</u></button>
-                <button type="button" class="btn-primary" style="padding:4px 10px; font-size:13px;" onclick="notatkiCmd('insertUnorderedList')" title="Lista z kropkami">• Lista</button>
-                <button type="button" class="btn-primary" style="padding:4px 10px; font-size:13px;" onclick="notatkiCmd('insertOrderedList')" title="Lista numerowana">1. Lista</button>
-                <button type="button" class="btn-primary" style="padding:4px 10px; font-size:13px;" onclick="notatkiInsertTable()" title="Wstaw tabelę">▦ Tabela</button>
-                <button type="button" class="btn-primary" style="padding:4px 10px; font-size:13px;" onclick="notatkiCmd('removeFormat')" title="Usuń formatowanie">Wyczyść styl</button>
+            <!-- Word-like ribbon -->
+            <div class="notatki-ribbon" style="padding:8px 12px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg-input);display:flex;flex-wrap:wrap;gap:6px;align-items:center;position:sticky;top:52px;z-index:5;">
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:13px;font-weight:700;" onclick="notatkiCmd('bold')" title="Pogrubienie"><b>B</b></button>
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:13px;font-style:italic;" onclick="notatkiCmd('italic')" title="Kursywa"><i>I</i></button>
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:13px;" onclick="notatkiCmd('underline')" title="Podkreślenie"><u>U</u></button>
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:13px;" onclick="notatkiCmd('strikeThrough')" title="Przekreślenie"><s>S</s></button>
+                <span style="width:1px;height:22px;background:var(--border);margin:0 2px;"></span>
+                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;" onclick="notatkiCmd('justifyLeft')" title="Do lewej">⫷</button>
+                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;" onclick="notatkiCmd('justifyCenter')" title="Wyśrodkuj">☰</button>
+                <button type="button" class="btn-primary" style="padding:4px 8px;font-size:12px;" onclick="notatkiCmd('justifyRight')" title="Do prawej">⫸</button>
+                <span style="width:1px;height:22px;background:var(--border);margin:0 2px;"></span>
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:12px;" onclick="notatkiCmd('insertUnorderedList')" title="Wypunktowanie">• Lista</button>
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:12px;" onclick="notatkiCmd('insertOrderedList')" title="Numerowanie">1. Lista</button>
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:12px;" onclick="notatkiInsertTable()" title="Tabela">▦ Tabela</button>
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:12px;" onclick="notatkiInsertHr()" title="Linia">―</button>
+                <span style="width:1px;height:22px;background:var(--border);margin:0 2px;"></span>
+                <label style="font-size:11px;color:var(--text-dim);">Kolor</label>
+                <input type="color" id="notColorText" value="#e11d48" title="Kolor tekstu" style="width:32px;height:28px;border:none;background:transparent;cursor:pointer;" onchange="notatkiApplyColor(this.value)">
+                <label style="font-size:11px;color:var(--text-dim);">Tło</label>
+                <input type="color" id="notColorBg" value="#fde047" title="Zaznaczenie / highlight" style="width:32px;height:28px;border:none;background:transparent;cursor:pointer;" onchange="notatkiApplyHighlight(this.value)">
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:12px;background:#eab308;border-color:#ca8a04;color:#111;" onclick="notatkiMarkImportant()" title="Oznacz jako ważne">★ Ważne</button>
+                <button type="button" class="btn-primary" style="padding:4px 10px;font-size:12px;" onclick="notatkiCmd('removeFormat')" title="Usuń format">Wyczyść</button>
+                <span style="width:1px;height:22px;background:var(--border);margin:0 2px;"></span>
+                <button type="button" class="btn-success" style="padding:4px 12px;font-size:12px;" onclick="notatkiInsertPageBreak()" title="Nowa strona jak w PDF">+ Strona</button>
             </div>
-            <div id="notTresc"
-                 contenteditable="true"
-                 style="min-height:200px; max-height:36vh; overflow:auto; padding:14px 16px; border:1px solid var(--border); border-radius:0 0 10px 10px; background:var(--bg); color:var(--text-soft); font-size:15px; line-height:1.55; outline:none;">${initialHtml}</div>
 
-            <div style="margin-top:16px;">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
-                    <div style="font-size:13px; font-weight:600; color:var(--text-dim);">Załączniki (PDF / JPG / PNG · max ${NOTATKI_MAX_FILES} · ~1,8 MB)</div>
+            <div style="background:var(--bg);padding:18px 12px 24px;">
+                <div style="max-width:720px;margin:0 auto;">
+                    <div class="notatki-paper notatki-paper-edit">
+                        <div id="notTresc" class="notatki-paper-inner" contenteditable="true"
+                             style="min-height:520px;outline:none;font-size:15px;line-height:1.65;color:var(--text);">${initialHtml}</div>
+                    </div>
+                    <div style="text-align:center;font-size:12px;color:var(--text-dim);margin-top:10px;">
+                        Podgląd jak strona dokumentu · „+ Strona” dodaje kolejną kartę (jak PDF)
+                    </div>
+                </div>
+            </div>
+
+            <div style="padding:12px 16px 20px;border-top:1px solid var(--border);">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                    <div style="font-size:13px;font-weight:600;color:var(--text-dim);">Załączniki (PDF / JPG / PNG · max ${NOTATKI_MAX_FILES})</div>
                     <div>
                         <input type="file" id="notFileInput" accept="${NOTATKI_ACCEPT}" multiple hidden onchange="notatkiOnFileSelected(event)">
-                        <button type="button" class="btn-primary" style="padding:6px 12px; font-size:13px;"
-                                onclick="document.getElementById('notFileInput').click()">📎 Wgraj plik PDF lub zdjęcie</button>
+                        <button type="button" class="btn-primary" style="padding:6px 12px;font-size:13px;"
+                                onclick="document.getElementById('notFileInput').click()">📎 Wgraj plik</button>
                     </div>
                 </div>
                 <div id="notAttList">${notatkiRenderAttachments(_notatkiDraftAtt, { editable: true })}</div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap;">
+                    <button type="button" class="btn-success" onclick="saveNotatkaFromModal()">Zapisz</button>
+                    <button type="button" class="btn-danger" onclick="closeNotatkaModal()">Anuluj</button>
+                </div>
             </div>
-
-            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px; flex-wrap:wrap;">
-                <button class="btn-success" onclick="saveNotatkaFromModal()">Zapisz</button>
-                <button class="btn-danger" onclick="closeNotatkaModal()">Anuluj</button>
-            </div>
-        </div>
-    `;
+        </div>`;
     document.body.appendChild(overlay);
 
     const editor = document.getElementById("notTresc");
@@ -519,6 +560,12 @@ function openNotatkaEdit(id) {
                 document.execCommand("insertText", false, "    ");
             }
         });
+        // zachowaj Enter = nowa linia w notatkach
+        editor.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                // default contenteditable behavior
+            }
+        });
     }
     setTimeout(() => document.getElementById("notTytul")?.focus(), 40);
 }
@@ -528,6 +575,56 @@ function notatkiCmd(cmd) {
     if (!editor) return;
     editor.focus();
     document.execCommand(cmd, false, null);
+}
+
+function notatkiApplyColor(color) {
+    const editor = document.getElementById("notTresc");
+    if (!editor) return;
+    editor.focus();
+    document.execCommand("foreColor", false, color);
+}
+
+function notatkiApplyHighlight(color) {
+    const editor = document.getElementById("notTresc");
+    if (!editor) return;
+    editor.focus();
+    try {
+        document.execCommand("hiliteColor", false, color);
+    } catch (e) {
+        document.execCommand("backColor", false, color);
+    }
+}
+
+function notatkiMarkImportant() {
+    const editor = document.getElementById("notTresc");
+    if (!editor) return;
+    editor.focus();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+        // zaznacz cały akapit – lub wstaw marker
+        document.execCommand("hiliteColor", false, "#fde047");
+        document.execCommand("bold", false, null);
+        return;
+    }
+    document.execCommand("hiliteColor", false, "#fde047");
+    document.execCommand("bold", false, null);
+}
+
+function notatkiInsertHr() {
+    const editor = document.getElementById("notTresc");
+    if (!editor) return;
+    editor.focus();
+    document.execCommand("insertHTML", false, '<hr style="border:none;border-top:1px solid #94a3b8;margin:16px 0;">');
+}
+
+function notatkiInsertPageBreak() {
+    const editor = document.getElementById("notTresc");
+    if (!editor) return;
+    editor.focus();
+    document.execCommand("insertHTML", false,
+        '<hr class="not-page-break" style="border:none;border-top:2px dashed #64748b;margin:28px 0;position:relative;">' +
+        '<p style="text-align:center;font-size:11px;color:#94a3b8;margin:-20px 0 16px;">— nowa strona —</p><p><br></p>');
+    if (typeof showToast === "function") showToast("Dodano podział strony");
 }
 
 function notatkiInsertTable() {
@@ -542,9 +639,9 @@ function notatkiInsertTable() {
     const r = Math.min(20, Math.max(1, parseInt(rows, 10) || 2));
     const c = Math.min(10, Math.max(1, parseInt(cols, 10) || 2));
 
-    let html = '<table style="border-collapse:collapse;width:100%;margin:10px 0;"><thead><tr>';
+    let html = '<table style="border-collapse:collapse;width:100%;margin:12px 0;"><thead><tr>';
     for (let j = 0; j < c; j++) {
-        html += '<th style="border:1px solid #64748b;padding:8px;background:rgba(100,116,139,.2);">Nagłówek ' + (j + 1) + '</th>';
+        html += '<th style="border:1px solid #64748b;padding:8px;background:rgba(100,116,139,.15);">Nagłówek ' + (j + 1) + '</th>';
     }
     html += "</tr></thead><tbody>";
     for (let i = 0; i < r - 1; i++) {
@@ -555,8 +652,30 @@ function notatkiInsertTable() {
         html += "</tr>";
     }
     html += "</tbody></table><p><br></p>";
-
     document.execCommand("insertHTML", false, html);
+}
+
+function notatkiStyleBody(el) {
+    if (!el) return;
+    el.querySelectorAll("table").forEach(t => {
+        t.style.cssText = "border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;";
+        t.querySelectorAll("td,th").forEach(c => {
+            c.style.cssText = "border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top;";
+        });
+        t.querySelectorAll("th").forEach(c => {
+            c.style.background = "var(--bg-input)";
+            c.style.fontWeight = "700";
+        });
+    });
+    el.querySelectorAll("ul,ol").forEach(l => {
+        l.style.margin = "8px 0 8px 1.2em";
+        l.style.paddingLeft = "1em";
+    });
+    el.querySelectorAll("li").forEach(li => {
+        li.style.margin = "4px 0";
+    });
+    // ważne – żółte tło ma zostać
+    el.querySelectorAll('[style*="background"]').forEach(() => {});
 }
 
 function closeNotatkaModal() {
@@ -660,6 +779,12 @@ window.closeNotatkaModal = closeNotatkaModal;
 window.saveNotatkaFromModal = saveNotatkaFromModal;
 window.deleteNotatka = deleteNotatka;
 window.notatkiCmd = notatkiCmd;
+window.notatkiInsertHr = notatkiInsertHr;
+window.notatkiInsertPageBreak = notatkiInsertPageBreak;
+window.notatkiMarkImportant = notatkiMarkImportant;
+window.notatkiApplyHighlight = notatkiApplyHighlight;
+window.notatkiApplyColor = notatkiApplyColor;
+window.notatkiViewNav = notatkiViewNav;
 window.notatkiInsertTable = notatkiInsertTable;
 window.notatkiOnFileSelected = notatkiOnFileSelected;
 window.notatkiRemoveDraftAtt = notatkiRemoveDraftAtt;
