@@ -497,24 +497,26 @@ function polSeriaRebuildRows() {
         html += `
         <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--bg);">
             <div style="font-weight:700;margin-bottom:8px;color:var(--text-dim);">Polecenie ${i + 1}</div>
-            <div style="display:grid;grid-template-columns:minmax(220px,2fr) minmax(160px,1fr);gap:12px;align-items:stretch;">
-                <div style="display:flex;flex-direction:column;min-width:0;">
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;">
+                <div style="flex:2;min-width:220px;">
                     <label>Opis</label>
                     <div style="display:flex;gap:6px;margin:4px 0 6px;flex-wrap:wrap;">
                         <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="polSeriaFormat(${i},'bold')"><b>B</b></button>
                         <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="polSeriaFormat(${i},'underline')"><u>U</u></button>
                     </div>
                     <div id="polSeriaOpis${i}" class="rich-opis-editor" contenteditable="true"
-                         style="width:100%;flex:1;min-height:120px;height:120px;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;overflow:auto;">${pr.opis || ""}</div>
+                         style="width:100%;min-height:120px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;box-sizing:border-box;">${pr.opis || ""}</div>
                     <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;">
                         ${tags.map(tag => `<button type="button" class="btn-primary" style="padding:2px 7px;font-size:11px;" onclick="polSeriaInsertTag(${i},'${tag}')">${tag}</button>`).join("")}
                     </div>
                 </div>
-                <div style="display:flex;flex-direction:column;min-width:0;">
+                <div style="flex:1;min-width:140px;">
                     <label>Opis pomocniczy</label>
-                    <div style="height:34px;margin:4px 0 6px;"></div>
-                    <textarea id="polSeriaPom${i}" placeholder="Opis pom"
-                        style="width:100%;flex:1;min-height:120px;height:120px;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);resize:vertical;font:inherit;line-height:1.35;">${escapeHtml(pr.pom || "")}</textarea>
+                    <!-- odstęp = label + rząd B/U, żeby input był równo z oknem tekstu -->
+                    <div style="height:34px;margin:4px 0 6px;" aria-hidden="true"></div>
+                    <input type="text" id="polSeriaPom${i}" value="${escapeHtml(pr.pom || "").replace(/"/g, "&quot;")}"
+                           placeholder="Opis pom"
+                           style="width:100%;height:42px;padding:0 12px;box-sizing:border-box;border-radius:10px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);font-size:14px;">
                 </div>
             </div>
         </div>`;
