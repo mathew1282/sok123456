@@ -299,7 +299,7 @@ function renderPolecenia() {
                 <td class="col-meta">${escapeHtml(row.Linia || "")}</td>
                 <td class="col-meta">${escapeHtml(row.OpisKrotki || "")}</td>
                 <td class="col-meta">${escapeHtml(row.OpisPom || "")}</td>
-                <td class="col-opis">${fmt(row.Opis || "")}</td>
+                <td class="col-opis"><div class="pol-opis-clamp" title="${escapeHtml(String(row.Opis || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())}">${fmt(row.Opis || "")}</div></td>
                 <td class="col-meta">
                     <button class="btn-primary" onclick="editPolecenie(${index})">Edytuj</button>
                 </td>
@@ -317,6 +317,7 @@ function renderPolecenia() {
             <div><h2 style="margin:0;">📌 Polecenia</h2></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                 <button class="btn-success" onclick="openPolecenieModal()">Dodaj polecenie</button>
+                <button class="btn-primary" onclick="openPolSeriaModal()">📚 Seria</button>
                 <button class="btn-primary" onclick="openPolSortowanieModal()">⇅ Sortowanie</button>
                 <button class="btn-export" onclick="exportPoleceniaExcel()">📥 Eksport Excel</button>
                 <button class="btn-import" onclick="document.getElementById('poleceniaExcelLoader').click()">📤 Import Excel</button>
@@ -363,7 +364,7 @@ function renderPolecenia() {
                 <button type="button" class="btn-primary" style="padding:4px 12px;" onclick="formatPolecenieOpis('underline')"><u>U</u> Podkreśl</button>
             </div>
             <div id="polecenieOpis" class="rich-opis-editor" contenteditable="true"
-                 style="width:100%; min-height:140px; padding:10px; font-family: monospace; margin-bottom:14px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; white-space:pre-wrap; outline:none;"></div>
+                 style="width:100%; min-height:140px; padding:10px; margin-bottom:14px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text); white-space:pre-wrap; outline:none;"></div>
             <h3>Dostępne znaczniki</h3>
             <div class="tag-buttons">
                 <button type="button" class="btn-primary" onclick="insertPolecenieTag('@patrol')">@patrol</button>
@@ -417,6 +418,163 @@ function polUsunZaznaczoneClick() {
 function setPoleceniaFilterLinia(line) {
     poleceniaFilterLinia = line || "";
     renderPolecenia();
+}
+
+
+/** Seria poleceń: wspólna linia + opis krótki; N wierszy (opis + opis pom) */
+function openPolSeriaModal() {
+    let root = document.getElementById("polSeriaModalRoot");
+    if (!root) {
+        root = document.createElement("div");
+        root.id = "polSeriaModalRoot";
+        document.body.appendChild(root);
+    }
+    const liniaDef = poleceniaFilterLinia || "";
+    root.innerHTML = `
+    <div class="modal-overlay" style="display:flex;z-index:10050;" onclick="if(event.target===this)closePolSeriaModal()">
+        <div class="modal" style="width:min(960px,96vw);max-height:94vh;overflow:auto;" onclick="event.stopPropagation()">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+                <h2 style="margin:0;">Seria poleceń</h2>
+                <div style="display:flex;gap:8px;">
+                    <button type="button" class="btn-success" onclick="savePolSeria()">Zapisz</button>
+                    <button type="button" class="btn-danger" onclick="closePolSeriaModal()">Anuluj</button>
+                </div>
+            </div>
+            <p style="font-size:13px;color:var(--text-dim);margin:0 0 12px 0;">
+                Wspólne: <strong>nr linii</strong> i <strong>opis krótki</strong>. Każdy wiersz = osobne polecenie (opis + opis pom + znaczniki).
+            </p>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px;align-items:flex-end;">
+                <div style="min-width:110px;">
+                    <label>Ile poleceń</label>
+                    <input type="number" id="polSeriaCount" min="1" max="50" value="2" style="width:100%;"
+                           onchange="polSeriaRebuildRows()" oninput="polSeriaRebuildRows()">
+                </div>
+                <div style="flex:1;min-width:120px;">
+                    <label>Nr linii</label>
+                    <input type="text" id="polSeriaLinia" value="${escapeHtml(liniaDef).replace(/"/g, "&quot;")}" style="width:100%;" placeholder="np. 275">
+                </div>
+                <div style="flex:1.4;min-width:140px;">
+                    <label>Opis krótki</label>
+                    <input type="text" id="polSeriaOpisKrotki" style="width:100%;" placeholder="Wspólny opis krótki">
+                </div>
+            </div>
+            <div id="polSeriaRows" style="display:flex;flex-direction:column;gap:12px;"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+                <button type="button" class="btn-success" onclick="savePolSeria()">Zapisz</button>
+                <button type="button" class="btn-danger" onclick="closePolSeriaModal()">Anuluj</button>
+            </div>
+        </div>
+    </div>`;
+    polSeriaRebuildRows();
+}
+
+function closePolSeriaModal() {
+    const root = document.getElementById("polSeriaModalRoot");
+    if (root) root.innerHTML = "";
+}
+
+function polSeriaRebuildRows() {
+    const box = document.getElementById("polSeriaRows");
+    const countEl = document.getElementById("polSeriaCount");
+    if (!box || !countEl) return;
+    let n = parseInt(countEl.value, 10);
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    if (n > 50) n = 50;
+    countEl.value = String(n);
+
+    const prev = [];
+    for (let i = 0; i < 50; i++) {
+        const opis = document.getElementById("polSeriaOpis" + i);
+        const pom = document.getElementById("polSeriaPom" + i);
+        if (!opis && !pom) break;
+        prev.push({ opis: opis ? opis.innerHTML : "", pom: pom ? pom.value : "" });
+    }
+
+    const tags = ["@patrol","@dowodca","@kierowca","@sklad","@wszyscy","@KZ","@MKK","@data","@godzina","@wot","@policjant","@wybrani"];
+    let html = "";
+    for (let i = 0; i < n; i++) {
+        const pr = prev[i] || { opis: "", pom: "" };
+        html += `
+        <div style="border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--bg);">
+            <div style="font-weight:700;margin-bottom:8px;color:var(--text-dim);">Polecenie ${i + 1}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;">
+                <div style="flex:2;min-width:220px;">
+                    <label>Opis</label>
+                    <div style="display:flex;gap:6px;margin:4px 0 6px;flex-wrap:wrap;">
+                        <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="polSeriaFormat(${i},'bold')"><b>B</b></button>
+                        <button type="button" class="btn-primary" style="padding:3px 10px;" onclick="polSeriaFormat(${i},'underline')"><u>U</u></button>
+                    </div>
+                    <div id="polSeriaOpis${i}" class="rich-opis-editor" contenteditable="true"
+                         style="width:100%;min-height:90px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);white-space:pre-wrap;outline:none;">${pr.opis || ""}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;">
+                        ${tags.map(tag => `<button type="button" class="btn-primary" style="padding:2px 7px;font-size:11px;" onclick="polSeriaInsertTag(${i},'${tag}')">${tag}</button>`).join("")}
+                    </div>
+                </div>
+                <div style="flex:1;min-width:140px;">
+                    <label>Opis pomocniczy</label>
+                    <input type="text" id="polSeriaPom${i}" value="${escapeHtml(pr.pom || "").replace(/"/g, "&quot;")}" style="width:100%;" placeholder="Opis pom">
+                </div>
+            </div>
+        </div>`;
+    }
+    box.innerHTML = html;
+}
+
+function polSeriaFormat(i, cmd) {
+    const el = document.getElementById("polSeriaOpis" + i);
+    if (!el) return;
+    el.focus();
+    document.execCommand(cmd, false, null);
+}
+
+function polSeriaInsertTag(i, tag) {
+    const el = document.getElementById("polSeriaOpis" + i);
+    if (!el) return;
+    el.focus();
+    try {
+        document.execCommand("insertText", false, tag);
+    } catch (e) {
+        el.innerHTML = (el.innerHTML || "") + tag;
+    }
+}
+
+async function savePolSeria() {
+    const linia = (document.getElementById("polSeriaLinia")?.value || "").trim();
+    const krotki = (document.getElementById("polSeriaOpisKrotki")?.value || "").trim();
+    let n = parseInt(document.getElementById("polSeriaCount")?.value || "0", 10);
+    if (!linia) { alert("Podaj nr linii"); return; }
+    if (!krotki) { alert("Podaj opis krótki"); return; }
+    if (!Number.isFinite(n) || n < 1) { alert("Podaj liczbę poleceń"); return; }
+    if (n > 50) n = 50;
+
+    if (!appState.polecenia) appState.polecenia = { columns: ["Linia", "OpisKrotki", "OpisPom", "Opis"], rows: [] };
+    if (!Array.isArray(appState.polecenia.rows)) appState.polecenia.rows = [];
+
+    const created = [];
+    for (let i = 0; i < n; i++) {
+        const opisEl = document.getElementById("polSeriaOpis" + i);
+        const opis = opisEl ? (opisEl.innerHTML || "").trim() : "";
+        const pom = (document.getElementById("polSeriaPom" + i)?.value || "").trim();
+        if (!opis.replace(/<[^>]+>/g, "").trim()) {
+            alert("Polecenie " + (i + 1) + ": podaj opis");
+            return;
+        }
+        const item = {
+            Linia: linia,
+            OpisKrotki: krotki,
+            OpisPom: pom,
+            Opis: opis
+        };
+        if (typeof ensureRowId === "function") ensureRowId(item);
+        else item.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        appState.polecenia.rows.push(item);
+        created.push(item);
+    }
+
+    if (typeof saveState === "function") await saveState();
+    closePolSeriaModal();
+    renderPolecenia();
+    if (typeof showToast === "function") showToast("✅ Utworzono " + created.length + " poleceń");
 }
 
 function openPolecenieModal() {
@@ -924,6 +1082,12 @@ async function polSortZapisz() {
 
 
 window.openPolecenieModal = openPolecenieModal;
+window.openPolSeriaModal = openPolSeriaModal;
+window.closePolSeriaModal = closePolSeriaModal;
+window.polSeriaRebuildRows = polSeriaRebuildRows;
+window.polSeriaFormat = polSeriaFormat;
+window.polSeriaInsertTag = polSeriaInsertTag;
+window.savePolSeria = savePolSeria;
 window.closePolecenieModal = closePolecenieModal;
 window.savePolecenie = savePolecenie;
 window.editPolecenie = editPolecenie;
