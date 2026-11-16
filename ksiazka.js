@@ -470,8 +470,18 @@ function initKsiazka() {
         clearInterval(window._ksiazkaInterval);
         window._ksiazkaInterval = null;
     }
-    renderKsiazka(); // raz przy wczytaniu – scroll do aktualnej godziny
+    renderKsiazka(true); // true = scroll do aktualnej godziny
     setupKsiazkaShortcuts();
+
+    // co 1 minutę odśwież status przeterminowanych (bez scrollowania)
+    window._ksiazkaInterval = setInterval(() => {
+        if (!document.getElementById("ksiazkaContainer")) {
+            clearInterval(window._ksiazkaInterval);
+            window._ksiazkaInterval = null;
+            return;
+        }
+        renderKsiazka(false); // false = bez scrolla
+    }, 60000);
 }
 
 /** Skróty tylko w zakładce Książka: D = dodaj, S = sprawdzenie, E = eksport */
@@ -566,7 +576,7 @@ function clearKsiazkaFilter() {
     renderKsiazka();
 }
 
-function renderKsiazka() {
+function renderKsiazka(doScroll = true) {
     const container = document.getElementById("ksiazkaContainer");
     if (!container) return;
     ensureKsiazkaState();
@@ -650,10 +660,12 @@ function renderKsiazka() {
 
     html += `</div>`;
     container.innerHTML = html;
-    // przewiń do godziny „teraz” (kilka wpisów wcześniej widać nad środkiem)
-    requestAnimationFrame(() => {
-        setTimeout(() => ksiazkaScrollToCurrentTime(), 100);
-    });
+
+    if (doScroll) {
+        requestAnimationFrame(() => {
+            setTimeout(() => ksiazkaScrollToCurrentTime(), 100);
+        });
+    }
 }
 
 /**
@@ -745,11 +757,25 @@ function ksiazkaScrollToCurrentTime() {
 }
 
 
-/** Widok listy: 3 kolumny (Godzina | Informacje | Akcje) */
+/** Widok listy: 3 kolumny (Godzina | Informacje | Akcje)
+ *  Wpisy z tą samą datą + godziną są zgrupowane w jeden wiersz. */
 function renderKsiazkaListView(entries) {
     if (entries.length === 0) {
         return `<div class="empty-state"><strong>Brak wpisów</strong>Dodaj wpis lub wczytaj plan służby.</div>`;
     }
+
+    // grupuj po data + godzinaStart
+    const groups = [];
+    const map = new Map();
+    entries.forEach(entry => {
+        const key = (entry.data || "") + "|" + (entry.godzinaStart || "");
+        if (!map.has(key)) {
+            const g = { data: entry.data || "", godzinaStart: entry.godzinaStart || "", items: [] };
+            map.set(key, g);
+            groups.push(g);
+        }
+        map.get(key).items.push(entry);
+    });
 
     let html = `
     <div class="ksiazka-list">
@@ -760,39 +786,58 @@ function renderKsiazkaListView(entries) {
         </div>
     `;
 
-    entries.forEach(entry => {
-        const globalIdx = appState.ksiazkaWydarzen.findIndex(e => e.id === entry.id);
-        const overdue = isOverdue(entry);
-        const done = !!entry.zrobione;
+    groups.forEach(group => {
+        const items = group.items;
+        const indexes = items.map(e => appState.ksiazkaWydarzen.findIndex(x => x.id === e.id));
+        const allDone = items.every(e => !!e.zrobione);
+        const anyOverdue = items.some(e => isOverdue(e));
+        const anyNotDone = items.some(e => !e.zrobione);
 
         let rowClass = "ksiazka-row";
-        if (done) rowClass += " ksiazka-done";
-        else if (overdue) rowClass += " ksiazka-overdue";
+        if (allDone) rowClass += " ksiazka-done";
+        else if (anyOverdue) rowClass += " ksiazka-overdue";
 
-        const patrolLabel = (entry.patrole || []).map(i => getPatrolName(i)).join(", ");
-        const minOfDay = (typeof timeToMinutes === "function") ? timeToMinutes(entry.godzinaStart || "00:00") : 0;
+        // połączone etykiety patroli (unikalne)
+        const patrolSet = new Set();
+        items.forEach(e => (e.patrole || []).forEach(i => patrolSet.add(getPatrolName(i))));
+        const patrolLabel = [...patrolSet].filter(Boolean).join(", ");
+
+        const minOfDay = (typeof timeToMinutes === "function")
+            ? timeToMinutes(group.godzinaStart || "00:00")
+            : 0;
+
+        // teksty jeden pod drugim
+        const combinedText = items.map(e => formatKsiazkaTekstHtml(e.tekst)).join("<br><br>");
+
+        // pierwszy indeks do badge’ów
+        const firstIdx = indexes[0];
 
         html += `
-        <div class="${rowClass}" data-ks-entry="1" data-ks-min="${minOfDay}" data-ks-id="${escapeHtml(String(entry.id || ""))}" style="position:relative;">
-            ${ksiazkaEntryTopBadgesHtml(entry, globalIdx)}
+        <div class="${rowClass}" data-ks-entry="1" data-ks-min="${minOfDay}" data-ks-id="${escapeHtml(String(items[0].id || ""))}" style="position:relative;">
+            ${ksiazkaEntryTopBadgesHtml(items[0], firstIdx)}
             <div class="ksiazka-col-time">
-                <div class="ksiazka-time">${escapeHtml(entry.godzinaStart || "—")}</div>
-                <div class="ksiazka-date">${escapeHtml(entry.data || "")}</div>
+                <div class="ksiazka-time">${escapeHtml(group.godzinaStart || "—")}</div>
+                <div class="ksiazka-date">${escapeHtml(group.data || "")}</div>
                 ${patrolLabel ? `<div class="ksiazka-patrol">${escapeHtml(patrolLabel)}</div>` : ""}
+                ${items.length > 1 ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px;">${items.length} wpisy</div>` : ""}
             </div>
             <div class="ksiazka-col-info">
-                <div class="ksiazka-text">${formatKsiazkaTekstHtml(entry.tekst)}</div>
+                <div class="ksiazka-text">${combinedText}</div>
             </div>
             <div class="ksiazka-col-actions" style="align-self:flex-end; justify-content:flex-end; align-items:flex-end;">
                 ${ksiazkaInterwencjeMode ? `` : `
-                    ${!done ? `
-                        <button class="btn-success" style="padding:5px 10px; font-size:12px;" onclick="oznaczZrobione(${globalIdx})">Zrobione</button>
+                    ${anyNotDone ? `
+                        <button class="btn-success" style="padding:5px 10px; font-size:12px;" onclick="oznaczZrobioneGroup([${indexes.join(",")}])">Zrobione</button>
                     ` : `
-                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="odznaczZrobione(${globalIdx})">Cofnij</button>
+                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="odznaczZrobioneGroup([${indexes.join(",")}])">Cofnij</button>
                     `}
-                    <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="kopiujWpisKsiazki(${globalIdx})">Kopiuj</button>
-                    <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazki(${globalIdx})">Edytuj</button>
-                    <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazki(${globalIdx})">Kasuj</button>
+                    <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="kopiujWpisKsiazkiGroup([${indexes.join(",")}])">Kopiuj</button>
+                    ${items.length === 1 ? `
+                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazki(${firstIdx})">Edytuj</button>
+                        <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazki(${firstIdx})">Kasuj</button>
+                    ` : `
+                        <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazkiGroup([${indexes.join(",")}])">Kasuj grupę</button>
+                    `}
                 `}
             </div>
         </div>
@@ -802,6 +847,7 @@ function renderKsiazkaListView(entries) {
     html += `</div>`;
     return html;
 }
+
 
 /** Widok kolumn (gdy wybrano 2+ patrole) – 2 → 2 kolumny, 3 → 3 itd. */
 function renderKsiazkaColumnsView(filtered) {
@@ -1005,6 +1051,78 @@ async function kopiujWpisKsiazki(index) {
         alert("Nie udało się skopiować");
     }
 }
+
+
+/** Kopiuj wszystkie wpisy z grupy (ta sama godzina) – jeden tekst */
+async function kopiujWpisKsiazkiGroup(indexes) {
+    ensureKsiazkaState();
+    if (!Array.isArray(indexes) || !indexes.length) return;
+
+    const parts = [];
+    indexes.forEach(index => {
+        const e = appState.ksiazkaWydarzen[index];
+        if (!e) return;
+        let text = String(e.tekst || "");
+        if (/<[^>]+>/.test(text)) {
+            text = text
+                .replace(/<br\s*\/?>/gi, " ")
+                .replace(/<\/p\s*>/gi, " ")
+                .replace(/<\/div\s*>/gi, " ")
+                .replace(/<\/li\s*>/gi, " ");
+            const tmp = document.createElement("div");
+            tmp.innerHTML = text;
+            text = tmp.innerText || tmp.textContent || "";
+        }
+        text = stripBulletsPlain(text);
+        text = text.replace(/[ \t]+/g, " ").replace(/ *\n+/g, " ").trim();
+        if (text) parts.push(text);
+    });
+
+    const finalText = parts.join("\n\n");
+    try {
+        await navigator.clipboard.writeText(finalText);
+        if (typeof showToast === "function") showToast("✅ Skopiowano grupę (" + parts.length + ")");
+        else alert("Skopiowano");
+    } catch (err) {
+        alert("Nie udało się skopiować");
+    }
+}
+
+async function oznaczZrobioneGroup(indexes) {
+    ensureKsiazkaState();
+    (indexes || []).forEach(i => {
+        if (appState.ksiazkaWydarzen[i]) appState.ksiazkaWydarzen[i].zrobione = true;
+    });
+    await saveState();
+    renderKsiazka(false);
+}
+
+async function odznaczZrobioneGroup(indexes) {
+    ensureKsiazkaState();
+    (indexes || []).forEach(i => {
+        if (appState.ksiazkaWydarzen[i]) appState.ksiazkaWydarzen[i].zrobione = false;
+    });
+    await saveState();
+    renderKsiazka(false);
+}
+
+async function usunWpisKsiazkiGroup(indexes) {
+    ensureKsiazkaState();
+    if (!Array.isArray(indexes) || !indexes.length) return;
+    if (!confirm("Usunąć całą grupę (" + indexes.length + " wpisów) o tej godzinie?")) return;
+
+    // sortuj malejąco, żeby splice nie psuł indeksów
+    const sorted = [...indexes].filter(i => i >= 0).sort((a, b) => b - a);
+    sorted.forEach(i => {
+        const entry = appState.ksiazkaWydarzen[i];
+        if (entry) removeSprawdzeniaLinkedToEntry(entry);
+        appState.ksiazkaWydarzen.splice(i, 1);
+    });
+    await saveState();
+    renderKsiazka(false);
+    if (typeof showToast === "function") showToast("🗑️ Usunięto grupę");
+}
+
 
 // =====================================
 // EDYCJA WPISU (kafelki + ręcznie)
@@ -5987,6 +6105,10 @@ window.removeSprawdzeniaLinkedToEntry = removeSprawdzeniaLinkedToEntry;
 window.usunWpisKsiazki = usunWpisKsiazki;
 window.clearAllKsiazka = clearAllKsiazka;
 window.kopiujWpisKsiazki = kopiujWpisKsiazki;
+window.kopiujWpisKsiazkiGroup = kopiujWpisKsiazkiGroup;
+window.oznaczZrobioneGroup = oznaczZrobioneGroup;
+window.odznaczZrobioneGroup = odznaczZrobioneGroup;
+window.usunWpisKsiazkiGroup = usunWpisKsiazkiGroup;
 window.edytujWpisKsiazki = edytujWpisKsiazki;
 window.ksiazkaEditFormat = ksiazkaEditFormat;
 window.ksEditTogglePol = ksEditTogglePol;
