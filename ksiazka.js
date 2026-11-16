@@ -495,6 +495,7 @@ function ksiazkaCloseTopModal() {
         { id: "ksiazkaUwagiEditModal", close: () => typeof closeKsiazkaUwagiEditModal === "function" && closeKsiazkaUwagiEditModal() },
         { id: "ksiazkaUwagiPicker", close: () => typeof closeKsiazkaUwagiPicker === "function" && closeKsiazkaUwagiPicker() },
         { id: "ksiazkaSprawdModal", close: () => typeof closeKsiazkaSprawdzenieModal === "function" && closeKsiazkaSprawdzenieModal() },
+        { id: "ksiazkaGroupEditModal", close: () => typeof closeKsiazkaGroupEditModal === "function" && closeKsiazkaGroupEditModal() },
         { id: "ksiazkaEditModal", close: () => typeof closeKsiazkaEditModal === "function" && closeKsiazkaEditModal() },
         { id: "ksiazkaSaveModal", close: () => typeof closeKsiazkaSaveModal === "function" && closeKsiazkaSaveModal() },
         { id: "ksiazkaAddModal", close: () => typeof closeKsiazkaAddModal === "function" && closeKsiazkaAddModal() },
@@ -836,6 +837,7 @@ function renderKsiazkaListView(entries) {
                         <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazki(${firstIdx})">Edytuj</button>
                         <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazki(${firstIdx})">Kasuj</button>
                     ` : `
+                        <button class="btn-primary" style="padding:5px 10px; font-size:12px;" onclick="edytujWpisKsiazkiGroup([${indexes.join(",")}])">Edytuj</button>
                         <button class="btn-danger" style="padding:5px 10px; font-size:12px;" onclick="usunWpisKsiazkiGroup([${indexes.join(",")}])">Kasuj grupę</button>
                     `}
                 `}
@@ -1121,6 +1123,87 @@ async function usunWpisKsiazkiGroup(indexes) {
     await saveState();
     renderKsiazka(false);
     if (typeof showToast === "function") showToast("🗑️ Usunięto grupę");
+}
+
+
+/** Okno wyboru wpisu z grupy (ta sama godzina) – potem normalna edycja */
+function edytujWpisKsiazkiGroup(indexes) {
+    ensureKsiazkaState();
+    if (!Array.isArray(indexes) || !indexes.length) return;
+
+    // jeden wpis → od razu edycja
+    if (indexes.length === 1) {
+        edytujWpisKsiazki(indexes[0]);
+        return;
+    }
+
+    const old = document.getElementById("ksiazkaGroupEditModal");
+    if (old) old.remove();
+
+    const entries = indexes
+        .map(i => ({ index: i, entry: appState.ksiazkaWydarzen[i] }))
+        .filter(x => x.entry);
+
+    if (!entries.length) return;
+
+    const godz = entries[0].entry.godzinaStart || "—";
+    const data = entries[0].entry.data || "";
+
+    const overlay = document.createElement("div");
+    overlay.id = "ksiazkaGroupEditModal";
+    overlay.className = "modal-overlay";
+    overlay.style.display = "flex";
+
+    const cards = entries.map(({ index, entry }) => {
+        const preview = formatKsiazkaTekstHtml(entry.tekst || "");
+        const done = entry.zrobione ? " ✅" : "";
+        const overdue = (!entry.zrobione && isOverdue(entry)) ? " ⚠" : "";
+        const patrolLabel = (entry.patrole || []).map(i => getPatrolName(i)).filter(Boolean).join(", ");
+        return `
+        <div style="background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
+                <div style="font-size:13px; color:var(--text-dim);">
+                    <strong style="color:var(--text);">${escapeHtml(entry.godzinaStart || "—")}</strong>
+                    ${entry.data ? " · " + escapeHtml(entry.data) : ""}
+                    ${patrolLabel ? " · " + escapeHtml(patrolLabel) : ""}
+                    ${done}${overdue}
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <button type="button" class="btn-primary" style="padding:5px 12px; font-size:12px;"
+                        onclick="closeKsiazkaGroupEditModal(); edytujWpisKsiazki(${index});">Edytuj ten wpis</button>
+                    <button type="button" class="btn-danger" style="padding:5px 12px; font-size:12px;"
+                        onclick="if(confirm('Usunąć ten wpis?')){ closeKsiazkaGroupEditModal(); usunWpisKsiazki(${index}); }">Kasuj</button>
+                </div>
+            </div>
+            <div style="font-size:13.5px; line-height:1.45; white-space:pre-wrap; color:var(--text-soft); max-height:120px; overflow:auto;">
+                ${preview || "<em style='color:var(--text-dim);'>(pusty wpis)</em>"}
+            </div>
+        </div>`;
+    }).join("");
+
+    overlay.innerHTML = `
+        <div class="modal" style="max-width:640px; width:92vw; max-height:85vh; display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
+                <h2 style="margin:0;">Edycja grupy · ${escapeHtml(godz)}${data ? " · " + escapeHtml(data) : ""}</h2>
+                <span style="font-size:13px; color:var(--text-dim);">${entries.length} wpisy</span>
+            </div>
+            <p style="margin:0 0 12px 0; font-size:13px; color:var(--text-dim);">
+                Wybierz wpis z tej godziny, który chcesz edytować.
+            </p>
+            <div style="flex:1; overflow:auto; min-height:0; margin-bottom:14px;">
+                ${cards}
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-danger" onclick="closeKsiazkaGroupEditModal()">Zamknij</button>
+            </div>
+        </div>`;
+
+    document.body.appendChild(overlay);
+}
+
+function closeKsiazkaGroupEditModal() {
+    const m = document.getElementById("ksiazkaGroupEditModal");
+    if (m) m.remove();
 }
 
 
@@ -6109,6 +6192,8 @@ window.kopiujWpisKsiazkiGroup = kopiujWpisKsiazkiGroup;
 window.oznaczZrobioneGroup = oznaczZrobioneGroup;
 window.odznaczZrobioneGroup = odznaczZrobioneGroup;
 window.usunWpisKsiazkiGroup = usunWpisKsiazkiGroup;
+window.edytujWpisKsiazkiGroup = edytujWpisKsiazkiGroup;
+window.closeKsiazkaGroupEditModal = closeKsiazkaGroupEditModal;
 window.edytujWpisKsiazki = edytujWpisKsiazki;
 window.ksiazkaEditFormat = ksiazkaEditFormat;
 window.ksEditTogglePol = ksEditTogglePol;
