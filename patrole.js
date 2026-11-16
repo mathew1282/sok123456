@@ -471,8 +471,22 @@ async function createPatrol() {
     });
 
     await saveState();
+
+    // wyczyść skład + pola formularza (od nazwy do WOT/Policjant)
     selectedPatrolMembers = [];
     patrolePickOpen = false;
+
+    ["patrolName", "wot1Input", "wot2Input", "policjant1Input", "policjant2Input"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+    });
+    const dSel = document.getElementById("dowodcaSelect");
+    const kSel = document.getElementById("kierowcaSelect");
+    const zSel = document.getElementById("patrolZmianaSelect");
+    if (dSel) dSel.value = "";
+    if (kSel) kSel.value = "";
+    if (zSel) zSel.value = "";
+
     renderPatrole();
     if (typeof showToast === "function") showToast("✅ Utworzono patrol");
 }
